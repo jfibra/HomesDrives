@@ -23,6 +23,12 @@ type UploadedImageMetadata = {
   width: number | null
 }
 
+export type AlbumTaxonomyOption = {
+  description: string | null
+  label: string
+  slug: string
+}
+
 function getRequiredEnv(name: string) {
   const value = process.env[name]
 
@@ -121,6 +127,30 @@ export function createSupabaseAdminClient() {
       },
     },
   )
+}
+
+async function listActiveTaxonomy(tableName: 'albums_place_types' | 'albums_tags') {
+  const supabaseAdmin = createSupabaseAdminClient()
+  const { data, error } = await supabaseAdmin
+    .from(tableName)
+    .select('slug, label, description')
+    .eq('is_active', true)
+    .order('sort_order', { ascending: true })
+    .order('label', { ascending: true })
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return (data ?? []) as AlbumTaxonomyOption[]
+}
+
+export async function listAllowedPlaceTypes() {
+  return listActiveTaxonomy('albums_place_types')
+}
+
+export async function listAllowedTags() {
+  return listActiveTaxonomy('albums_tags')
 }
 
 export async function uploadImageObject(params: {
@@ -237,6 +267,47 @@ export async function insertAlbumPhotoRow(params: {
       uploader_user_agent: params.uploaderUserAgent,
     })
     .select('id, bucket_name, storage_path, image_url, uploader_name, created_at')
+    .single()
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return data
+}
+
+export async function updateAlbumPhotoTags(params: {
+  city: string | null
+  country: string | null
+  id: string
+  fullAddress: string | null
+  latitude: number | null
+  longitude: number | null
+  placeName: string
+  province: string | null
+  street: string | null
+  tags: string[]
+  typeOfPlace: string[]
+  zipCode: string | null
+}) {
+  const supabaseAdmin = createSupabaseAdminClient()
+  const { data, error } = await supabaseAdmin
+    .from('albums_photos')
+    .update({
+      city: params.city,
+      country: params.country,
+      full_address: params.fullAddress,
+      latitude: params.latitude,
+      longitude: params.longitude,
+      place_name: params.placeName,
+      province: params.province,
+      street: params.street,
+      tags: params.tags,
+      type_of_place: params.typeOfPlace,
+      zip_code: params.zipCode,
+    })
+    .eq('id', params.id)
+    .select('id, place_name, full_address, street, city, province, zip_code, country, latitude, longitude, type_of_place, tags')
     .single()
 
   if (error) {
