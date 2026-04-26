@@ -1,9 +1,8 @@
 ﻿'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { MapPin, Upload, X } from 'lucide-react'
+import { MapPin, Monitor, Smartphone, Tablet, Trash2, Upload } from 'lucide-react'
 
-import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
@@ -22,9 +21,14 @@ const contributors = [
   'Marcelo Cagara Jr',
 ]
 
+type UploadStatus = 'uploading' | 'uploaded' | 'error' | 'deleting'
+
 type UploadedImage = {
+  dbId: string | null
   id: string
+  imageUrl: string | null
   previewUrl: string
+  storagePath: string | null
   metadata: {
     altitude: number | null
     aperture: number | null
@@ -46,6 +50,58 @@ type UploadedImage = {
     longitude: number | null
     width: number | null
   }
+  placeName: string | null
+  uploadError: string | null
+  uploadStatus: UploadStatus
+}
+
+function getDeviceInfo(): { label: string; type: 'mobile' | 'tablet' | 'desktop' } {
+  if (typeof navigator === 'undefined') {
+    return { label: 'Unknown device', type: 'desktop' }
+  }
+
+  const ua = navigator.userAgent
+
+  // Detect OS / brand
+  const isIPhone = /iPhone/.test(ua)
+  const isIPad = /iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)
+  const isAndroid = /Android/.test(ua)
+  const isWindows = /Windows/.test(ua)
+  const isMac = /Macintosh/.test(ua) && navigator.maxTouchPoints <= 1
+  const isLinux = /Linux/.test(ua) && !isAndroid
+
+  // Detect OS version
+  const iosMatch = ua.match(/OS (\d+)_(\d+)/)
+  const androidMatch = ua.match(/Android (\d+\.?\d*)/)
+  const windowsMatch = ua.match(/Windows NT (\d+\.\d+)/)
+  const windowsVersion: Record<string, string> = { '10.0': '10/11', '6.3': '8.1', '6.2': '8', '6.1': '7' }
+
+  if (isIPhone) {
+    const v = iosMatch ? ` iOS ${iosMatch[1]}` : ''
+    return { label: `iPhone${v}`, type: 'mobile' }
+  }
+  if (isIPad) {
+    const v = iosMatch ? ` iOS ${iosMatch[1]}` : ''
+    return { label: `iPad${v}`, type: 'tablet' }
+  }
+  if (isAndroid) {
+    const v = androidMatch ? ` ${androidMatch[1]}` : ''
+    // Rough tablet heuristic: screen wider than 600dp
+    const isTablet = typeof screen !== 'undefined' && Math.min(screen.width, screen.height) >= 600
+    return { label: `Android${v}`, type: isTablet ? 'tablet' : 'mobile' }
+  }
+  if (isWindows) {
+    const v = windowsMatch ? ` ${windowsVersion[windowsMatch[1]] ?? windowsMatch[1]}` : ''
+    return { label: `Windows${v}`, type: 'desktop' }
+  }
+  if (isMac) {
+    return { label: 'Mac', type: 'desktop' }
+  }
+  if (isLinux) {
+    return { label: 'Linux', type: 'desktop' }
+  }
+
+  return { label: 'Unknown device', type: 'desktop' }
 }
 
 function formatBytes(bytes: number) {
@@ -66,7 +122,7 @@ function formatCoordinate(value: number | null, positiveDirection: string, negat
   }
 
   const direction = value >= 0 ? positiveDirection : negativeDirection
-  return `${Math.abs(value).toFixed(6)}Â° ${direction}`
+  return `${Math.abs(value).toFixed(6)} deg ${direction}`
 }
 
 function formatDate(value: string | null) {
@@ -137,8 +193,11 @@ async function analyzeImage(file: File): Promise<UploadedImage> {
       : []
 
   return {
+    dbId: null,
     id: `${file.name}-${file.lastModified}-${file.size}`,
+    imageUrl: null,
     previewUrl,
+    storagePath: null,
     metadata: {
       altitude: metadata?.GPSAltitude ?? metadata?.altitude ?? null,
       aperture: metadata?.FNumber ?? metadata?.ApertureValue ?? null,
@@ -164,6 +223,9 @@ async function analyzeImage(file: File): Promise<UploadedImage> {
       longitude,
       width: dimensions.width,
     },
+    placeName: null,
+    uploadError: null,
+    uploadStatus: 'uploading',
   }
 }
 
@@ -174,7 +236,9 @@ export default function Home() {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([])
   const [analysisError, setAnalysisError] = useState('')
-  const [selectedImage, setSelectedImage] = useState<UploadedImage | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [isTagModalOpen, setIsTagModalOpen] = useState(false)
+  const [tagPlaceName, setTagPlaceName] = useState('')
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const previewUrlsRef = useRef<string[]>([])
 
@@ -186,14 +250,95 @@ export default function Home() {
     }
   }, [])
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
+  function updateUploadedImage(
+    imageId: string,
+    updater: (image: UploadedImage) => UploadedImage,
+  ) {
+    setUploadedImages((currentImages) =>
+      currentImages.map((image) => (image.id === imageId ? updater(image) : image)),
+    )
+  }
 
-    if (!selectedName) {
+  async function uploadImageToStorage(file: File, image: UploadedImage, uploaderName: string) {
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('uploaderName', uploaderName)
+      formData.append('metadata', JSON.stringify(image.metadata))
+
+      const response = await fetch('/api/photos', {
+        method: 'POST',
+        body: formData,
+      })
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Unable to upload the photo right now.')
+      }
+
+      updateUploadedImage(image.id, (currentImage) => ({
+        ...currentImage,
+        dbId: data.photo.id,
+        imageUrl: data.photo.image_url,
+        storagePath: data.photo.storage_path,
+        uploadError: null,
+        uploadStatus: 'uploaded',
+      }))
+    } catch (error) {
+      updateUploadedImage(image.id, (currentImage) => ({
+        ...currentImage,
+        uploadError:
+          error instanceof Error ? error.message : 'Unable to upload the photo right now.',
+        uploadStatus: 'error',
+      }))
+    }
+  }
+
+  async function handleDeleteImage(imageId: string) {
+    const image = uploadedImages.find((currentImage) => currentImage.id === imageId)
+
+    if (!image || image.uploadStatus === 'uploading' || image.uploadStatus === 'deleting') {
       return
     }
 
-    setSubmittedName(selectedName)
+    updateUploadedImage(imageId, (currentImage) => ({
+      ...currentImage,
+      uploadError: null,
+      uploadStatus: 'deleting',
+    }))
+
+    try {
+      if (image.dbId) {
+        const response = await fetch(`/api/photos/${image.dbId}`, {
+          method: 'DELETE',
+        })
+        const data = await response.json()
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Unable to delete the photo right now.')
+        }
+      }
+
+      URL.revokeObjectURL(image.previewUrl)
+      previewUrlsRef.current = previewUrlsRef.current.filter(
+        (previewUrl) => previewUrl !== image.previewUrl,
+      )
+      setSelectedIds((prev) => {
+        const next = new Set(prev)
+        next.delete(imageId)
+        return next
+      })
+      setUploadedImages((currentImages) =>
+        currentImages.filter((currentImage) => currentImage.id !== imageId),
+      )
+    } catch (error) {
+      updateUploadedImage(imageId, (currentImage) => ({
+        ...currentImage,
+        uploadError:
+          error instanceof Error ? error.message : 'Unable to delete the photo right now.',
+        uploadStatus: image.dbId ? 'uploaded' : 'error',
+      }))
+    }
   }
 
   async function handleIncomingFiles(fileList: FileList | File[]) {
@@ -208,16 +353,28 @@ export default function Home() {
     setIsAnalyzing(true)
 
     try {
-      const analyzedFiles = await Promise.all(files.map((file) => analyzeImage(file)))
+      const preparedImages = await Promise.all(
+        files.map(async (file) => ({
+          file,
+          image: await analyzeImage(file),
+        })),
+      )
+      const existingIds = new Set(uploadedImages.map((image) => image.id))
+      const nextImages = preparedImages.filter(({ image }) => !existingIds.has(image.id))
 
-      setUploadedImages((currentImages) => {
-        const existing = new Set(currentImages.map((image) => image.id))
-        const nextImages = analyzedFiles.filter((image) => !existing.has(image.id))
+      if (!nextImages.length) {
+        return
+      }
 
-        previewUrlsRef.current.push(...nextImages.map((image) => image.previewUrl))
+      previewUrlsRef.current.push(...nextImages.map(({ image }) => image.previewUrl))
+      setUploadedImages((currentImages) => [
+        ...currentImages,
+        ...nextImages.map(({ image }) => image),
+      ])
 
-        return [...currentImages, ...nextImages]
-      })
+      await Promise.all(
+        nextImages.map(({ file, image }) => uploadImageToStorage(file, image, submittedName)),
+      )
     } catch (error) {
       setAnalysisError(
         error instanceof Error
@@ -227,6 +384,31 @@ export default function Home() {
     } finally {
       setIsAnalyzing(false)
     }
+  }
+
+  function toggleImageSelection(imageId: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(imageId)) {
+        next.delete(imageId)
+      } else {
+        next.add(imageId)
+      }
+      return next
+    })
+  }
+
+  function handleTagImages() {
+    const trimmed = tagPlaceName.trim()
+    if (!trimmed) return
+    setUploadedImages((currentImages) =>
+      currentImages.map((image) =>
+        selectedIds.has(image.id) ? { ...image, placeName: trimmed } : image,
+      ),
+    )
+    setSelectedIds(new Set())
+    setIsTagModalOpen(false)
+    setTagPlaceName('')
   }
 
   function handleDrop(event: React.DragEvent<HTMLLabelElement>) {
@@ -257,6 +439,9 @@ export default function Home() {
 
   const photosWithLocation = uploadedImages.filter(
     (image) => image.metadata.latitude != null && image.metadata.longitude != null,
+  ).length
+  const uploadedPhotosCount = uploadedImages.filter(
+    (image) => image.uploadStatus === 'uploaded',
   ).length
 
   //  Step 1: name selection 
@@ -317,6 +502,14 @@ export default function Home() {
   }
 
   //  Step 2: upload 
+  const deviceInfo = getDeviceInfo()
+  const DeviceIcon =
+    deviceInfo.type === 'mobile'
+      ? Smartphone
+      : deviceInfo.type === 'tablet'
+        ? Tablet
+        : Monitor
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-white via-orange-50/60 to-emerald-50/40 px-4 py-12">
       <div className="mx-auto max-w-2xl space-y-10">
@@ -331,7 +524,7 @@ export default function Home() {
           <p className="text-sm text-muted-foreground">
             Uploading as{' '}
             <span className="font-semibold text-foreground">{submittedName}</span>
-            {' Â· '}
+            {' - '}
             <button
               className="underline underline-offset-2 hover:text-foreground"
               onClick={() => {
@@ -344,6 +537,10 @@ export default function Home() {
               Change
             </button>
           </p>
+          <div className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-white px-3 py-1 text-xs text-muted-foreground shadow-sm">
+            <DeviceIcon className="h-3.5 w-3.5" />
+            <span>{deviceInfo.label}</span>
+          </div>
         </div>
 
         {/* Dropzone */}
@@ -372,13 +569,15 @@ export default function Home() {
           <div>
             <p className="text-lg font-semibold">Drop photos here</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              or click to browse â€” JPG, HEIC, PNG supported
+              or click to browse - JPG, HEIC, PNG supported
             </p>
           </div>
         </label>
 
         {isAnalyzing ? (
-          <p className="text-center text-sm text-muted-foreground">Reading photosâ€¦</p>
+          <p className="text-center text-sm text-muted-foreground">
+            Reading and uploading photos...
+          </p>
         ) : null}
 
         {analysisError ? (
@@ -392,8 +591,9 @@ export default function Home() {
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <p className="text-sm font-medium text-muted-foreground">
-                {uploadedImages.length} photo{uploadedImages.length !== 1 ? 's' : ''} ready
-                {photosWithLocation > 0 ? ` Â· ${photosWithLocation} with GPS` : ''}
+                {uploadedPhotosCount} uploaded of {uploadedImages.length} photo
+                {uploadedImages.length !== 1 ? 's' : ''}
+                {photosWithLocation > 0 ? ` - ${photosWithLocation} with GPS` : ''}
               </p>
               <button
                 className="text-sm underline underline-offset-2 hover:text-foreground text-muted-foreground"
@@ -408,19 +608,98 @@ export default function Home() {
               {uploadedImages.map((image) => {
                 const hasGps =
                   image.metadata.latitude != null && image.metadata.longitude != null
+                const imageSrc = image.imageUrl || image.previewUrl
+                const isBusy =
+                  image.uploadStatus === 'uploading' || image.uploadStatus === 'deleting'
 
                 return (
-                  <button
+                  <div
                     key={image.id}
-                    className="group relative overflow-hidden rounded-2xl border border-border/60 bg-white shadow-sm text-left transition-all hover:shadow-md active:scale-[0.98]"
-                    onClick={() => setSelectedImage(image)}
-                    type="button"
+                    className={cn(
+                      'overflow-hidden rounded-2xl border bg-white shadow-sm transition-all',
+                      selectedIds.has(image.id)
+                        ? 'border-slate-950 ring-2 ring-slate-950'
+                        : 'border-border/60',
+                    )}
                   >
-                    <img
-                      alt={image.metadata.fileName}
-                      className="aspect-square w-full object-cover"
-                      src={image.previewUrl}
-                    />
+                    <button
+                      className="relative block w-full text-left transition-all hover:opacity-95 active:scale-[0.99]"
+                      onClick={() => toggleImageSelection(image.id)}
+                      type="button"
+                    >
+                      <img
+                        alt={image.metadata.fileName}
+                        className="aspect-square w-full object-cover"
+                        src={imageSrc}
+                      />
+                      {image.uploadStatus === 'uploading' ? (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/40">
+                          <svg
+                            className="h-8 w-8 animate-spin text-white"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            xmlns="http://www.w3.org/2000/svg"
+                          >
+                            <circle
+                              className="opacity-25"
+                              cx="12"
+                              cy="12"
+                              r="10"
+                              stroke="currentColor"
+                              strokeWidth="3"
+                            />
+                            <path
+                              className="opacity-80"
+                              d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                              fill="currentColor"
+                            />
+                          </svg>
+                          <span className="text-[11px] font-semibold text-white">Uploading…</span>
+                        </div>
+                      ) : null}
+                      {image.uploadStatus === 'deleting' ? (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/40">
+                          <svg
+                            className="h-8 w-8 animate-spin text-white"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            xmlns="http://www.w3.org/2000/svg"
+                          >
+                            <circle
+                              className="opacity-25"
+                              cx="12"
+                              cy="12"
+                              r="10"
+                              stroke="currentColor"
+                              strokeWidth="3"
+                            />
+                            <path
+                              className="opacity-80"
+                              d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                              fill="currentColor"
+                            />
+                          </svg>
+                          <span className="text-[11px] font-semibold text-white">Deleting…</span>
+                        </div>
+                      ) : null}
+                      {selectedIds.has(image.id) && !isBusy ? (
+                        <div className="absolute top-2 right-2 flex h-5 w-5 items-center justify-center rounded-full bg-slate-950">
+                          <svg
+                            className="h-3 w-3 text-white"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="3"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              d="M5 13l4 4L19 7"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </div>
+                      ) : null}
+                    </button>
                     <div className="p-3">
                       <p
                         className="truncate text-xs font-medium text-foreground"
@@ -439,85 +718,129 @@ export default function Home() {
                           </span>
                         ) : null}
                       </div>
+
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        <span
+                          className={cn(
+                            'text-[11px] font-medium',
+                            image.uploadStatus === 'uploaded' && 'text-emerald-600',
+                            image.uploadStatus === 'uploading' && 'text-amber-600',
+                            image.uploadStatus === 'deleting' && 'text-slate-500',
+                            image.uploadStatus === 'error' && 'text-red-600',
+                          )}
+                        >
+                          {image.uploadStatus === 'uploaded' && 'Uploaded'}
+                          {image.uploadStatus === 'uploading' && 'Uploading...'}
+                          {image.uploadStatus === 'deleting' && 'Deleting...'}
+                          {image.uploadStatus === 'error' && 'Upload failed'}
+                        </span>
+
+                        <button
+                          className="inline-flex items-center gap-1 text-[11px] font-medium text-red-600 disabled:cursor-not-allowed disabled:text-slate-300"
+                          disabled={isBusy}
+                          onClick={() => void handleDeleteImage(image.id)}
+                          type="button"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                          Delete
+                        </button>
+                      </div>
+
+                      {image.uploadError ? (
+                        <p className="mt-2 text-[11px] leading-4 text-red-600">
+                          {image.uploadError}
+                        </p>
+                      ) : null}
                     </div>
-                  </button>
+                  </div>
                 )
               })}
             </div>
 
-            {/* Image metadata modal */}
-            <Dialog open={selectedImage !== null} onOpenChange={(open) => { if (!open) setSelectedImage(null) }}>
-              <DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl p-0 sm:max-w-lg">
-                {selectedImage ? (
-                  <>
-                    <div className="relative">
-                      <img
-                        alt={selectedImage.metadata.fileName}
-                        className="aspect-video w-full rounded-t-3xl object-cover"
-                        src={selectedImage.previewUrl}
-                      />
-                    </div>
-
-                    <div className="space-y-5 p-6">
-                      <DialogHeader>
-                        <DialogTitle className="break-all text-base font-semibold">
-                          {selectedImage.metadata.fileName}
-                        </DialogTitle>
-                      </DialogHeader>
-
-                      <div className="grid grid-cols-2 gap-3 text-sm">
-                        {([
-                          ['File size', formatBytes(selectedImage.metadata.fileSize)],
-                          ['File type', selectedImage.metadata.fileType || 'Unknown'],
-                          ['Dimensions',
-                            selectedImage.metadata.width && selectedImage.metadata.height
-                              ? `${selectedImage.metadata.width} × ${selectedImage.metadata.height}`
-                              : 'Unknown'],
-                          ['Captured', selectedImage.metadata.captureDate
-                            ? new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(selectedImage.metadata.captureDate))
-                            : 'Unknown'],
-                          ['Device', [selectedImage.metadata.deviceMake, selectedImage.metadata.deviceModel].filter(Boolean).join(' ') || 'Unknown'],
-                          ['Lens', selectedImage.metadata.lensModel || 'Unknown'],
-                          ['Aperture', selectedImage.metadata.aperture ? `f/${selectedImage.metadata.aperture}` : 'Unknown'],
-                          ['Exposure', selectedImage.metadata.exposureTime || 'Unknown'],
-                          ['ISO', selectedImage.metadata.iso ? String(selectedImage.metadata.iso) : 'Unknown'],
-                          ['Focal length', selectedImage.metadata.focalLength ? `${selectedImage.metadata.focalLength}mm` : 'Unknown'],
-                          ['Altitude', selectedImage.metadata.altitude ? `${selectedImage.metadata.altitude.toFixed(1)}m` : 'Unknown'],
-                          ['Latitude',
-                            selectedImage.metadata.latitude != null
-                              ? `${Math.abs(selectedImage.metadata.latitude).toFixed(6)}° ${selectedImage.metadata.latitude >= 0 ? 'N' : 'S'}`
-                              : 'No GPS'],
-                          ['Longitude',
-                            selectedImage.metadata.longitude != null
-                              ? `${Math.abs(selectedImage.metadata.longitude).toFixed(6)}° ${selectedImage.metadata.longitude >= 0 ? 'E' : 'W'}`
-                              : 'No GPS'],
-                        ] as [string, string][]).map(([label, value]) => (
-                          <div key={label} className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2.5">
-                            <p className="text-xs text-muted-foreground">{label}</p>
-                            <p className="mt-0.5 text-xs font-medium text-foreground break-words">{value}</p>
-                          </div>
-                        ))}
-                      </div>
-
-                      {selectedImage.metadata.latitude != null && selectedImage.metadata.longitude != null ? (
-                        <a
-                          className="flex w-full items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 py-3 text-sm font-medium text-emerald-700 hover:bg-emerald-100 transition-colors"
-                          href={`https://maps.google.com/?q=${selectedImage.metadata.latitude},${selectedImage.metadata.longitude}`}
-                          rel="noopener noreferrer"
-                          target="_blank"
-                        >
-                          <MapPin className="h-4 w-4" />
-                          View on Google Maps
-                        </a>
-                      ) : null}
-                    </div>
-                  </>
-                ) : null}
-              </DialogContent>
-            </Dialog>
           </div>
         ) : null}
       </div>
+
+      {/* Floating selection bar */}
+      {selectedIds.size > 0 ? (
+        <div className="pointer-events-none fixed bottom-6 left-0 right-0 z-50 flex justify-center px-4">
+          <div className="pointer-events-auto flex items-center gap-3 rounded-2xl bg-slate-950 px-5 py-3 shadow-2xl">
+            <span className="text-sm font-medium text-white">
+              {selectedIds.size} photo{selectedIds.size !== 1 ? 's' : ''} selected
+            </span>
+            <div className="h-4 w-px bg-white/20" />
+            <button
+              className="rounded-xl bg-white px-4 py-1.5 text-sm font-semibold text-slate-950 transition-colors hover:bg-white/90"
+              onClick={() => {
+                setTagPlaceName('')
+                setIsTagModalOpen(true)
+              }}
+              type="button"
+            >
+              Tag photos
+            </button>
+            <button
+              className="text-sm font-medium text-white/60 transition-colors hover:text-white"
+              onClick={() => setSelectedIds(new Set())}
+              type="button"
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Tag place name modal */}
+      <Dialog
+        open={isTagModalOpen}
+        onOpenChange={(open) => {
+          if (!open) setIsTagModalOpen(false)
+        }}
+      >
+        <DialogContent className="rounded-3xl p-0 sm:max-w-md">
+          <div className="space-y-6 p-6">
+            <DialogHeader>
+              <DialogTitle className="text-lg font-semibold">
+                Tag {selectedIds.size} photo{selectedIds.size !== 1 ? 's' : ''}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground" htmlFor="place-name-input">
+                Name of place
+              </label>
+              <input
+                autoFocus
+                className="h-14 w-full rounded-2xl border border-border/70 bg-white px-5 text-base text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-950"
+                id="place-name-input"
+                onChange={(e) => setTagPlaceName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleTagImages()
+                }}
+                placeholder="e.g. Makati City"
+                type="text"
+                value={tagPlaceName}
+              />
+            </div>
+            <div className="flex gap-3">
+              <button
+                className="flex-1 rounded-2xl border border-border/70 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted/30"
+                onClick={() => setIsTagModalOpen(false)}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className="flex-1 rounded-2xl bg-slate-950 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400"
+                disabled={!tagPlaceName.trim()}
+                onClick={() => handleTagImages()}
+                type="button"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </main>
   )
 }
