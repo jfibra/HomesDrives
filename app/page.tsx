@@ -1,7 +1,6 @@
 ﻿'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import * as exifr from 'exifr'
 import { MapPin, Upload, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -119,6 +118,7 @@ async function getImageDimensions(file: File) {
 async function analyzeImage(file: File): Promise<UploadedImage> {
   const previewUrl = URL.createObjectURL(file)
   const dimensions = await getImageDimensions(file)
+  const exifr = await import('exifr')
   const metadata = await exifr.parse(file, {
     gps: true,
     exif: true,
