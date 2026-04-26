@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import {
   createSupabaseAdminClient,
   deleteImageObject,
+  updateAlbumPhotoTags,
 } from '@/lib/server/albums'
 
 export const runtime = 'nodejs'
@@ -41,6 +42,75 @@ export async function DELETE(
       {
         error:
           error instanceof Error ? error.message : 'Unable to delete the photo right now.',
+      },
+      { status: 500 },
+    )
+  }
+}
+
+export async function PATCH(
+  request: Request,
+  context: { params: Promise<{ id: string }> },
+) {
+  try {
+    const { id } = await context.params
+    const body = await request.json()
+    const city = typeof body?.city === 'string' && body.city.trim() ? body.city.trim() : null
+    const country =
+      typeof body?.country === 'string' && body.country.trim() ? body.country.trim() : null
+    const placeName = typeof body?.placeName === 'string' ? body.placeName.trim() : ''
+    const fullAddress =
+      typeof body?.fullAddress === 'string' && body.fullAddress.trim()
+        ? body.fullAddress.trim()
+        : null
+    const latitude = typeof body?.latitude === 'number' && Number.isFinite(body.latitude)
+      ? body.latitude
+      : null
+    const longitude = typeof body?.longitude === 'number' && Number.isFinite(body.longitude)
+      ? body.longitude
+      : null
+    const province =
+      typeof body?.province === 'string' && body.province.trim() ? body.province.trim() : null
+    const street =
+      typeof body?.street === 'string' && body.street.trim() ? body.street.trim() : null
+    const typeOfPlace = Array.isArray(body?.typeOfPlace)
+      ? body.typeOfPlace
+          .map((value: unknown) => (typeof value === 'string' ? value.trim() : ''))
+          .filter(Boolean)
+      : []
+    const tags = Array.isArray(body?.tags)
+      ? body.tags
+          .map((value: unknown) => (typeof value === 'string' ? value.trim() : ''))
+          .filter(Boolean)
+      : []
+      const zipCode =
+        typeof body?.zipCode === 'string' && body.zipCode.trim() ? body.zipCode.trim() : null
+
+    if (!placeName) {
+      return NextResponse.json({ error: 'Missing place name.' }, { status: 400 })
+    }
+
+    const photo = await updateAlbumPhotoTags({
+      city,
+      country,
+      id,
+      fullAddress,
+      latitude,
+      longitude,
+      placeName,
+      province,
+      street,
+      tags,
+      typeOfPlace,
+      zipCode,
+    })
+
+    return NextResponse.json({ photo })
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error ? error.message : 'Unable to update the photo right now.',
       },
       { status: 500 },
     )
