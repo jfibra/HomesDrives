@@ -488,3 +488,102 @@ export async function listPhotosByUploader(params: {
 
   return data ?? []
 }
+
+export type AlbumsMarketplaceSort = 'newest' | 'oldest' | 'captured'
+
+export type AlbumsMarketplacePhoto = {
+  id: string
+  image_url: string
+  original_file_name: string
+  uploader_name: string
+  uploader_code: string | null
+  created_at: string
+  capture_date: string | null
+  place_name: string | null
+  city: string | null
+  province: string | null
+  country: string | null
+  type_of_place: string[]
+  tags: string[]
+  width: number | null
+  height: number | null
+}
+
+export async function listMarketplacePhotos(params: {
+  page: number
+  pageSize: number
+  placeType?: string
+  query?: string
+  sort?: AlbumsMarketplaceSort
+  tag?: string
+}) {
+  const page = Math.max(1, Math.floor(params.page))
+  const pageSize = Math.min(60, Math.max(1, Math.floor(params.pageSize)))
+  const from = (page - 1) * pageSize
+  const to = from + pageSize - 1
+  const term = params.query?.trim().replace(/[%_]/g, '')
+  const placeType = params.placeType?.trim()
+  const tag = params.tag?.trim()
+  const sort: AlbumsMarketplaceSort = params.sort ?? 'newest'
+
+  const supabaseAdmin = createSupabaseAdminClient()
+
+  let countQuery = supabaseAdmin
+    .from('albums_photos')
+    .select('id', { count: 'exact', head: true })
+
+  let photosQuery = supabaseAdmin
+    .from('albums_photos')
+    .select('id, image_url, original_file_name, uploader_name, uploader_code, created_at, capture_date, place_name, city, province, country, type_of_place, tags, width, height')
+    .range(from, to)
+
+  if (term) {
+    const fields = [
+      `uploader_name.ilike.%${term}%`,
+      `original_file_name.ilike.%${term}%`,
+      `place_name.ilike.%${term}%`,
+      `city.ilike.%${term}%`,
+      `province.ilike.%${term}%`,
+      `country.ilike.%${term}%`,
+    ]
+    const clause = fields.join(',')
+    countQuery = countQuery.or(clause)
+    photosQuery = photosQuery.or(clause)
+  }
+
+  if (placeType) {
+    countQuery = countQuery.contains('type_of_place', [placeType])
+    photosQuery = photosQuery.contains('type_of_place', [placeType])
+  }
+
+  if (tag) {
+    countQuery = countQuery.contains('tags', [tag])
+    photosQuery = photosQuery.contains('tags', [tag])
+  }
+
+  if (sort === 'oldest') {
+    photosQuery = photosQuery.order('created_at', { ascending: true })
+  } else if (sort === 'captured') {
+    photosQuery = photosQuery.order('capture_date', { ascending: false, nullsFirst: false })
+  } else {
+    photosQuery = photosQuery.order('created_at', { ascending: false })
+  }
+
+  const [{ count, error: countError }, { data, error: dataError }] = await Promise.all([
+    countQuery,
+    photosQuery,
+  ])
+
+  if (countError) {
+    throw new Error(countError.message)
+  }
+
+  if (dataError) {
+    throw new Error(dataError.message)
+  }
+
+  return {
+    photos: (data ?? []) as AlbumsMarketplacePhoto[],
+    totalCount: count ?? 0,
+  }
+}
