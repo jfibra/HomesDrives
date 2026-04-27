@@ -216,10 +216,13 @@ export function buildPublicImageUrl(bucketName: string, storagePath: string) {
 }
 
 export async function insertAlbumPhotoRow(params: {
+  albumUserId: number
   bucketName: string
+  folderContext?: AlbumFolderContext | null
   imageUrl: string
   metadata: UploadedImageMetadata
   storagePath: string
+  uploaderCode: string
   uploaderName: string
   uploaderIp: string | null
   uploaderUserAgent: string | null
@@ -228,7 +231,10 @@ export async function insertAlbumPhotoRow(params: {
   const { data, error } = await supabaseAdmin
     .from('albums_photos')
     .insert({
+      album_user_id: params.albumUserId,
+      uploader_code: params.uploaderCode,
       uploader_name: params.uploaderName,
+      folder_id: params.folderContext?.id ?? null,
       bucket_name: params.bucketName,
       storage_path: params.storagePath,
       image_url: params.imageUrl,
@@ -251,17 +257,17 @@ export async function insertAlbumPhotoRow(params: {
       metadata_keywords: params.metadata.keywords,
       metadata_latitude: params.metadata.latitude,
       metadata_longitude: params.metadata.longitude,
-      longitude: params.metadata.longitude,
-      latitude: params.metadata.latitude,
-      place_name: null,
-      full_address: null,
-      street: null,
-      city: null,
-      province: null,
-      zip_code: null,
-      country: null,
-      type_of_place: [],
-      tags: [],
+      longitude: params.folderContext?.longitude ?? params.metadata.longitude,
+      latitude: params.folderContext?.latitude ?? params.metadata.latitude,
+      place_name: params.folderContext?.folder_name ?? null,
+      full_address: params.folderContext?.full_address ?? null,
+      street: params.folderContext?.street ?? null,
+      city: params.folderContext?.city ?? null,
+      province: params.folderContext?.province ?? null,
+      zip_code: params.folderContext?.zip_code ?? null,
+      country: params.folderContext?.country ?? null,
+      type_of_place: params.folderContext?.type_of_place ?? [],
+      tags: params.folderContext?.tags ?? [],
       raw_metadata: params.metadata,
       uploader_ip: params.uploaderIp,
       uploader_user_agent: params.uploaderUserAgent,
@@ -315,4 +321,170 @@ export async function updateAlbumPhotoTags(params: {
   }
 
   return data
+}
+
+export type AlbumUser = {
+  id: number
+  first_name: string
+  last_name: string
+  full_name: string
+  status: string
+  area_focused: string
+  email: string
+  code: string
+}
+
+export type AlbumFolderContext = {
+  id: string
+  album_user_id: number
+  uploader_code: string
+  uploader_name: string
+  folder_name: string
+  full_address: string | null
+  street: string | null
+  city: string | null
+  province: string | null
+  zip_code: string | null
+  country: string | null
+  latitude: number | null
+  longitude: number | null
+  type_of_place: string[]
+  tags: string[]
+}
+
+export async function listAlbumFoldersByUploader(params: {
+  uploaderCode?: string
+  uploaderName: string
+}) {
+  const supabaseAdmin = createSupabaseAdminClient()
+  let query = supabaseAdmin
+    .from('albums_folders')
+    .select('id, album_user_id, uploader_code, uploader_name, folder_name, full_address, street, city, province, zip_code, country, latitude, longitude, type_of_place, tags, created_at')
+    .order('created_at', { ascending: false })
+
+  if (params.uploaderCode) {
+    query = query.eq('uploader_code', params.uploaderCode)
+  } else {
+    query = query.eq('uploader_name', params.uploaderName)
+  }
+
+  const { data, error } = await query
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return data ?? []
+}
+
+export async function createAlbumFolder(params: {
+  albumUserId: number
+  uploaderName: string
+  uploaderCode: string
+  folderName: string
+  fullAddress: string | null
+  street: string | null
+  city: string | null
+  province: string | null
+  zipCode: string | null
+  country: string | null
+  latitude: number | null
+  longitude: number | null
+  typeOfPlace: string[]
+  tags: string[]
+}) {
+  const supabaseAdmin = createSupabaseAdminClient()
+  const { data, error } = await supabaseAdmin
+    .from('albums_folders')
+    .insert({
+      album_user_id: params.albumUserId,
+      uploader_code: params.uploaderCode,
+      uploader_name: params.uploaderName,
+      folder_name: params.folderName,
+      full_address: params.fullAddress,
+      street: params.street,
+      city: params.city,
+      province: params.province,
+      zip_code: params.zipCode,
+      country: params.country,
+      latitude: params.latitude,
+      longitude: params.longitude,
+      type_of_place: params.typeOfPlace,
+      tags: params.tags,
+    })
+    .select('id, album_user_id, uploader_code, uploader_name, folder_name, full_address, street, city, province, zip_code, country, latitude, longitude, type_of_place, tags, created_at')
+    .single()
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return data
+}
+
+export async function getAlbumFolderContext(params: {
+  folderId: string
+  uploaderCode?: string
+  uploaderName: string
+}) {
+  const supabaseAdmin = createSupabaseAdminClient()
+  let query = supabaseAdmin
+    .from('albums_folders')
+    .select('id, album_user_id, uploader_code, uploader_name, folder_name, full_address, street, city, province, zip_code, country, latitude, longitude, type_of_place, tags')
+    .eq('id', params.folderId)
+
+  if (params.uploaderCode) {
+    query = query.eq('uploader_code', params.uploaderCode)
+  } else {
+    query = query.eq('uploader_name', params.uploaderName)
+  }
+
+  const { data, error } = await query.maybeSingle()
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return data as AlbumFolderContext | null
+}
+
+export async function getUserByCode(code: string): Promise<AlbumUser | null> {
+  const supabaseAdmin = createSupabaseAdminClient()
+  const { data, error } = await supabaseAdmin
+    .from('album_users')
+    .select('id, first_name, last_name, full_name, status, area_focused, email, code')
+    .eq('code', code)
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return data
+}
+
+export async function listPhotosByUploader(params: {
+  uploaderCode?: string
+  uploaderName: string
+}) {
+  const supabaseAdmin = createSupabaseAdminClient()
+  let query = supabaseAdmin
+    .from('albums_photos')
+    .select('id, album_user_id, uploader_code, folder_id, image_url, original_file_name, file_size_bytes, created_at, capture_date, device_make, device_model, place_name, city, province, type_of_place, tags, latitude, longitude')
+    .order('created_at', { ascending: false })
+    .limit(200)
+
+  if (params.uploaderCode) {
+    query = query.eq('uploader_code', params.uploaderCode)
+  } else {
+    query = query.eq('uploader_name', params.uploaderName)
+  }
+
+  const { data, error } = await query
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return data ?? []
 }
