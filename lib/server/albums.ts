@@ -359,7 +359,7 @@ export async function listAlbumFoldersByUploader(params: {
   const supabaseAdmin = createSupabaseAdminClient()
   let query = supabaseAdmin
     .from('albums_folders')
-    .select('id, album_user_id, uploader_code, uploader_name, folder_name, full_address, street, city, province, zip_code, country, latitude, longitude, type_of_place, tags, created_at')
+    .select('id, album_user_id, uploader_code, uploader_name, folder_name, full_address, street, city, province, zip_code, country, latitude, longitude, type_of_place, tags, created_at, notes, status')
     .order('created_at', { ascending: false })
 
   if (params.uploaderCode) {
@@ -412,7 +412,7 @@ export async function createAlbumFolder(params: {
       type_of_place: params.typeOfPlace,
       tags: params.tags,
     })
-    .select('id, album_user_id, uploader_code, uploader_name, folder_name, full_address, street, city, province, zip_code, country, latitude, longitude, type_of_place, tags, created_at')
+    .select('id, album_user_id, uploader_code, uploader_name, folder_name, full_address, street, city, province, zip_code, country, latitude, longitude, type_of_place, tags, created_at, notes, status')
     .single()
 
   if (error) {
@@ -586,4 +586,138 @@ export async function listMarketplacePhotos(params: {
     photos: (data ?? []) as AlbumsMarketplacePhoto[],
     totalCount: count ?? 0,
   }
+}
+
+// ─── Folder management ────────────────────────────────────────────────────────
+
+export async function updateAlbumFolder(params: {
+  id: string
+  uploaderCode: string
+  folderName?: string
+  fullAddress?: string | null
+  street?: string | null
+  city?: string | null
+  province?: string | null
+  zipCode?: string | null
+  country?: string | null
+  latitude?: number | null
+  longitude?: number | null
+  typeOfPlace?: string[]
+  tags?: string[]
+  notes?: string | null
+  status?: 'active' | 'archived'
+}) {
+  const supabaseAdmin = createSupabaseAdminClient()
+  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
+
+  if (params.folderName !== undefined) updates.folder_name = params.folderName
+  if (params.fullAddress !== undefined) updates.full_address = params.fullAddress
+  if (params.street !== undefined) updates.street = params.street
+  if (params.city !== undefined) updates.city = params.city
+  if (params.province !== undefined) updates.province = params.province
+  if (params.zipCode !== undefined) updates.zip_code = params.zipCode
+  if (params.country !== undefined) updates.country = params.country
+  if (params.latitude !== undefined) updates.latitude = params.latitude
+  if (params.longitude !== undefined) updates.longitude = params.longitude
+  if (params.typeOfPlace !== undefined) updates.type_of_place = params.typeOfPlace
+  if (params.tags !== undefined) updates.tags = params.tags
+  if (params.notes !== undefined) updates.notes = params.notes
+  if (params.status !== undefined) updates.status = params.status
+
+  const { data, error } = await supabaseAdmin
+    .from('albums_folders')
+    .update(updates)
+    .eq('id', params.id)
+    .eq('uploader_code', params.uploaderCode)
+    .select('id, album_user_id, uploader_code, uploader_name, folder_name, full_address, street, city, province, zip_code, country, latitude, longitude, type_of_place, tags, created_at, notes, status')
+    .single()
+
+  if (error) throw new Error(error.message)
+  return data
+}
+
+export async function deleteAlbumFolder(params: {
+  id: string
+  uploaderCode: string
+  withPhotos: boolean
+}) {
+  const supabaseAdmin = createSupabaseAdminClient()
+
+  if (params.withPhotos) {
+    const { data: photos } = await supabaseAdmin
+      .from('albums_photos')
+      .select('id, bucket_name, storage_path')
+      .eq('folder_id', params.id)
+      .eq('uploader_code', params.uploaderCode)
+
+    if (photos && photos.length > 0) {
+      await Promise.allSettled(
+        photos.map((p) => deleteImageObject(p.bucket_name, p.storage_path)),
+      )
+      await supabaseAdmin
+        .from('albums_photos')
+        .delete()
+        .eq('folder_id', params.id)
+        .eq('uploader_code', params.uploaderCode)
+    }
+  } else {
+    await supabaseAdmin
+      .from('albums_photos')
+      .update({ folder_id: null })
+      .eq('folder_id', params.id)
+      .eq('uploader_code', params.uploaderCode)
+  }
+
+  const { error } = await supabaseAdmin
+    .from('albums_folders')
+    .delete()
+    .eq('id', params.id)
+    .eq('uploader_code', params.uploaderCode)
+
+  if (error) throw new Error(error.message)
+}
+
+export async function movePhotoToFolder(params: {
+  photoId: string
+  targetFolderId: string | null
+  uploaderCode: string
+}) {
+  const supabaseAdmin = createSupabaseAdminClient()
+
+  let folderCtx: AlbumFolderContext | null = null
+  if (params.targetFolderId) {
+    folderCtx = await getAlbumFolderContext({
+      folderId: params.targetFolderId,
+      uploaderCode: params.uploaderCode,
+      uploaderName: '',
+    })
+    if (!folderCtx) throw new Error('Target folder not found.')
+  }
+
+  const update: Record<string, unknown> = { folder_id: params.targetFolderId }
+
+  if (folderCtx) {
+    update.place_name = folderCtx.folder_name
+    update.full_address = folderCtx.full_address
+    update.street = folderCtx.street
+    update.city = folderCtx.city
+    update.province = folderCtx.province
+    update.zip_code = folderCtx.zip_code
+    update.country = folderCtx.country
+    update.latitude = folderCtx.latitude
+    update.longitude = folderCtx.longitude
+    update.type_of_place = folderCtx.type_of_place
+    update.tags = folderCtx.tags
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('albums_photos')
+    .update(update)
+    .eq('id', params.photoId)
+    .eq('uploader_code', params.uploaderCode)
+    .select('id, folder_id')
+    .single()
+
+  if (error) throw new Error(error.message)
+  return data
 }

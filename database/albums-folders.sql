@@ -136,3 +136,17 @@ create trigger albums_folders_updated_at
 before update on public.albums_folders
 for each row
 execute function public.set_albums_folders_updated_at();
+
+-- ─── Migration: folder status, notes, and cover photo ─────────────────────────
+-- Run this block to enable archive, notes, and cover-photo features.
+do $$
+begin
+  alter table public.albums_folders
+    add column if not exists status text not null default 'active',
+    add column if not exists notes text,
+    add column if not exists cover_photo_id uuid;
+end
+$$;
+
+create index if not exists albums_folders_status_idx
+  on public.albums_folders (status);

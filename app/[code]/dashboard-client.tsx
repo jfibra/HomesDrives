@@ -2,7 +2,15 @@
 
 import { useEffect, useRef, useState } from 'react'
 import {
+  AlertTriangle,
+  Archive,
+  ArchiveRestore,
+  ArrowRight,
+  CheckSquare,
   CloudUpload,
+  Copy,
+  Download,
+  Filter,
   Folder,
   FolderOpen,
   Grid3X3,
@@ -11,7 +19,11 @@ import {
   MapPin,
   Maximize2,
   Menu,
+  MoreHorizontal,
+  Pencil,
   Search,
+  Share2,
+  StickyNote,
   Trash2,
   Upload,
   X,
@@ -147,6 +159,8 @@ type AlbumFolder = {
   type_of_place: string[]
   tags: string[]
   created_at: string
+  notes?: string | null
+  status?: string
 }
 
 type LightboxImage = {
@@ -518,6 +532,50 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
   const [isSearchingFolderAddress, setIsSearchingFolderAddress] = useState(false)
   const [isSavingFolder, setIsSavingFolder] = useState(false)
 
+  // Folder modal mode (create vs edit)
+  const [folderModalMode, setFolderModalMode] = useState<'create' | 'edit'>('create')
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null)
+
+  // Folder delete confirm
+  const [deleteFolderTarget, setDeleteFolderTarget] = useState<AlbumFolder | null>(null)
+  const [deleteFolderOption, setDeleteFolderOption] = useState<'unfile' | 'delete-all'>('unfile')
+  const [isDeletingFolder, setIsDeletingFolder] = useState(false)
+  const [deleteFolderError, setDeleteFolderError] = useState('')
+
+  // Folder notes
+  const [isFolderNotesOpen, setIsFolderNotesOpen] = useState(false)
+  const [editingNotesValue, setEditingNotesValue] = useState('')
+  const [isSavingNotes, setIsSavingNotes] = useState(false)
+  const [notesStatusMsg, setNotesStatusMsg] = useState('')
+
+  // Folder archive
+  const [updatingFolderStatusId, setUpdatingFolderStatusId] = useState<string | null>(null)
+  const [showArchivedFolders, setShowArchivedFolders] = useState(false)
+
+  // My Photos — bulk select
+  const [isBulkMode, setIsBulkMode] = useState(false)
+  const [selectedDbPhotoIds, setSelectedDbPhotoIds] = useState<Set<string>>(new Set())
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false)
+
+  // Move photo to folder
+  const [moveModalTargetIds, setMoveModalTargetIds] = useState<string[]>([])
+  const [isMoveModalOpen, setIsMoveModalOpen] = useState(false)
+  const [moveTargetFolderId, setMoveTargetFolderId] = useState<string>('')
+  const [movingPhotoIds, setMovingPhotoIds] = useState<Set<string>>(new Set())
+  const [isMoveSubmitting, setIsMoveSubmitting] = useState(false)
+
+  // Opened folder - bulk select / move
+  const [isFolderBulkMode, setIsFolderBulkMode] = useState(false)
+  const [selectedFolderPhotoIds, setSelectedFolderPhotoIds] = useState<Set<string>>(new Set())
+
+  // My Photos — filters
+  const [photosFilterFolderId, setPhotosFilterFolderId] = useState<string>('')
+  const [photosFilterGpsOnly, setPhotosFilterGpsOnly] = useState(false)
+  const [photosFilterUntagged, setPhotosFilterUntagged] = useState(false)
+
+  // Duplicate detection (filenames already in the active folder)
+  const [duplicateWarnings, setDuplicateWarnings] = useState<string[]>([])
+
   // Tag modal state
   const [isTagModalOpen, setIsTagModalOpen] = useState(false)
   const [tagPlaceName, setTagPlaceName] = useState('')
@@ -544,6 +602,8 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
 
   // Refs
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const rearCameraInputRef = useRef<HTMLInputElement | null>(null)
+  const frontCameraInputRef = useRef<HTMLInputElement | null>(null)
   const previewUrlsRef = useRef<string[]>([])
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<any>(null)
@@ -758,6 +818,17 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
           })
         })
         setFolderStatusMessage('')
+        // Pre-populate marker when in edit mode
+        if (editingFolderId) {
+          const editTarget = folders.find((f) => f.id === editingFolderId)
+          if (editTarget?.latitude && editTarget?.longitude) {
+            const pos = { lat: editTarget.latitude, lng: editTarget.longitude }
+            folderMarkerRef.current.setPosition(pos)
+            folderMarkerRef.current.setVisible(true)
+            folderMapRef.current.setCenter(pos)
+            folderMapRef.current.setZoom(15)
+          }
+        }
       })
       .catch((e) => {
         if (!cancelled) {
@@ -956,6 +1027,64 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
     }
   }
 
+  async function handleUseCurrentLocationForFolder() {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      setFolderStatusMessage('Geolocation is not supported on this device/browser.')
+      return
+    }
+    setIsSearchingFolderAddress(true)
+    setFolderStatusMessage('Getting your current location...')
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const lat = position.coords.latitude
+        const lng = position.coords.longitude
+
+        setFolderLocationDetails((current) => ({
+          ...current,
+          latitude: lat,
+          longitude: lng,
+        }))
+
+        if (folderMapRef.current && folderMarkerRef.current) {
+          const pin = { lat, lng }
+          folderMarkerRef.current.setPosition(pin)
+          folderMarkerRef.current.setVisible(true)
+          folderMapRef.current.panTo(pin)
+          folderMapRef.current.setZoom(16)
+        }
+
+        try {
+          const r = await fetch(
+            `/api/geocode?lat=${encodeURIComponent(String(lat))}&lon=${encodeURIComponent(String(lng))}`,
+          )
+          const data = await r.json()
+          if (r.ok && data?.suggestion) {
+            handleFolderAddressSelect(data.suggestion as AddressSuggestion)
+            setFolderStatusMessage('Using your current location.')
+          } else {
+            setFolderAddressQuery(`${lat.toFixed(6)}, ${lng.toFixed(6)}`)
+            setFolderStatusMessage(data?.error || 'Pinned your current location on the map.')
+          }
+        } catch {
+          setFolderAddressQuery(`${lat.toFixed(6)}, ${lng.toFixed(6)}`)
+          setFolderStatusMessage('Pinned your current location on the map.')
+        } finally {
+          setIsSearchingFolderAddress(false)
+        }
+      },
+      (error) => {
+        setIsSearchingFolderAddress(false)
+        if (error.code === error.PERMISSION_DENIED) {
+          setFolderStatusMessage('Location permission was denied. Please allow it in your browser settings.')
+          return
+        }
+        setFolderStatusMessage('Unable to get your current location.')
+      },
+      { enableHighAccuracy: true, timeout: 10000 },
+    )
+  }
+
   // ─── Upload helpers ───────────────────────────────────────────────────────────
 
   function updateUploadedImage(imageId: string, updater: (image: UploadedImage) => UploadedImage) {
@@ -1109,6 +1238,8 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
     setFolderAddressSuggestions([])
     setIsSearchingFolderAddress(false)
     setFolderStatusMessage('')
+    setFolderModalMode('create')
+    setEditingFolderId(null)
     if (folderMapRef.current && folderMarkerRef.current) {
       folderMarkerRef.current.setVisible(false)
       folderMapRef.current.setCenter(DEFAULT_MAP_CENTER)
@@ -1155,6 +1286,266 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
     } finally {
       setIsSavingFolder(false)
     }
+  }
+
+  // ─── Open edit folder modal ───────────────────────────────────────────────
+
+  function openEditFolderModal(folder: AlbumFolder) {
+    setFolderModalMode('edit')
+    setEditingFolderId(folder.id)
+    setFolderName(folder.folder_name)
+    setFolderAddressQuery(folder.full_address ?? '')
+    setFolderTypeOfPlace([...folder.type_of_place])
+    setFolderTagValues([...folder.tags])
+    setFolderLocationDetails({
+      city: folder.city,
+      country: folder.country,
+      fullAddress: folder.full_address,
+      latitude: folder.latitude,
+      longitude: folder.longitude,
+      province: folder.province,
+      street: folder.street,
+      zipCode: folder.zip_code,
+    })
+    setIsFolderModalOpen(true)
+  }
+
+  async function handleUpdateFolder() {
+    const trimmedName = folderName.trim()
+    if (!trimmedName || !editingFolderId) return
+    setIsSavingFolder(true)
+    setFolderStatusMessage('')
+    try {
+      const r = await fetch(`/api/folders/${editingFolderId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uploaderCode: user.code,
+          folderName: trimmedName,
+          fullAddress: folderLocationDetails.fullAddress ?? (normalizeChipValue(folderAddressQuery) || null),
+          street: folderLocationDetails.street,
+          city: folderLocationDetails.city,
+          province: folderLocationDetails.province,
+          zipCode: folderLocationDetails.zipCode,
+          country: folderLocationDetails.country,
+          latitude: folderLocationDetails.latitude,
+          longitude: folderLocationDetails.longitude,
+          typeOfPlace: folderTypeOfPlace,
+          tags: folderTagValues,
+        }),
+      })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data?.error || 'Unable to update folder.')
+      const updated = data.folder as AlbumFolder
+      setFolders((current) =>
+        current.map((f) => (f.id === updated.id ? { ...f, ...updated } : f)),
+      )
+      setIsFolderModalOpen(false)
+      resetFolderModalState()
+    } catch (error) {
+      setFolderStatusMessage(error instanceof Error ? error.message : 'Unable to update folder.')
+    } finally {
+      setIsSavingFolder(false)
+    }
+  }
+
+  // ─── Folder delete ────────────────────────────────────────────────────────
+
+  async function handleDeleteFolder() {
+    if (!deleteFolderTarget) return
+    setIsDeletingFolder(true)
+    setDeleteFolderError('')
+    try {
+      const withPhotos = deleteFolderOption === 'delete-all'
+      const r = await fetch(
+        `/api/folders/${deleteFolderTarget.id}?uploaderCode=${encodeURIComponent(user.code)}&withPhotos=${withPhotos}`,
+        { method: 'DELETE' },
+      )
+      const data = await r.json()
+      if (!r.ok) throw new Error(data?.error || 'Unable to delete folder.')
+      setFolders((current) => current.filter((f) => f.id !== deleteFolderTarget.id))
+      if (activeFolderId === deleteFolderTarget.id) setActiveFolderId(null)
+      if (withPhotos) {
+        setDbPhotos((current) =>
+          current.filter((p) => p.folder_id !== deleteFolderTarget.id),
+        )
+      } else {
+        setDbPhotos((current) =>
+          current.map((p) =>
+            p.folder_id === deleteFolderTarget.id ? { ...p, folder_id: null } : p,
+          ),
+        )
+      }
+      setDeleteFolderTarget(null)
+    } catch (error) {
+      setDeleteFolderError(error instanceof Error ? error.message : 'Unable to delete folder.')
+    } finally {
+      setIsDeletingFolder(false)
+    }
+  }
+
+  // ─── Folder archive toggle ────────────────────────────────────────────────
+
+  async function handleArchiveToggle(folder: AlbumFolder) {
+    if (updatingFolderStatusId) return
+    const newStatus = (folder.status ?? 'active') === 'active' ? 'archived' : 'active'
+    setUpdatingFolderStatusId(folder.id)
+    // Optimistic update
+    setFolders((current) =>
+      current.map((f) => (f.id === folder.id ? { ...f, status: newStatus } : f)),
+    )
+    try {
+      const r = await fetch(`/api/folders/${folder.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uploaderCode: user.code, status: newStatus }),
+      })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data?.error || 'Unable to update folder status.')
+      setFolders((current) =>
+        current.map((f) => (f.id === folder.id ? { ...f, ...data.folder } : f)),
+      )
+    } catch {
+      // Rollback
+      setFolders((current) =>
+        current.map((f) =>
+          f.id === folder.id ? { ...f, status: folder.status ?? 'active' } : f,
+        ),
+      )
+    } finally {
+      setUpdatingFolderStatusId(null)
+    }
+  }
+
+  // ─── Folder notes ─────────────────────────────────────────────────────────
+
+  async function handleSaveFolderNotes() {
+    if (!activeFolderId || isSavingNotes) return
+    setIsSavingNotes(true)
+    setNotesStatusMsg('')
+    try {
+      const r = await fetch(`/api/folders/${activeFolderId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uploaderCode: user.code, notes: editingNotesValue }),
+      })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data?.error || 'Unable to save notes.')
+      setFolders((current) =>
+        current.map((f) => (f.id === activeFolderId ? { ...f, notes: editingNotesValue } : f)),
+      )
+      setNotesStatusMsg('Saved')
+      window.setTimeout(() => setNotesStatusMsg(''), 2000)
+    } catch (error) {
+      setNotesStatusMsg(error instanceof Error ? error.message : 'Unable to save notes.')
+    } finally {
+      setIsSavingNotes(false)
+    }
+  }
+
+  // ─── My Photos bulk select ────────────────────────────────────────────────
+
+  function toggleDbPhotoSelection(photoId: string) {
+    setSelectedDbPhotoIds((prev) => {
+      const next = new Set(prev)
+      next.has(photoId) ? next.delete(photoId) : next.add(photoId)
+      return next
+    })
+  }
+
+  async function handleBulkDeleteDbPhotos() {
+    if (!selectedDbPhotoIds.size || isBulkDeleting) return
+    setIsBulkDeleting(true)
+    const ids = [...selectedDbPhotoIds]
+    const previousPhotos = dbPhotos
+    setDbPhotos((current) => current.filter((p) => !ids.includes(p.id)))
+    setSelectedDbPhotoIds(new Set())
+    try {
+      await Promise.all(
+        ids.map(async (id) => {
+          const r = await fetch(`/api/photos/${id}`, { method: 'DELETE' })
+          const data = await r.json()
+          if (!r.ok) throw new Error(data?.error || `Unable to delete photo ${id}.`)
+        }),
+      )
+      await loadPhotos({ silent: true })
+    } catch {
+      setDbPhotos(previousPhotos)
+      setSelectedDbPhotoIds(new Set(ids))
+    } finally {
+      setIsBulkDeleting(false)
+    }
+  }
+
+  // ─── Move photo to folder ─────────────────────────────────────────────────
+
+  function openMoveModal(photoIds: string[]) {
+    setMoveModalTargetIds(photoIds)
+    setMoveTargetFolderId('')
+    setIsMoveModalOpen(true)
+  }
+
+  async function handleMovePhotos() {
+    if (!moveTargetFolderId || !moveModalTargetIds.length || isMoveSubmitting) return
+    setIsMoveSubmitting(true)
+    const ids = [...moveModalTargetIds]
+    setMovingPhotoIds(new Set(ids))
+    try {
+      await Promise.all(
+        ids.map(async (photoId) => {
+          const r = await fetch(`/api/photos/${photoId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'move',
+              targetFolderId: moveTargetFolderId === '__unfile__' ? null : moveTargetFolderId,
+              uploaderCode: user.code,
+            }),
+          })
+          const data = await r.json()
+          if (!r.ok) throw new Error(data?.error || 'Unable to move photo.')
+        }),
+      )
+      await loadPhotos({ silent: true })
+      setSelectedDbPhotoIds(new Set())
+      setIsBulkMode(false)
+      setSelectedFolderPhotoIds(new Set())
+      setIsFolderBulkMode(false)
+      setIsMoveModalOpen(false)
+    } catch (error) {
+      setAnalysisError(error instanceof Error ? error.message : 'Unable to move photos.')
+    } finally {
+      setMovingPhotoIds(new Set())
+      setIsMoveSubmitting(false)
+    }
+  }
+
+  // ─── Download photo ───────────────────────────────────────────────────────
+
+  async function downloadPhoto(url: string, fileName: string) {
+    try {
+      const response = await fetch(url)
+      const blob = await response.blob()
+      const blobUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = fileName
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(blobUrl)
+    } catch {
+      window.open(url, '_blank')
+    }
+  }
+
+  // ─── Copy folder share link ───────────────────────────────────────────────
+
+  function copyFolderShareLink(folder: AlbumFolder) {
+    const base = typeof window !== 'undefined' ? window.location.origin : ''
+    const q = folder.city || folder.folder_name
+    const url = `${base}/?q=${encodeURIComponent(q)}`
+    void navigator.clipboard.writeText(url).catch(() => null)
   }
 
   async function persistImageTags(
@@ -1241,6 +1632,20 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
     e.target.value = ''
   }
 
+  function handleCameraFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    if (!e.target.files?.length) return
+    void handleIncomingFiles(e.target.files)
+    e.target.value = ''
+  }
+
+  function toggleFolderPhotoSelection(photoId: string) {
+    setSelectedFolderPhotoIds((prev) => {
+      const next = new Set(prev)
+      next.has(photoId) ? next.delete(photoId) : next.add(photoId)
+      return next
+    })
+  }
+
   // ─── Computed ────────────────────────────────────────────────────────────────
 
   const uploadingCount = uploadedImages.filter((img) => img.uploadStatus === 'uploading').length
@@ -1257,6 +1662,19 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
       )
     : dbPhotos
 
+  const filteredDbPhotosWithFilters = filteredDbPhotos.filter((p) => {
+    if (photosFilterFolderId === '__unassigned__' && p.folder_id != null) return false
+    if (photosFilterFolderId && photosFilterFolderId !== '__unassigned__' && p.folder_id !== photosFilterFolderId) return false
+    if (photosFilterGpsOnly && (p.latitude == null || p.longitude == null)) return false
+    if (photosFilterUntagged && p.tags.length > 0) return false
+    return true
+  })
+
+  const activeFolders = folders.filter((f) => (f.status ?? 'active') !== 'archived')
+  const archivedFolders = folders.filter((f) => (f.status ?? 'active') === 'archived')
+  const displayedFolders = showArchivedFolders ? archivedFolders : activeFolders
+  const hasPhotosFilters = !!(photosFilterFolderId || photosFilterGpsOnly || photosFilterUntagged)
+
   const openedFolderPhotos = activeFolderId
     ? filteredDbPhotos.filter((photo) => photo.folder_id === activeFolderId)
     : []
@@ -1268,7 +1686,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
     subtitle: image.placeName || image.fullAddress || undefined,
   }))
 
-  const dbLightboxItems: LightboxImage[] = filteredDbPhotos.map((photo) => ({
+  const dbLightboxItems: LightboxImage[] = filteredDbPhotosWithFilters.map((photo) => ({
     id: photo.id,
     src: photo.image_url,
     alt: photo.original_file_name,
@@ -1304,6 +1722,11 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
     acc[photo.folder_id] = (acc[photo.folder_id] ?? 0) + 1
     return acc
   }, {})
+
+  useEffect(() => {
+    setSelectedFolderPhotoIds(new Set())
+    setIsFolderBulkMode(false)
+  }, [activeFolderId])
 
   useEffect(() => {
     if (lightboxIndex == null) return
@@ -1384,6 +1807,22 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
         multiple
         onChange={handleFileChange}
         ref={fileInputRef}
+        type="file"
+      />
+      <input
+        accept="image/*"
+        capture="environment"
+        className="sr-only"
+        onChange={handleCameraFileChange}
+        ref={rearCameraInputRef}
+        type="file"
+      />
+      <input
+        accept="image/*"
+        capture="user"
+        className="sr-only"
+        onChange={handleCameraFileChange}
+        ref={frontCameraInputRef}
         type="file"
       />
 
@@ -1534,234 +1973,586 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                 </p>
               </div>
 
-              <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm lg:p-5">
+              <section className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
                 {!activeFolder ? (
                   <>
-                    <div className="flex items-center justify-between gap-3">
+                    {/* Folder section header */}
+                    <div className="flex items-center justify-between gap-4 border-b border-gray-100 px-6 py-4">
                       <div>
-                        <h2 className="text-base font-semibold text-gray-800">Folder locations</h2>
-                        <p className="text-xs text-gray-500">Open a folder to upload and browse photos inside that location.</p>
+                        <h2 className="text-base font-semibold text-gray-900">My Folders</h2>
+                        <p className="mt-0.5 text-xs text-gray-400">
+                          {activeFolders.length} folder{activeFolders.length !== 1 ? 's' : ''} · click to open
+                        </p>
                       </div>
                       <button
-                        className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+                        className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800"
                         onClick={() => {
                           resetFolderModalState()
                           setIsFolderModalOpen(true)
                         }}
                         type="button"
                       >
-                        <CloudUpload className="h-3.5 w-3.5" />
-                        New Folder Location
+                        <CloudUpload className="h-4 w-4" />
+                        New folder
                       </button>
                     </div>
 
-                    {folders.length > 0 ? (
-                      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                        {folders.map((folder) => (
-                          <button
-                            key={folder.id}
-                            className="group rounded-2xl border border-gray-200 bg-white p-3 text-left text-gray-700 shadow-sm transition-all hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
-                            onClick={() => setActiveFolderId(folder.id)}
-                            type="button"
-                          >
-                            <div className="mb-3 flex items-center gap-2">
-                              <div className="rounded-xl bg-amber-100 p-2 text-amber-700 transition-colors group-hover:bg-amber-200">
-                                <Folder className="h-8 w-8" />
-                              </div>
-                              <div className="min-w-0">
-                                <p className="truncate text-sm font-semibold text-gray-800">{folder.folder_name}</p>
-                                <p className="text-[11px] text-gray-500">
-                                  {folderPhotoCountById[folder.id] ?? 0} photo{(folderPhotoCountById[folder.id] ?? 0) !== 1 ? 's' : ''}
-                                </p>
+                    {/* Archive toggle */}
+                    {archivedFolders.length > 0 ? (
+                      <div className="border-b border-gray-100 px-6 py-2">
+                        <button
+                          className="flex items-center gap-1.5 text-xs font-medium text-gray-400 transition-colors hover:text-gray-700"
+                          onClick={() => setShowArchivedFolders((v) => !v)}
+                          type="button"
+                        >
+                          <Archive className="h-3.5 w-3.5" />
+                          {showArchivedFolders
+                            ? `Hide archived (${archivedFolders.length})`
+                            : `Show archived (${archivedFolders.length})`}
+                        </button>
+                      </div>
+                    ) : null}
+
+                    {/* Folder grid */}
+                    {displayedFolders.length > 0 ? (
+                      <div className="grid grid-cols-1 gap-px bg-gray-100 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                        {displayedFolders.map((folder) => {
+                          const isArchived = (folder.status ?? 'active') === 'archived'
+                          const photoCount = folderPhotoCountById[folder.id] ?? 0
+                          return (
+                            <div key={folder.id} className="group relative bg-white">
+                              <button
+                                className={cn(
+                                  'flex w-full flex-col gap-3 p-5 text-left transition-colors hover:bg-gray-50/80',
+                                  isArchived && 'opacity-50',
+                                )}
+                                onClick={() => setActiveFolderId(folder.id)}
+                                type="button"
+                              >
+                                {/* Folder icon row */}
+                                <div className="flex items-start justify-between">
+                                  <div className={cn(
+                                    'rounded-2xl p-3 transition-colors',
+                                    isArchived ? 'bg-gray-100 text-gray-400' : 'bg-amber-50 text-amber-600 group-hover:bg-amber-100',
+                                  )}>
+                                    {isArchived ? <Archive className="h-8 w-8" /> : <Folder className="h-8 w-8" />}
+                                  </div>
+                                  {photoCount > 0 ? (
+                                    <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-500">
+                                      {photoCount}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                {/* Name & address */}
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-semibold text-gray-900 group-hover:text-slate-950">
+                                    {folder.folder_name}
+                                  </p>
+                                  <p className="mt-0.5 truncate text-xs text-gray-400">
+                                    {folder.city || folder.full_address || 'No address set'}
+                                    {isArchived ? ' · Archived' : ''}
+                                  </p>
+                                </div>
+                                {/* Tags */}
+                                {folder.tags.length > 0 ? (
+                                  <div className="flex flex-wrap gap-1">
+                                    {folder.tags.slice(0, 3).map((t) => (
+                                      <span key={t} className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700">
+                                        {t}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </button>
+
+                              {/* Action menu — visible on hover */}
+                              <div className="absolute right-3 top-3 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                                <button
+                                  aria-label="Edit folder"
+                                  className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-gray-400 shadow-sm ring-1 ring-gray-200 transition-colors hover:text-gray-800"
+                                  onClick={(e) => { e.stopPropagation(); openEditFolderModal(folder) }}
+                                  type="button"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  aria-label={isArchived ? 'Unarchive' : 'Archive'}
+                                  className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-gray-400 shadow-sm ring-1 ring-gray-200 transition-colors hover:text-amber-600"
+                                  disabled={updatingFolderStatusId === folder.id}
+                                  onClick={(e) => { e.stopPropagation(); void handleArchiveToggle(folder) }}
+                                  type="button"
+                                >
+                                  {isArchived ? <ArchiveRestore className="h-3.5 w-3.5" /> : <Archive className="h-3.5 w-3.5" />}
+                                </button>
+                                <button
+                                  aria-label="Delete folder"
+                                  className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-red-400 shadow-sm ring-1 ring-gray-200 transition-colors hover:text-red-600"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setDeleteFolderOption('unfile')
+                                    setDeleteFolderTarget(folder)
+                                  }}
+                                  type="button"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
                               </div>
                             </div>
-                            <p className="line-clamp-2 text-xs text-gray-500">
-                              {folder.full_address || folder.city || 'No address'}
-                            </p>
-                          </button>
-                        ))}
+                          )
+                        })}
                       </div>
                     ) : (
-                      <p className="mt-3 rounded-xl border border-dashed border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-500">
-                        No folder location yet. Click New Folder Location to start.
-                      </p>
+                      <div className="flex flex-col items-center gap-4 px-6 py-16 text-center">
+                        <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-amber-50 text-amber-500">
+                          <FolderOpen className="h-8 w-8" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-gray-700">No folders yet</p>
+                          <p className="mt-1 text-xs text-gray-400">Create a folder to start organizing and uploading photos by location.</p>
+                        </div>
+                        <button
+                          className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
+                          onClick={() => { resetFolderModalState(); setIsFolderModalOpen(true) }}
+                          type="button"
+                        >
+                          <CloudUpload className="h-4 w-4" />
+                          Create first folder
+                        </button>
+                      </div>
                     )}
                   </>
                 ) : (
                   <>
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-start gap-3">
-                        <div className="rounded-2xl bg-amber-100 p-3 text-amber-700">
-                          <FolderOpen className="h-9 w-9" />
-                        </div>
-                        <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                          Folders / {activeFolder.folder_name}
-                        </p>
-                        <h2 className="mt-1 text-lg font-semibold text-gray-900">{activeFolder.folder_name}</h2>
-                        <p className="mt-1 text-xs text-gray-500">
-                          {activeFolder.full_address || 'No full address set for this folder.'}
-                        </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
+                    {/* Opened folder header */}
+                    <div className="border-b border-gray-100">
+                      {/* Breadcrumb */}
+                      <div className="flex items-center gap-1.5 px-6 pt-4 text-xs text-gray-400">
                         <button
-                          className="rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+                          className="font-medium transition-colors hover:text-gray-700"
                           onClick={() => setActiveFolderId(null)}
                           type="button"
                         >
-                          Back to folders
+                          My Folders
                         </button>
-                        <button
-                          className="rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800"
-                          onClick={() => fileInputRef.current?.click()}
-                          type="button"
-                        >
-                          Upload in Folder
-                        </button>
+                        <span>/</span>
+                        <span className="font-semibold text-gray-700">{activeFolder.folder_name}</span>
+                        {(activeFolder.status ?? 'active') === 'archived' ? (
+                          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-500">Archived</span>
+                        ) : null}
+                      </div>
+
+                      {/* Folder identity + actions */}
+                      <div className="flex flex-wrap items-start justify-between gap-4 px-6 pb-5 pt-3">
+                        <div className="flex items-center gap-4">
+                          <div className="rounded-2xl bg-amber-50 p-3 text-amber-600">
+                            <FolderOpen className="h-10 w-10" />
+                          </div>
+                          <div>
+                            <h2 className="text-xl font-bold text-gray-900 leading-tight">{activeFolder.folder_name}</h2>
+                            <p className="mt-0.5 text-sm text-gray-400">
+                              {activeFolder.full_address || activeFolder.city || 'No address set'}
+                            </p>
+                            {/* Type + tag chips */}
+                            {(activeFolder.type_of_place.length > 0 || activeFolder.tags.length > 0) ? (
+                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                {activeFolder.type_of_place.map((v) => (
+                                  <span key={v} className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-[11px] font-semibold text-indigo-700">
+                                    {v}
+                                  </span>
+                                ))}
+                                {activeFolder.tags.map((v) => (
+                                  <span key={v} className="rounded-full bg-gray-100 px-2.5 py-0.5 text-[11px] font-medium text-gray-600">
+                                    {v}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        {/* Action buttons */}
+                        <div className="flex flex-wrap items-center gap-2">
+                          {/* Icon actions */}
+                          <div className="flex items-center gap-1 rounded-2xl border border-gray-200 bg-white p-1 shadow-sm">
+                            <button
+                              aria-label="Edit folder"
+                              className="flex h-9 w-9 items-center justify-center rounded-xl text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
+                              onClick={() => openEditFolderModal(activeFolder)}
+                              title="Edit folder"
+                              type="button"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </button>
+                            <button
+                              aria-label={(activeFolder.status ?? 'active') === 'archived' ? 'Unarchive' : 'Archive'}
+                              className="flex h-9 w-9 items-center justify-center rounded-xl text-gray-500 transition-colors hover:bg-amber-50 hover:text-amber-600"
+                              disabled={updatingFolderStatusId === activeFolder.id}
+                              onClick={() => void handleArchiveToggle(activeFolder)}
+                              title={(activeFolder.status ?? 'active') === 'archived' ? 'Unarchive folder' : 'Archive folder'}
+                              type="button"
+                            >
+                              {(activeFolder.status ?? 'active') === 'archived'
+                                ? <ArchiveRestore className="h-4 w-4" />
+                                : <Archive className="h-4 w-4" />}
+                            </button>
+                            <button
+                              aria-label="Copy share link"
+                              className="flex h-9 w-9 items-center justify-center rounded-xl text-gray-500 transition-colors hover:bg-blue-50 hover:text-blue-600"
+                              onClick={() => copyFolderShareLink(activeFolder)}
+                              title="Copy marketplace link"
+                              type="button"
+                            >
+                              <Share2 className="h-4 w-4" />
+                            </button>
+                            <button
+                              aria-label="Folder notes"
+                              className={cn(
+                                'flex h-9 w-9 items-center justify-center rounded-xl transition-colors',
+                                isFolderNotesOpen
+                                  ? 'bg-yellow-100 text-yellow-700'
+                                  : 'text-gray-500 hover:bg-yellow-50 hover:text-yellow-600',
+                              )}
+                              onClick={() => {
+                                if (!isFolderNotesOpen) {
+                                  setEditingNotesValue(activeFolder.notes ?? '')
+                                  setNotesStatusMsg('')
+                                }
+                                setIsFolderNotesOpen((v) => !v)
+                              }}
+                              title="Folder notes"
+                              type="button"
+                            >
+                              <StickyNote className="h-4 w-4" />
+                            </button>
+                          </div>
+
+                          {/* Camera buttons */}
+                          <button
+                            className="inline-flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition-colors hover:bg-gray-50"
+                            onClick={() => rearCameraInputRef.current?.click()}
+                            type="button"
+                          >
+                            Rear camera
+                          </button>
+                          <button
+                            className="inline-flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition-colors hover:bg-gray-50"
+                            onClick={() => frontCameraInputRef.current?.click()}
+                            type="button"
+                          >
+                            Selfie
+                          </button>
+
+                          {/* Primary upload */}
+                          <button
+                            className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800"
+                            onClick={() => fileInputRef.current?.click()}
+                            type="button"
+                          >
+                            <Upload className="h-4 w-4" />
+                            Upload
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Stats strip */}
+                      <div className="grid grid-cols-4 border-t border-gray-100">
+                        {[
+                          { label: 'Photos', value: String(openedFolderPhotos.length) },
+                          {
+                            label: 'Storage',
+                            value: formatBytes(openedFolderPhotos.reduce((s, p) => s + (p.file_size_bytes ?? 0), 0)),
+                          },
+                          {
+                            label: 'GPS tagged',
+                            value: `${openedFolderPhotos.filter((p) => p.latitude != null).length} / ${openedFolderPhotos.length}`,
+                          },
+                          {
+                            label: 'Tagged',
+                            value: `${openedFolderPhotos.filter((p) => p.tags.length > 0).length} / ${openedFolderPhotos.length}`,
+                          },
+                        ].map(({ label, value }, i) => (
+                          <div
+                            key={label}
+                            className={cn('px-6 py-3', i > 0 && 'border-l border-gray-100')}
+                          >
+                            <p className="text-[11px] font-medium text-gray-400">{label}</p>
+                            <p className="text-sm font-bold text-gray-800">{value}</p>
+                          </div>
+                        ))}
                       </div>
                     </div>
 
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {activeFolder.type_of_place.map((value) => (
-                        <span key={`type-${value}`} className="rounded-full bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-700">
-                          {value}
-                        </span>
-                      ))}
-                      {activeFolder.tags.map((value) => (
-                        <span key={`tag-${value}`} className="rounded-full bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-700">
-                          {value}
-                        </span>
-                      ))}
-                    </div>
+                    {/* Notes panel (outside border-b strip) */}
+                    {isFolderNotesOpen ? (
+                      <div className="border-b border-yellow-200 bg-yellow-50 px-6 py-4">
+                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-yellow-700">Internal notes</p>
+                        <textarea
+                          className="w-full resize-none rounded-xl border border-yellow-200 bg-white px-4 py-2.5 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-yellow-300"
+                          onChange={(e) => setEditingNotesValue(e.target.value)}
+                          placeholder="Add shoot instructions, property details, retake reminders…"
+                          rows={3}
+                          value={editingNotesValue}
+                        />
+                        <div className="mt-2 flex items-center gap-3">
+                          <button
+                            className="rounded-xl bg-yellow-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-yellow-700 disabled:opacity-50"
+                            disabled={isSavingNotes}
+                            onClick={() => void handleSaveFolderNotes()}
+                            type="button"
+                          >
+                            {isSavingNotes ? 'Saving…' : 'Save notes'}
+                          </button>
+                          {notesStatusMsg ? (
+                            <span className={cn(
+                              'text-xs font-medium',
+                              notesStatusMsg === 'Saved' ? 'text-green-600' : 'text-red-600',
+                            )}>
+                              {notesStatusMsg}
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : null}
 
-                    <div className="mt-4">
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                          Photos in this folder · {openedFolderPhotos.length}
+                    <div className="p-6">
+                      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-gray-700">
+                          {openedFolderPhotos.length} photo{openedFolderPhotos.length !== 1 ? 's' : ''} in this folder
                         </p>
-                        <div className="flex items-center gap-1 rounded-full border border-gray-200 bg-white p-1">
-                          <button
-                            aria-label="Folder grid view"
-                            className={cn(
-                              'flex h-7 w-7 items-center justify-center rounded-full transition-colors',
-                              folderPhotosViewMode === 'grid'
-                                ? 'bg-[#c2e7ff] text-[#001d35]'
-                                : 'text-gray-400 hover:bg-gray-100',
-                            )}
-                            onClick={() => setFolderPhotosViewMode('grid')}
-                            type="button"
-                          >
-                            <Grid3X3 className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            aria-label="Folder list view"
-                            className={cn(
-                              'flex h-7 w-7 items-center justify-center rounded-full transition-colors',
-                              folderPhotosViewMode === 'list'
-                                ? 'bg-[#c2e7ff] text-[#001d35]'
-                                : 'text-gray-400 hover:bg-gray-100',
-                            )}
-                            onClick={() => setFolderPhotosViewMode('list')}
-                            type="button"
-                          >
-                            <List className="h-3.5 w-3.5" />
-                          </button>
+                        <div className="flex items-center gap-2">
+                          {isFolderBulkMode ? (
+                            <>
+                              <button
+                                className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50"
+                                disabled={selectedFolderPhotoIds.size === 0}
+                                onClick={() => openMoveModal([...selectedFolderPhotoIds])}
+                                type="button"
+                              >
+                                Move selected ({selectedFolderPhotoIds.size})
+                              </button>
+                              <button
+                                className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-600 transition-colors hover:bg-gray-50"
+                                onClick={() => {
+                                  setSelectedFolderPhotoIds(new Set())
+                                  setIsFolderBulkMode(false)
+                                }}
+                                type="button"
+                              >
+                                Cancel
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+                              onClick={() => setIsFolderBulkMode(true)}
+                              type="button"
+                            >
+                              <CheckSquare className="h-3.5 w-3.5" />
+                              Select
+                            </button>
+                          )}
+                          <div className="flex items-center gap-1 rounded-full border border-gray-200 bg-white p-1">
+                            <button
+                              aria-label="Folder grid view"
+                              className={cn(
+                                'flex h-7 w-7 items-center justify-center rounded-full transition-colors',
+                                folderPhotosViewMode === 'grid'
+                                  ? 'bg-[#c2e7ff] text-[#001d35]'
+                                  : 'text-gray-400 hover:bg-gray-100',
+                              )}
+                              onClick={() => setFolderPhotosViewMode('grid')}
+                              type="button"
+                            >
+                              <Grid3X3 className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              aria-label="Folder list view"
+                              className={cn(
+                                'flex h-7 w-7 items-center justify-center rounded-full transition-colors',
+                                folderPhotosViewMode === 'list'
+                                  ? 'bg-[#c2e7ff] text-[#001d35]'
+                                  : 'text-gray-400 hover:bg-gray-100',
+                              )}
+                              onClick={() => setFolderPhotosViewMode('list')}
+                              type="button"
+                            >
+                              <List className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
                         </div>
                       </div>
 
                       {openedFolderPhotos.length > 0 && folderPhotosViewMode === 'grid' ? (
                         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-                          {openedFolderPhotos.slice(0, 12).map((photo, index) => (
-                            <div
-                              key={photo.id}
-                              className="relative overflow-hidden rounded-xl border border-gray-100 bg-white"
-                            >
-                              <button
-                                aria-label={`Delete ${photo.original_file_name}`}
-                                className="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white transition-colors hover:bg-black/75"
-                                disabled={deletingPhotoIds.has(photo.id)}
-                                onClick={() => void handleDeleteDbPhoto(photo.id)}
-                                type="button"
+                          {openedFolderPhotos.map((photo, index) => {
+                            const isSelected = selectedFolderPhotoIds.has(photo.id)
+                            return (
+                              <div
+                                key={photo.id}
+                                className={cn(
+                                  'relative overflow-hidden rounded-xl border bg-white transition-all',
+                                  isFolderBulkMode && isSelected ? 'border-slate-900 ring-2 ring-slate-900' : 'border-gray-100',
+                                )}
                               >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                              <button
-                                className="w-full transition-all hover:opacity-95"
-                                onClick={() => openLightbox(openedFolderLightboxItems.slice(0, 12), index)}
-                                type="button"
-                              >
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  alt={photo.original_file_name}
-                                  className="aspect-square w-full object-cover"
-                                  src={photo.image_url}
-                                />
-                                {deletingPhotoIds.has(photo.id) ? (
-                                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/45">
-                                    <Spinner className="h-6 w-6 text-white" />
-                                    <span className="text-[11px] font-semibold text-white">Deleting...</span>
+                                {isFolderBulkMode ? (
+                                  <button
+                                    aria-label={`Select ${photo.original_file_name}`}
+                                    className={cn(
+                                      'absolute left-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full border-2',
+                                      isSelected ? 'border-slate-950 bg-slate-950 text-white' : 'border-white bg-black/35 text-transparent',
+                                    )}
+                                    onClick={() => toggleFolderPhotoSelection(photo.id)}
+                                    type="button"
+                                  >
+                                    <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                                      <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+                                    </svg>
+                                  </button>
+                                ) : (
+                                  <div className="absolute right-2 top-2 z-10 flex items-center gap-1">
+                                    <button
+                                      aria-label="Move photo to another folder"
+                                      className="flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white transition-colors hover:bg-black/75"
+                                      onClick={() => openMoveModal([photo.id])}
+                                      type="button"
+                                    >
+                                      <ArrowRight className="h-3.5 w-3.5" />
+                                    </button>
+                                    <button
+                                      aria-label={`Delete ${photo.original_file_name}`}
+                                      className="flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white transition-colors hover:bg-black/75"
+                                      disabled={deletingPhotoIds.has(photo.id)}
+                                      onClick={() => void handleDeleteDbPhoto(photo.id)}
+                                      type="button"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </button>
                                   </div>
-                                ) : null}
-                              </button>
-                            </div>
-                          ))}
+                                )}
+                                <button
+                                  className="w-full transition-all hover:opacity-95"
+                                  onClick={() => {
+                                    if (isFolderBulkMode) {
+                                      toggleFolderPhotoSelection(photo.id)
+                                      return
+                                    }
+                                    openLightbox(openedFolderLightboxItems, index)
+                                  }}
+                                  type="button"
+                                >
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
+                                    alt={photo.original_file_name}
+                                    className="aspect-square w-full object-cover"
+                                    src={photo.image_url}
+                                  />
+                                  {deletingPhotoIds.has(photo.id) ? (
+                                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/45">
+                                      <Spinner className="h-6 w-6 text-white" />
+                                      <span className="text-[11px] font-semibold text-white">Deleting...</span>
+                                    </div>
+                                  ) : null}
+                                </button>
+                              </div>
+                            )
+                          })}
                         </div>
                       ) : null}
 
                       {openedFolderPhotos.length > 0 && folderPhotosViewMode === 'list' ? (
                         <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white">
-                          <div className="grid grid-cols-[2.5rem_1.5fr_1fr_1fr_auto_auto] items-center gap-3 border-b border-gray-100 px-4 py-2.5">
+                          <div className="grid grid-cols-[2rem_2.5rem_1.5fr_1fr_1fr_auto_auto] items-center gap-3 border-b border-gray-100 px-4 py-2.5">
+                            {isFolderBulkMode ? <span className="text-xs text-gray-400">✓</span> : <span />}
                             <span />
                             <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">File</span>
                             <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">Date taken</span>
                             <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">Device</span>
                             <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">Size</span>
-                            <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">Action</span>
+                            <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">Actions</span>
                           </div>
-                          {openedFolderPhotos.map((photo, index) => (
-                            <div
-                              key={photo.id}
-                              className="grid grid-cols-[2.5rem_1.5fr_1fr_1fr_auto_auto] items-center gap-3 border-b border-gray-50 px-4 py-3 transition-colors last:border-0 hover:bg-gray-50"
-                            >
-                              <button
-                                aria-label={`View ${photo.original_file_name}`}
-                                className="h-10 w-10 overflow-hidden rounded-lg bg-gray-100"
-                                onClick={() => openLightbox(openedFolderLightboxItems, index)}
-                                type="button"
-                              >
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  alt={photo.original_file_name}
-                                  className="h-full w-full object-cover"
-                                  loading="lazy"
-                                  src={photo.image_url}
-                                />
-                              </button>
-                              <div className="min-w-0">
-                                <p className="truncate text-sm font-medium text-gray-800">{photo.original_file_name}</p>
-                                <p className="mt-0.5 truncate text-xs text-gray-400">
-                                  Uploaded {formatRelativeDate(photo.created_at)}
-                                </p>
-                              </div>
-                              <span className="truncate text-xs text-gray-500">{formatCaptureDate(photo.capture_date)}</span>
-                              <span className="truncate text-xs text-gray-500">{formatDeviceLabel(photo)}</span>
-                              <span className="shrink-0 text-xs text-gray-500">{formatBytes(photo.file_size_bytes)}</span>
-                              <button
-                                aria-label={`Delete ${photo.original_file_name}`}
-                                className="flex h-8 w-8 items-center justify-center rounded-full text-red-500 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:text-gray-300"
-                                disabled={deletingPhotoIds.has(photo.id)}
-                                onClick={() => void handleDeleteDbPhoto(photo.id)}
-                                type="button"
-                              >
-                                {deletingPhotoIds.has(photo.id) ? (
-                                  <Spinner className="h-4 w-4" />
-                                ) : (
-                                  <Trash2 className="h-4 w-4" />
+                          {openedFolderPhotos.map((photo, index) => {
+                            const isSelected = selectedFolderPhotoIds.has(photo.id)
+                            return (
+                              <div
+                                key={photo.id}
+                                className={cn(
+                                  'grid grid-cols-[2rem_2.5rem_1.5fr_1fr_1fr_auto_auto] items-center gap-3 border-b border-gray-50 px-4 py-3 transition-colors last:border-0',
+                                  isFolderBulkMode && isSelected ? 'bg-blue-50' : 'hover:bg-gray-50',
                                 )}
-                              </button>
-                            </div>
-                          ))}
+                              >
+                                {isFolderBulkMode ? (
+                                  <button
+                                    className={cn(
+                                      'flex h-5 w-5 items-center justify-center rounded border-2 transition-colors',
+                                      isSelected ? 'border-slate-950 bg-slate-950 text-white' : 'border-gray-300',
+                                    )}
+                                    onClick={() => toggleFolderPhotoSelection(photo.id)}
+                                    type="button"
+                                  >
+                                    {isSelected ? (
+                                      <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                                        <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+                                      </svg>
+                                    ) : null}
+                                  </button>
+                                ) : <span />}
+                                <button
+                                  aria-label={`View ${photo.original_file_name}`}
+                                  className="h-10 w-10 overflow-hidden rounded-lg bg-gray-100"
+                                  onClick={() => {
+                                    if (isFolderBulkMode) {
+                                      toggleFolderPhotoSelection(photo.id)
+                                      return
+                                    }
+                                    openLightbox(openedFolderLightboxItems, index)
+                                  }}
+                                  type="button"
+                                >
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
+                                    alt={photo.original_file_name}
+                                    className="h-full w-full object-cover"
+                                    loading="lazy"
+                                    src={photo.image_url}
+                                  />
+                                </button>
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-medium text-gray-800">{photo.original_file_name}</p>
+                                  <p className="mt-0.5 truncate text-xs text-gray-400">
+                                    Uploaded {formatRelativeDate(photo.created_at)}
+                                  </p>
+                                </div>
+                                <span className="truncate text-xs text-gray-500">{formatCaptureDate(photo.capture_date)}</span>
+                                <span className="truncate text-xs text-gray-500">{formatDeviceLabel(photo)}</span>
+                                <span className="shrink-0 text-xs text-gray-500">{formatBytes(photo.file_size_bytes)}</span>
+                                <div className="flex items-center gap-1">
+                                  {!isFolderBulkMode ? (
+                                    <button
+                                      aria-label="Move to another folder"
+                                      className="flex h-8 w-8 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-gray-100"
+                                      onClick={() => openMoveModal([photo.id])}
+                                      type="button"
+                                    >
+                                      <ArrowRight className="h-4 w-4" />
+                                    </button>
+                                  ) : null}
+                                  <button
+                                    aria-label={`Delete ${photo.original_file_name}`}
+                                    className="flex h-8 w-8 items-center justify-center rounded-full text-red-500 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:text-gray-300"
+                                    disabled={deletingPhotoIds.has(photo.id)}
+                                    onClick={() => void handleDeleteDbPhoto(photo.id)}
+                                    type="button"
+                                  >
+                                    {deletingPhotoIds.has(photo.id) ? (
+                                      <Spinner className="h-4 w-4" />
+                                    ) : (
+                                      <Trash2 className="h-4 w-4" />
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                            )
+                          })}
                         </div>
                       ) : null}
 
@@ -1792,21 +2583,26 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
 
               {/* Session uploads grid */}
               {activeFolder && uploadedImages.length > 0 ? (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-sm font-semibold text-gray-700">
-                      Upload queue · {uploadingCount} uploading · {uploadedImages.length} total in queue
-                    </h2>
+                <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+                  <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+                    <div>
+                      <h2 className="text-sm font-bold text-gray-900">Upload queue</h2>
+                      <p className="mt-0.5 text-xs text-gray-400">
+                        {uploadedImages.length} file{uploadedImages.length !== 1 ? 's' : ''}
+                        {uploadingCount > 0 ? ` · ${uploadingCount} uploading` : ''}
+                      </p>
+                    </div>
                     <button
-                      className="text-xs font-medium text-blue-600 underline-offset-2 hover:underline"
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800"
                       onClick={() => fileInputRef.current?.click()}
                       type="button"
                     >
+                      <Upload className="h-3.5 w-3.5" />
                       Add more
                     </button>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  <div className="grid grid-cols-2 gap-px bg-gray-100 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
                     {uploadedImages.map((image) => {
                       const hasGps =
                         image.metadata.latitude != null && image.metadata.longitude != null
@@ -1817,10 +2613,10 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                         <div
                           key={image.id}
                           className={cn(
-                            'overflow-hidden rounded-2xl border bg-white shadow-sm transition-all',
+                            'overflow-hidden bg-white transition-all',
                             selectedIds.has(image.id)
-                              ? 'border-slate-950 ring-2 ring-slate-950'
-                              : 'border-gray-100 hover:shadow-md',
+                              ? 'ring-2 ring-inset ring-slate-950'
+                              : '',
                           )}
                         >
                           <button
@@ -1938,35 +2734,125 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                     All photos uploaded by {user.fullName}
                   </p>
                 </div>
-                <div className="flex items-center gap-1 rounded-full border border-gray-200 bg-white p-1 shadow-sm">
+                <div className="flex items-center gap-2">
+                  {/* Bulk mode toggle */}
                   <button
-                    aria-label="Grid view"
                     className={cn(
-                      'flex h-8 w-8 items-center justify-center rounded-full transition-colors',
-                      photosViewMode === 'grid'
-                        ? 'bg-[#c2e7ff] text-[#001d35]'
-                        : 'text-gray-400 hover:bg-gray-100',
+                      'flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors',
+                      isBulkMode
+                        ? 'border-slate-950 bg-slate-950 text-white'
+                        : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50',
                     )}
-                    onClick={() => setPhotosViewMode('grid')}
+                    onClick={() => {
+                      setIsBulkMode((v) => !v)
+                      setSelectedDbPhotoIds(new Set())
+                    }}
                     type="button"
                   >
-                    <Grid3X3 className="h-4 w-4" />
+                    <CheckSquare className="h-3.5 w-3.5" />
+                    {isBulkMode ? 'Done' : 'Select'}
                   </button>
-                  <button
-                    aria-label="List view"
-                    className={cn(
-                      'flex h-8 w-8 items-center justify-center rounded-full transition-colors',
-                      photosViewMode === 'list'
-                        ? 'bg-[#c2e7ff] text-[#001d35]'
-                        : 'text-gray-400 hover:bg-gray-100',
-                    )}
-                    onClick={() => setPhotosViewMode('list')}
-                    type="button"
-                  >
-                    <List className="h-4 w-4" />
-                  </button>
+                  {/* View mode */}
+                  <div className="flex items-center gap-1 rounded-full border border-gray-200 bg-white p-1 shadow-sm">
+                    <button
+                      aria-label="Grid view"
+                      className={cn(
+                        'flex h-8 w-8 items-center justify-center rounded-full transition-colors',
+                        photosViewMode === 'grid'
+                          ? 'bg-[#c2e7ff] text-[#001d35]'
+                          : 'text-gray-400 hover:bg-gray-100',
+                      )}
+                      onClick={() => setPhotosViewMode('grid')}
+                      type="button"
+                    >
+                      <Grid3X3 className="h-4 w-4" />
+                    </button>
+                    <button
+                      aria-label="List view"
+                      className={cn(
+                        'flex h-8 w-8 items-center justify-center rounded-full transition-colors',
+                        photosViewMode === 'list'
+                          ? 'bg-[#c2e7ff] text-[#001d35]'
+                          : 'text-gray-400 hover:bg-gray-100',
+                      )}
+                      onClick={() => setPhotosViewMode('list')}
+                      type="button"
+                    >
+                      <List className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
+
+              {/* Filter bar */}
+              {!isLoadingPhotos && dbPhotos.length > 0 ? (
+                <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-gray-100 bg-white p-3 shadow-sm">
+                  <Filter className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+                  <span className="text-xs font-semibold text-gray-500">Filter:</span>
+
+                  {/* By folder */}
+                  <select
+                    className="h-8 rounded-lg border border-gray-200 bg-white px-2 text-xs text-gray-700 outline-none focus:ring-2 focus:ring-slate-300"
+                    onChange={(e) => setPhotosFilterFolderId(e.target.value)}
+                    value={photosFilterFolderId}
+                  >
+                    <option value="">All folders</option>
+                    <option value="__unassigned__">Unassigned</option>
+                    {folders.map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.folder_name}
+                      </option>
+                    ))}
+                  </select>
+
+                  {/* GPS only */}
+                  <button
+                    className={cn(
+                      'flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors',
+                      photosFilterGpsOnly
+                        ? 'border-emerald-400 bg-emerald-50 text-emerald-700'
+                        : 'border-gray-200 text-gray-600 hover:bg-gray-50',
+                    )}
+                    onClick={() => setPhotosFilterGpsOnly((v) => !v)}
+                    type="button"
+                  >
+                    <MapPin className="h-3 w-3" />
+                    GPS only
+                  </button>
+
+                  {/* Untagged */}
+                  <button
+                    className={cn(
+                      'rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors',
+                      photosFilterUntagged
+                        ? 'border-orange-400 bg-orange-50 text-orange-700'
+                        : 'border-gray-200 text-gray-600 hover:bg-gray-50',
+                    )}
+                    onClick={() => setPhotosFilterUntagged((v) => !v)}
+                    type="button"
+                  >
+                    Untagged
+                  </button>
+
+                  {hasPhotosFilters ? (
+                    <button
+                      className="ml-auto text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                      onClick={() => {
+                        setPhotosFilterFolderId('')
+                        setPhotosFilterGpsOnly(false)
+                        setPhotosFilterUntagged(false)
+                      }}
+                      type="button"
+                    >
+                      Clear filters
+                    </button>
+                  ) : null}
+
+                  <span className="ml-auto text-xs text-gray-400">
+                    {filteredDbPhotosWithFilters.length} of {dbPhotos.length}
+                  </span>
+                </div>
+              ) : null}
 
               {/* Stats row */}
               {!isLoadingPhotos && !photosError && dbPhotos.length > 0 ? (
@@ -2025,145 +2911,231 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
               ) : null}
 
               {/* Grid view */}
-              {!isLoadingPhotos && !photosError && filteredDbPhotos.length > 0 && photosViewMode === 'grid' ? (
+              {!isLoadingPhotos && !photosError && filteredDbPhotosWithFilters.length > 0 && photosViewMode === 'grid' ? (
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-                  {filteredDbPhotos.map((photo, index) => (
-                    <div
-                      key={photo.id}
-                      className="group overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition-shadow hover:shadow-md"
-                    >
-                      <button
-                        className="relative block aspect-square w-full overflow-hidden bg-gray-50 text-left"
-                        onClick={() => openLightbox(dbLightboxItems, index)}
-                        type="button"
+                  {filteredDbPhotosWithFilters.map((photo, index) => {
+                    const isSelected = selectedDbPhotoIds.has(photo.id)
+                    return (
+                      <div
+                        key={photo.id}
+                        className={cn(
+                          'group relative overflow-hidden rounded-2xl border bg-white shadow-sm transition-all',
+                          isSelected ? 'border-slate-950 ring-2 ring-slate-950' : 'border-gray-100 hover:shadow-md',
+                        )}
                       >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          alt={photo.original_file_name}
-                          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                          loading="lazy"
-                          src={photo.image_url}
-                        />
-                        {photo.latitude != null ? (
-                          <span className="absolute bottom-2 left-2 flex items-center gap-0.5 rounded-full bg-black/50 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
-                            <MapPin className="h-2.5 w-2.5" />
-                            GPS
-                          </span>
-                        ) : null}
-                      </button>
-                      <div className="p-2.5">
-                        <p
-                          className="truncate text-xs font-medium text-gray-800"
-                          title={photo.original_file_name}
+                        <button
+                          className="relative block aspect-square w-full overflow-hidden bg-gray-50 text-left"
+                          onClick={() => {
+                            if (isBulkMode) { toggleDbPhotoSelection(photo.id) } else {
+                              openLightbox(dbLightboxItems, index)
+                            }
+                          }}
+                          type="button"
                         >
-                          {photo.original_file_name}
-                        </p>
-                        <p className="mt-0.5 text-[11px] text-gray-400">
-                          {formatRelativeDate(photo.created_at)}
-                        </p>
-                        {photo.place_name ? (
-                          <p className="mt-1 flex items-center gap-1 truncate text-[11px] font-medium text-orange-600">
-                            <MapPin className="h-2.5 w-2.5 shrink-0" />
-                            {photo.place_name}
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            alt={photo.original_file_name}
+                            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                            loading="lazy"
+                            src={photo.image_url}
+                          />
+                          {photo.latitude != null ? (
+                            <span className="absolute bottom-2 left-2 flex items-center gap-0.5 rounded-full bg-black/50 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
+                              <MapPin className="h-2.5 w-2.5" />
+                              GPS
+                            </span>
+                          ) : null}
+                          {isBulkMode ? (
+                            <div className={cn(
+                              'absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full border-2',
+                              isSelected ? 'border-slate-950 bg-slate-950' : 'border-white bg-black/30',
+                            )}>
+                              {isSelected ? (
+                                <svg className="h-3 w-3 text-white" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                                  <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </button>
+                        <div className="p-2.5">
+                          <p className="truncate text-xs font-medium text-gray-800" title={photo.original_file_name}>
+                            {photo.original_file_name}
                           </p>
-                        ) : null}
-                        {photo.tags.length > 0 ? (
-                          <div className="mt-1.5 flex flex-wrap gap-1">
-                            {photo.tags.slice(0, 2).map((tag) => (
-                              <span
-                                key={tag}
-                                className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600"
+                          <p className="mt-0.5 text-[11px] text-gray-400">{formatRelativeDate(photo.created_at)}</p>
+                          {photo.place_name ? (
+                            <p className="mt-1 flex items-center gap-1 truncate text-[11px] font-medium text-orange-600">
+                              <MapPin className="h-2.5 w-2.5 shrink-0" />
+                              {photo.place_name}
+                            </p>
+                          ) : null}
+                          {photo.tags.length > 0 ? (
+                            <div className="mt-1.5 flex flex-wrap gap-1">
+                              {photo.tags.slice(0, 2).map((tag) => (
+                                <span key={tag} className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">{tag}</span>
+                              ))}
+                              {photo.tags.length > 2 ? (
+                                <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-400">+{photo.tags.length - 2}</span>
+                              ) : null}
+                            </div>
+                          ) : null}
+                          {/* Per-photo actions */}
+                          {!isBulkMode ? (
+                            <div className="mt-2 flex items-center justify-end gap-1">
+                              <button
+                                aria-label="Move to folder"
+                                className="flex h-6 w-6 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
+                                onClick={() => openMoveModal([photo.id])}
+                                title="Move to folder"
+                                type="button"
                               >
-                                {tag}
-                              </span>
-                            ))}
-                            {photo.tags.length > 2 ? (
-                              <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-400">
-                                +{photo.tags.length - 2}
-                              </span>
-                            ) : null}
-                          </div>
-                        ) : null}
+                                <ArrowRight className="h-3 w-3" />
+                              </button>
+                              <button
+                                aria-label="Download"
+                                className="flex h-6 w-6 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
+                                onClick={() => void downloadPhoto(photo.image_url, photo.original_file_name)}
+                                title="Download photo"
+                                type="button"
+                              >
+                                <Download className="h-3 w-3" />
+                              </button>
+                              <button
+                                aria-label={`Delete ${photo.original_file_name}`}
+                                className="flex h-6 w-6 items-center justify-center rounded-full text-red-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:text-gray-200"
+                                disabled={deletingPhotoIds.has(photo.id)}
+                                onClick={() => void handleDeleteDbPhoto(photo.id)}
+                                title="Delete"
+                                type="button"
+                              >
+                                {deletingPhotoIds.has(photo.id) ? <Spinner className="h-3 w-3" /> : <Trash2 className="h-3 w-3" />}
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               ) : null}
 
               {/* List view */}
-              {!isLoadingPhotos && !photosError && filteredDbPhotos.length > 0 && photosViewMode === 'list' ? (
+              {!isLoadingPhotos && !photosError && filteredDbPhotosWithFilters.length > 0 && photosViewMode === 'list' ? (
                 <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-                  <div className="grid grid-cols-[2.5rem_1fr_auto_auto] items-center gap-3 border-b border-gray-100 px-4 py-2.5">
+                  <div className="grid grid-cols-[2rem_2.5rem_1fr_auto_auto_auto] items-center gap-3 border-b border-gray-100 px-4 py-2.5">
+                    {isBulkMode ? <span className="text-xs text-gray-400">✓</span> : <span />}
                     <span />
                     <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">File name</span>
                     <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">Size</span>
                     <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">Date</span>
+                    <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">Actions</span>
                   </div>
-                  {filteredDbPhotos.map((photo, index) => (
-                    <div
-                      key={photo.id}
-                      className="grid grid-cols-[2.5rem_1fr_auto_auto] items-center gap-3 border-b border-gray-50 px-4 py-3 transition-colors last:border-0 hover:bg-gray-50"
-                    >
-                      <button
-                        aria-label={`View ${photo.original_file_name}`}
-                        className="h-10 w-10 overflow-hidden rounded-lg bg-gray-100"
-                        onClick={() => openLightbox(dbLightboxItems, index)}
-                        type="button"
+                  {filteredDbPhotosWithFilters.map((photo, index) => {
+                    const isSelected = selectedDbPhotoIds.has(photo.id)
+                    return (
+                      <div
+                        key={photo.id}
+                        className={cn(
+                          'grid grid-cols-[2rem_2.5rem_1fr_auto_auto_auto] items-center gap-3 border-b border-gray-50 px-4 py-3 transition-colors last:border-0',
+                          isBulkMode && isSelected ? 'bg-blue-50' : 'hover:bg-gray-50',
+                        )}
                       >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          alt={photo.original_file_name}
-                          className="h-full w-full object-cover"
-                          loading="lazy"
-                          src={photo.image_url}
-                        />
-                      </button>
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-gray-800">
-                          {photo.original_file_name}
-                        </p>
-                        <div className="mt-0.5 flex flex-wrap items-center gap-2">
-                          {photo.place_name ? (
-                            <span className="flex items-center gap-0.5 text-xs text-orange-500">
-                              <MapPin className="h-3 w-3" />
-                              {photo.place_name}
-                            </span>
-                          ) : null}
-                          {photo.tags.slice(0, 2).map((tag) => (
-                            <span
-                              key={tag}
-                              className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500"
-                            >
-                              {tag}
-                            </span>
-                          ))}
+                        {/* Select checkbox */}
+                        {isBulkMode ? (
+                          <button
+                            className={cn(
+                              'flex h-5 w-5 items-center justify-center rounded border-2 transition-colors',
+                              isSelected ? 'border-slate-950 bg-slate-950' : 'border-gray-300',
+                            )}
+                            onClick={() => toggleDbPhotoSelection(photo.id)}
+                            type="button"
+                          >
+                            {isSelected ? (
+                              <svg className="h-3 w-3 text-white" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                                <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            ) : null}
+                          </button>
+                        ) : <span />}
+
+                        <button
+                          aria-label={`View ${photo.original_file_name}`}
+                          className="h-10 w-10 overflow-hidden rounded-lg bg-gray-100"
+                          onClick={() => openLightbox(dbLightboxItems, index)}
+                          type="button"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img alt={photo.original_file_name} className="h-full w-full object-cover" loading="lazy" src={photo.image_url} />
+                        </button>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-gray-800">{photo.original_file_name}</p>
+                          <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                            {photo.place_name ? (
+                              <span className="flex items-center gap-0.5 text-xs text-orange-500">
+                                <MapPin className="h-3 w-3" />
+                                {photo.place_name}
+                              </span>
+                            ) : null}
+                            {photo.tags.slice(0, 2).map((tag) => (
+                              <span key={tag} className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">{tag}</span>
+                            ))}
+                          </div>
+                        </div>
+                        <span className="shrink-0 text-xs text-gray-400">{formatBytes(photo.file_size_bytes)}</span>
+                        <span className="shrink-0 text-xs text-gray-400">{formatRelativeDate(photo.created_at)}</span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            aria-label="Move to folder"
+                            className="flex h-7 w-7 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
+                            onClick={() => openMoveModal([photo.id])}
+                            title="Move to folder"
+                            type="button"
+                          >
+                            <ArrowRight className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            aria-label="Download"
+                            className="flex h-7 w-7 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
+                            onClick={() => void downloadPhoto(photo.image_url, photo.original_file_name)}
+                            title="Download"
+                            type="button"
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            aria-label={`Delete ${photo.original_file_name}`}
+                            className="flex h-7 w-7 items-center justify-center rounded-full text-red-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:text-gray-200"
+                            disabled={deletingPhotoIds.has(photo.id)}
+                            onClick={() => void handleDeleteDbPhoto(photo.id)}
+                            type="button"
+                          >
+                            {deletingPhotoIds.has(photo.id) ? <Spinner className="h-3.5 w-3.5" /> : <Trash2 className="h-3.5 w-3.5" />}
+                          </button>
                         </div>
                       </div>
-                      <span className="shrink-0 text-xs text-gray-400">
-                        {formatBytes(photo.file_size_bytes)}
-                      </span>
-                      <span className="shrink-0 text-xs text-gray-400">
-                        {formatRelativeDate(photo.created_at)}
-                      </span>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               ) : null}
 
-              {/* Search no-results */}
-              {!isLoadingPhotos && !photosError && dbPhotos.length > 0 && filteredDbPhotos.length === 0 ? (
+              {/* Search / filter no-results */}
+              {!isLoadingPhotos && !photosError && dbPhotos.length > 0 && filteredDbPhotosWithFilters.length === 0 ? (
                 <div className="flex flex-col items-center justify-center gap-3 py-20">
                   <Search className="h-10 w-10 text-gray-200" />
                   <p className="text-sm text-gray-400">
-                    No photos match &ldquo;
-                    <span className="font-medium text-gray-600">{searchQuery}</span>&rdquo;
+                    No photos match the current search or filters.
                   </p>
                   <button
                     className="text-sm text-blue-600 hover:underline"
-                    onClick={() => setSearchQuery('')}
+                    onClick={() => {
+                      setSearchQuery('')
+                      setPhotosFilterFolderId('')
+                      setPhotosFilterGpsOnly(false)
+                      setPhotosFilterUntagged(false)
+                    }}
                     type="button"
                   >
-                    Clear search
+                    Clear all filters
                   </button>
                 </div>
               ) : null}
@@ -2172,7 +3144,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
         </main>
       </div>
 
-      {/* ─── Floating selection bar ───────────────────────────────────────────── */}
+      {/* ─── Floating selection bar (upload queue) ───────────────────────────── */}
       {selectedIds.size > 0 ? (
         <div className="pointer-events-none fixed bottom-6 left-0 right-0 z-50 flex justify-center px-4">
           <div className="pointer-events-auto flex items-center gap-3 rounded-2xl bg-slate-950 px-5 py-3 shadow-2xl">
@@ -2198,6 +3170,42 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
         </div>
       ) : null}
 
+      {/* ─── Floating bulk bar (My Photos) ───────────────────────────────────── */}
+      {isBulkMode && selectedDbPhotoIds.size > 0 ? (
+        <div className="pointer-events-none fixed bottom-6 left-0 right-0 z-50 flex justify-center px-4">
+          <div className="pointer-events-auto flex items-center gap-3 rounded-2xl bg-slate-950 px-5 py-3 shadow-2xl">
+            <span className="text-sm font-medium text-white">
+              {selectedDbPhotoIds.size} selected
+            </span>
+            <div className="h-4 w-px bg-white/20" />
+            <button
+              className="flex items-center gap-1.5 rounded-xl bg-white px-4 py-1.5 text-sm font-semibold text-slate-950 transition-colors hover:bg-white/90"
+              onClick={() => openMoveModal([...selectedDbPhotoIds])}
+              type="button"
+            >
+              <ArrowRight className="h-3.5 w-3.5" />
+              Move to folder
+            </button>
+            <button
+              className="flex items-center gap-1.5 rounded-xl bg-red-500 px-4 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-red-600 disabled:opacity-50"
+              disabled={isBulkDeleting}
+              onClick={() => void handleBulkDeleteDbPhotos()}
+              type="button"
+            >
+              {isBulkDeleting ? <Spinner className="h-3.5 w-3.5" /> : <Trash2 className="h-3.5 w-3.5" />}
+              Delete selected
+            </button>
+            <button
+              className="text-sm font-medium text-white/60 transition-colors hover:text-white"
+              onClick={() => { setSelectedDbPhotoIds(new Set()); setIsBulkMode(false) }}
+              type="button"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {/* ─── Folder modal ─────────────────────────────────────────────────────── */}
       <Dialog
         open={isFolderModalOpen}
@@ -2211,9 +3219,13 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
         >
           <div className="flex items-center justify-between border-b border-border/60 bg-white px-6 py-4">
             <div>
-              <DialogTitle className="text-lg font-semibold leading-tight">New Folder Location</DialogTitle>
+              <DialogTitle className="text-lg font-semibold leading-tight">
+                {folderModalMode === 'edit' ? 'Edit Folder Location' : 'New Folder Location'}
+              </DialogTitle>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                Create a location folder to group and auto-tag uploads
+                {folderModalMode === 'edit'
+                  ? 'Update this folder’s name, address, and classification'
+                  : 'Create a location folder to group and auto-tag uploads'}
               </p>
             </div>
             <button
@@ -2242,7 +3254,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                       className="h-12 w-full rounded-xl border border-border/70 bg-white px-4 pr-11 text-sm text-foreground shadow-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-slate-950"
                       id="folder-name-input"
                       onChange={(e) => setFolderName(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') void handleCreateFolder() }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { folderModalMode === 'edit' ? void handleUpdateFolder() : void handleCreateFolder() } }}
                       placeholder="e.g. Lahug Condo Exterior"
                       type="text"
                       value={folderName}
@@ -2283,6 +3295,16 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                       <Spinner className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     ) : null}
                   </div>
+
+                  <button
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border/70 bg-white px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-muted/30 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={isSearchingFolderAddress}
+                    onClick={() => void handleUseCurrentLocationForFolder()}
+                    type="button"
+                  >
+                    <MapPin className="h-3.5 w-3.5" />
+                    Use my location
+                  </button>
 
                   {folderAddressSuggestions.length > 0 ? (
                     <ul className="mt-1 overflow-hidden rounded-xl border border-border/70 bg-white shadow-md">
@@ -2364,10 +3386,12 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
               <button
                 className="flex-1 rounded-xl bg-slate-950 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
                 disabled={!folderName.trim() || isSavingFolder}
-                onClick={() => void handleCreateFolder()}
+                onClick={() => folderModalMode === 'edit' ? void handleUpdateFolder() : void handleCreateFolder()}
                 type="button"
               >
-                {isSavingFolder ? 'Saving...' : 'Create folder'}
+                {isSavingFolder
+                  ? (folderModalMode === 'edit' ? 'Saving…' : 'Creating…')
+                  : (folderModalMode === 'edit' ? 'Save changes' : 'Create folder')}
               </button>
             </div>
           </div>
@@ -2431,9 +3455,19 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                     <p className="truncate text-xs text-white/70">{currentLightboxImage.subtitle}</p>
                   ) : null}
                 </div>
-                <p className="shrink-0 text-xs text-white/70">
-                  {(lightboxIndex ?? 0) + 1} / {lightboxImages.length}
-                </p>
+                <div className="flex items-center gap-3">
+                  <button
+                    className="inline-flex items-center gap-1 rounded-lg bg-white/10 px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-white/20"
+                    onClick={() => void downloadPhoto(currentLightboxImage.src, currentLightboxImage.alt)}
+                    type="button"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Download
+                  </button>
+                  <p className="shrink-0 text-xs text-white/70">
+                    {(lightboxIndex ?? 0) + 1} / {lightboxImages.length}
+                  </p>
+                </div>
               </div>
             </div>
           ) : null}
@@ -2623,6 +3657,213 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                 Save tags
               </button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Folder delete confirm modal ─────────────────────────────────────── */}
+      <Dialog
+        open={deleteFolderTarget != null}
+        onOpenChange={(open) => {
+          if (!open) { setDeleteFolderTarget(null); setDeleteFolderError('') }
+        }}
+      >
+        <DialogContent
+          className="rounded-3xl p-0 sm:max-w-md"
+          showCloseButton={false}
+        >
+          {/* Warning header */}
+          <div className="flex items-start gap-4 border-b border-gray-100 px-6 py-5">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-red-100">
+              <AlertTriangle className="h-6 w-6 text-red-600" />
+            </div>
+            <div>
+              <DialogTitle className="text-base font-bold text-gray-900">
+                Delete &ldquo;{deleteFolderTarget?.folder_name}&rdquo;?
+              </DialogTitle>
+              <p className="mt-1 text-sm text-gray-500">
+                This action cannot be undone. Choose what happens to the photos inside.
+              </p>
+            </div>
+          </div>
+
+          <div className="px-6 py-5 space-y-3">
+            <label className={cn(
+              'flex cursor-pointer items-start gap-4 rounded-2xl border-2 p-4 transition-colors',
+              deleteFolderOption === 'unfile' ? 'border-slate-950 bg-slate-50' : 'border-gray-100 hover:border-gray-200 hover:bg-gray-50',
+            )}>
+              <input
+                checked={deleteFolderOption === 'unfile'}
+                className="mt-1"
+                onChange={() => setDeleteFolderOption('unfile')}
+                type="radio"
+              />
+              <div>
+                <p className="text-sm font-bold text-gray-800">Keep photos (unassign)</p>
+                <p className="mt-0.5 text-xs text-gray-500">
+                  Photos stay in My Photos but are no longer grouped under this folder.
+                </p>
+              </div>
+            </label>
+
+            <label className={cn(
+              'flex cursor-pointer items-start gap-4 rounded-2xl border-2 p-4 transition-colors',
+              deleteFolderOption === 'delete-all' ? 'border-red-500 bg-red-50' : 'border-gray-100 hover:border-gray-200 hover:bg-red-50/30',
+            )}>
+              <input
+                checked={deleteFolderOption === 'delete-all'}
+                className="mt-1"
+                onChange={() => setDeleteFolderOption('delete-all')}
+                type="radio"
+              />
+              <div>
+                <p className="text-sm font-bold text-red-700">Delete folder + all photos</p>
+                <p className="mt-0.5 text-xs text-gray-500">
+                  Permanently deletes {deleteFolderTarget ? (folderPhotoCountById[deleteFolderTarget.id] ?? 0) : 0} photo(s) and their storage files. Cannot be undone.
+                </p>
+              </div>
+            </label>
+
+            {deleteFolderError ? (
+              <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-medium text-red-700">
+                {deleteFolderError}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="flex gap-3 border-t border-gray-100 px-6 py-4">
+            <button
+              className="flex-1 rounded-2xl border border-gray-200 py-3 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+              onClick={() => { setDeleteFolderTarget(null); setDeleteFolderError('') }}
+              type="button"
+            >
+              Cancel
+            </button>
+            <button
+              className={cn(
+                'flex-1 rounded-2xl py-3 text-sm font-semibold text-white transition-colors disabled:opacity-40',
+                deleteFolderOption === 'delete-all' ? 'bg-red-600 hover:bg-red-700' : 'bg-slate-950 hover:bg-slate-800',
+              )}
+              disabled={isDeletingFolder}
+              onClick={() => void handleDeleteFolder()}
+              type="button"
+            >
+              {isDeletingFolder ? 'Deleting…' : deleteFolderOption === 'delete-all' ? 'Delete folder & photos' : 'Delete folder'}
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Move photo(s) to folder modal ───────────────────────────────────── */}
+      <Dialog
+        open={isMoveModalOpen}
+        onOpenChange={(open) => {
+          if (!open) { setIsMoveModalOpen(false); setMoveModalTargetIds([]); setMoveTargetFolderId('') }
+        }}
+      >
+        <DialogContent
+          className="flex flex-col rounded-3xl p-0 sm:max-w-md"
+          showCloseButton={false}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between border-b border-gray-100 px-6 py-5">
+            <div>
+              <DialogTitle className="text-base font-bold text-gray-900">
+                Move {moveModalTargetIds.length} photo{moveModalTargetIds.length !== 1 ? 's' : ''}
+              </DialogTitle>
+              <p className="mt-0.5 text-xs text-gray-400">Choose destination folder</p>
+            </div>
+            <button
+              aria-label="Close"
+              className="flex h-8 w-8 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100"
+              onClick={() => { setIsMoveModalOpen(false); setMoveModalTargetIds([]); setMoveTargetFolderId('') }}
+              type="button"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          {/* Scrollable folder list */}
+          <div className="max-h-80 overflow-y-auto px-3 py-3">
+            {/* Unassign option */}
+            <button
+              className={cn(
+                'flex w-full items-center gap-4 rounded-2xl px-4 py-3 text-left transition-colors',
+                moveTargetFolderId === '__unfile__' ? 'bg-slate-950 text-white' : 'hover:bg-gray-50',
+              )}
+              onClick={() => setMoveTargetFolderId('__unfile__')}
+              type="button"
+            >
+              <div className={cn(
+                'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl',
+                moveTargetFolderId === '__unfile__' ? 'bg-white/20' : 'bg-gray-100',
+              )}>
+                <FolderOpen className={cn('h-5 w-5', moveTargetFolderId === '__unfile__' ? 'text-white' : 'text-gray-400')} />
+              </div>
+              <span className={cn('text-sm font-semibold', moveTargetFolderId === '__unfile__' ? 'text-white' : 'text-gray-700')}>
+                Remove from folder
+              </span>
+              {moveTargetFolderId === '__unfile__' ? (
+                <span className="ml-auto text-white">✓</span>
+              ) : null}
+            </button>
+
+            {activeFolders.length > 0 ? (
+              <div className="mt-1 space-y-px">
+                {activeFolders.map((folder) => {
+                  const selected = moveTargetFolderId === folder.id
+                  const count = folderPhotoCountById[folder.id] ?? 0
+                  return (
+                    <button
+                      key={folder.id}
+                      className={cn(
+                        'flex w-full items-center gap-4 rounded-2xl px-4 py-3 text-left transition-colors',
+                        selected ? 'bg-slate-950 text-white' : 'hover:bg-gray-50',
+                      )}
+                      onClick={() => setMoveTargetFolderId(folder.id)}
+                      type="button"
+                    >
+                      <div className={cn(
+                        'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl',
+                        selected ? 'bg-white/20' : 'bg-amber-50',
+                      )}>
+                        <Folder className={cn('h-5 w-5', selected ? 'text-white' : 'text-amber-600')} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className={cn('truncate text-sm font-semibold', selected ? 'text-white' : 'text-gray-800')}>
+                          {folder.folder_name}
+                        </p>
+                        <p className={cn('truncate text-xs', selected ? 'text-white/70' : 'text-gray-400')}>
+                          {count} photo{count !== 1 ? 's' : ''}{folder.city ? ` · ${folder.city}` : ''}
+                        </p>
+                      </div>
+                      {selected ? <span className="ml-auto shrink-0 text-white">✓</span> : null}
+                    </button>
+                  )
+                })}
+              </div>
+            ) : (
+              <p className="py-6 text-center text-sm text-gray-400">No active folders available.</p>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="flex gap-3 border-t border-gray-100 px-6 py-4">
+            <button
+              className="flex-1 rounded-2xl border border-gray-200 py-3 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+              onClick={() => { setIsMoveModalOpen(false); setMoveModalTargetIds([]); setMoveTargetFolderId('') }}
+              type="button"
+            >
+              Cancel
+            </button>
+            <button
+              className="flex-1 rounded-2xl bg-slate-950 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:opacity-40"
+              disabled={!moveTargetFolderId || isMoveSubmitting}
+              onClick={() => void handleMovePhotos()}
+              type="button"
+            >
+              {isMoveSubmitting ? 'Moving…' : 'Move here'}
+            </button>
           </div>
         </DialogContent>
       </Dialog>
