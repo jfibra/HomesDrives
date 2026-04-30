@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import {
   createSupabaseAdminClient,
   deleteImageObject,
+  movePhotoToFolder,
   updateAlbumPhotoTags,
 } from '@/lib/server/albums'
 
@@ -55,6 +56,30 @@ export async function PATCH(
   try {
     const { id } = await context.params
     const body = await request.json()
+
+    // ── Move photo to a different folder ──────────────────────────────────────
+    if (body?.action === 'move') {
+      const uploaderCode =
+        typeof body?.uploaderCode === 'string' && body.uploaderCode.trim()
+          ? body.uploaderCode.trim()
+          : null
+
+      if (!uploaderCode) {
+        return NextResponse.json({ error: 'Missing uploaderCode.' }, { status: 400 })
+      }
+
+      const targetFolderId =
+        body?.targetFolderId === null
+          ? null
+          : typeof body?.targetFolderId === 'string' && body.targetFolderId.trim()
+            ? body.targetFolderId.trim()
+            : null
+
+      const photo = await movePhotoToFolder({ photoId: id, targetFolderId, uploaderCode })
+      return NextResponse.json({ photo })
+    }
+
+    // ── Update photo tags / location metadata ─────────────────────────────────
     const city = typeof body?.city === 'string' && body.city.trim() ? body.city.trim() : null
     const country =
       typeof body?.country === 'string' && body.country.trim() ? body.country.trim() : null
