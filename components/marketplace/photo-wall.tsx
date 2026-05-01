@@ -9,133 +9,60 @@ type PhotoWallProps = {
 }
 
 function formatDate(value: string | null) {
-  if (!value) {
-    return 'Unknown date'
-  }
-
+  if (!value) return 'Unknown date'
   const date = new Date(value)
-
-  if (Number.isNaN(date.getTime())) {
-    return 'Unknown date'
-  }
-
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  }).format(date)
-}
-
-function wallTileClass(index: number) {
-  const pattern = index % 12
-
-  if (pattern === 0) {
-    return 'md:col-span-8 md:row-span-2 lg:col-span-6'
-  }
-  if (pattern === 1) {
-    return 'md:col-span-4 md:row-span-1 lg:col-span-3'
-  }
-  if (pattern === 2) {
-    return 'md:col-span-4 md:row-span-1 lg:col-span-3'
-  }
-  if (pattern === 3) {
-    return 'md:col-span-6 md:row-span-2 lg:col-span-4'
-  }
-  if (pattern === 4) {
-    return 'md:col-span-6 md:row-span-1 lg:col-span-4'
-  }
-  if (pattern === 5) {
-    return 'md:col-span-6 md:row-span-1 lg:col-span-4'
-  }
-  if (pattern === 6) {
-    return 'md:col-span-4 md:row-span-2 lg:col-span-3'
-  }
-  if (pattern === 7) {
-    return 'md:col-span-8 md:row-span-1 lg:col-span-6'
-  }
-  if (pattern === 8) {
-    return 'md:col-span-4 md:row-span-1 lg:col-span-3'
-  }
-  if (pattern === 9) {
-    return 'md:col-span-4 md:row-span-1 lg:col-span-3'
-  }
-  if (pattern === 10) {
-    return 'md:col-span-6 md:row-span-1 lg:col-span-4'
-  }
-
-  return 'md:col-span-6 md:row-span-2 lg:col-span-4'
+  if (Number.isNaN(date.getTime())) return 'Unknown date'
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(date)
 }
 
 export default function PhotoWall({ photos }: PhotoWallProps) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null)
 
-  const activePhoto = useMemo(() => {
-    if (activeIndex == null) {
-      return null
-    }
+  const activePhoto = useMemo(
+    () => (activeIndex != null ? (photos[activeIndex] ?? null) : null),
+    [activeIndex, photos],
+  )
 
-    return photos[activeIndex] ?? null
-  }, [activeIndex, photos])
-
-  function openLightbox(index: number) {
-    setActiveIndex(index)
-  }
-
-  function closeLightbox() {
-    setActiveIndex(null)
-  }
+  function closeLightbox() { setActiveIndex(null) }
 
   function goToPrevious() {
-    if (activeIndex == null) {
-      return
-    }
-
-    setActiveIndex((activeIndex - 1 + photos.length) % photos.length)
+    setActiveIndex((i) => (i == null ? null : (i - 1 + photos.length) % photos.length))
   }
 
   function goToNext() {
-    if (activeIndex == null) {
-      return
-    }
-
-    setActiveIndex((activeIndex + 1) % photos.length)
+    setActiveIndex((i) => (i == null ? null : (i + 1) % photos.length))
   }
 
   useEffect(() => {
-    if (activeIndex == null) {
-      return
-    }
-
-    const previousOverflow = document.body.style.overflow
+    if (activeIndex == null) return
+    const prev = document.body.style.overflow
     document.body.style.overflow = 'hidden'
-
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        closeLightbox()
-      }
-
-      if (event.key === 'ArrowLeft') {
-        goToPrevious()
-      }
-
-      if (event.key === 'ArrowRight') {
-        goToNext()
-      }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') closeLightbox()
+      if (e.key === 'ArrowLeft') goToPrevious()
+      if (e.key === 'ArrowRight') goToNext()
     }
-
     window.addEventListener('keydown', onKeyDown)
-
     return () => {
-      document.body.style.overflow = previousOverflow
+      document.body.style.overflow = prev
       window.removeEventListener('keydown', onKeyDown)
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeIndex])
 
   if (photos.length === 0) {
     return (
-      <div className="rounded-3xl border border-dashed border-[#001f3f]/20 bg-[#001f3f]/[0.02] p-14 text-center">
-        <h2 className="text-4xl font-semibold text-[#001f3f]">No photos found</h2>
-        <p className="mt-2 text-sm text-[#001f3f]/70">
+      <div
+        className="py-24 text-center rounded-xl border border-dashed"
+        style={{ borderColor: '#c4c6cf' }}
+      >
+        <p
+          className="text-3xl font-semibold mb-2"
+          style={{ fontFamily: "'Noto Serif', serif", color: '#002045' }}
+        >
+          No photos found
+        </p>
+        <p className="text-sm" style={{ color: '#74777f' }}>
           Try a broader search term or clear one of the active filters.
         </p>
       </div>
@@ -144,48 +71,81 @@ export default function PhotoWall({ photos }: PhotoWallProps) {
 
   return (
     <>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-12 md:[grid-auto-rows:170px] lg:gap-4 lg:[grid-auto-rows:200px]">
+      {/*
+        CSS columns masonry — each image renders at its natural aspect ratio.
+        No fixed row heights means zero whitespace gaps between images.
+      */}
+      <div
+        className="columns-1 sm:columns-2 lg:columns-3"
+        style={{ columnGap: '12px' }}
+      >
         {photos.map((photo, index) => (
           <button
-            className={`group relative overflow-hidden rounded-2xl border border-[#001f3f]/10 bg-white text-left shadow-[0_35px_70px_-55px_rgba(0,31,63,0.9)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_40px_75px_-45px_rgba(0,31,63,0.9)] focus-visible:outline-2 focus-visible:outline-[#c1121f] ${wallTileClass(index)}`}
             key={photo.id}
-            onClick={() => openLightbox(index)}
+            className="break-inside-avoid group relative block w-full overflow-hidden rounded-xl border cursor-pointer text-left focus-visible:outline-2"
+            style={{
+              marginBottom: '12px',
+              borderColor: '#c4c6cf',
+              outlineColor: '#b52426',
+            }}
+            onClick={() => setActiveIndex(index)}
             type="button"
           >
+            {/* img with h-auto fills the column width and respects natural aspect ratio */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               alt={photo.original_file_name}
-              className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]"
+              className="w-full h-auto block transition-transform duration-700 group-hover:scale-[1.04]"
               loading="lazy"
               src={photo.image_url}
             />
-            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#001f3f]/80 via-[#001f3f]/20 to-transparent opacity-80 transition-opacity duration-300 group-hover:opacity-100" />
-            <div className="absolute bottom-0 left-0 right-0 space-y-1 p-4 text-white">
-              <p className="line-clamp-1 text-sm font-semibold">{photo.original_file_name}</p>
-              <p className="line-clamp-1 text-xs text-white/80">
-                {photo.uploader_name} •{' '}
-                {[photo.place_name, photo.city, photo.province, photo.country]
-                  .filter(Boolean)
-                  .join(', ') || 'Unspecified location'}
+            {/* Hover overlay */}
+            <div
+              className="absolute inset-0 flex flex-col justify-end p-5 opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+              style={{
+                background:
+                  'linear-gradient(to top, rgba(0,32,69,0.92) 0%, rgba(0,32,69,0.25) 55%, transparent 100%)',
+              }}
+            >
+              <p
+                className="text-white font-bold uppercase mb-1.5 truncate"
+                style={{ fontSize: '10px', letterSpacing: '0.18em' }}
+              >
+                {photo.original_file_name}
               </p>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-white/90 text-sm font-medium truncate">
+                  {photo.uploader_name}
+                </span>
+                <span className="text-white/70 text-xs shrink-0">
+                  {[photo.place_name, photo.city, photo.province]
+                    .filter(Boolean)
+                    .join(', ') || 'Unspecified'}
+                </span>
+              </div>
             </div>
           </button>
         ))}
       </div>
 
+      {/* Lightbox */}
       {activePhoto ? (
-        <div className="fixed inset-0 z-[80] bg-black/95 backdrop-blur-md">
+        <div
+          className="fixed inset-0 z-[80] flex flex-col"
+          style={{ backgroundColor: 'rgba(0,0,0,0.97)', backdropFilter: 'blur(10px)' }}
+        >
           <button
             aria-label="Close preview"
-            className="absolute right-4 top-4 z-10 inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/30 bg-black/50 text-xl text-white transition hover:bg-black/70"
+            className="absolute right-5 top-5 z-10 inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/25 text-white transition hover:bg-white/10"
             onClick={closeLightbox}
             type="button"
           >
-            x
+            ✕
           </button>
 
           <button
             aria-label="Previous image"
-            className="absolute left-4 top-1/2 z-10 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/30 bg-black/50 text-2xl text-white transition hover:bg-black/70"
+            className="absolute left-5 top-1/2 z-10 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/25 text-white text-2xl transition hover:bg-white/10"
             onClick={goToPrevious}
             type="button"
           >
@@ -194,15 +154,16 @@ export default function PhotoWall({ photos }: PhotoWallProps) {
 
           <button
             aria-label="Next image"
-            className="absolute right-4 top-1/2 z-10 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/30 bg-black/50 text-2xl text-white transition hover:bg-black/70"
+            className="absolute right-5 top-1/2 z-10 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/25 text-white text-2xl transition hover:bg-white/10"
             onClick={goToNext}
             type="button"
           >
             ›
           </button>
 
-          <div className="mx-auto flex h-full w-full max-w-[1400px] flex-col px-5 pb-5 pt-16">
-            <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-2xl border border-white/15 bg-black/40">
+          <div className="mx-auto flex h-full w-full max-w-6xl flex-col px-5 pb-5 pt-16">
+            <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-xl">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 alt={activePhoto.original_file_name}
                 className="max-h-full w-auto max-w-full object-contain"
@@ -210,37 +171,39 @@ export default function PhotoWall({ photos }: PhotoWallProps) {
               />
             </div>
 
-            <div className="mt-4 flex flex-wrap items-end justify-between gap-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-white">
+            <div
+              className="mt-4 flex flex-wrap items-end justify-between gap-4 rounded-xl border border-white/10 px-5 py-4 text-white"
+              style={{ backgroundColor: 'rgba(255,255,255,0.04)' }}
+            >
               <div className="space-y-1">
-                <p className="text-base font-semibold">{activePhoto.original_file_name}</p>
-                <p className="text-sm text-white/75">by {activePhoto.uploader_name}</p>
-                <p className="text-sm text-white/75">
+                <p className="font-semibold">{activePhoto.original_file_name}</p>
+                <p className="text-sm text-white/70">by {activePhoto.uploader_name}</p>
+                <p className="text-sm text-white/70">
                   {[activePhoto.place_name, activePhoto.city, activePhoto.province, activePhoto.country]
                     .filter(Boolean)
                     .join(', ') || 'Unspecified location'}
                 </p>
               </div>
-              <div className="space-y-1 text-right text-xs text-white/70">
+              <div className="text-right text-xs text-white/60 space-y-1">
                 <p>Uploaded {formatDate(activePhoto.created_at)}</p>
-                <p>
-                  {(activeIndex ?? 0) + 1} / {photos.length}
-                </p>
+                <p>{(activeIndex ?? 0) + 1} / {photos.length}</p>
               </div>
             </div>
 
             <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
               {photos.map((photo, thumbIndex) => (
                 <button
-                  aria-label={`View ${photo.original_file_name}`}
-                  className={`relative h-16 w-24 shrink-0 overflow-hidden rounded-lg border transition ${
-                    thumbIndex === activeIndex
-                      ? 'border-[#c1121f] ring-2 ring-[#c1121f]/40'
-                      : 'border-white/20 hover:border-white/60'
-                  }`}
                   key={`${photo.id}-thumb`}
+                  aria-label={`View ${photo.original_file_name}`}
+                  className={`relative h-16 w-24 shrink-0 overflow-hidden rounded-lg border-2 transition ${
+                    thumbIndex === activeIndex
+                      ? 'border-[#b52426]'
+                      : 'border-white/20 hover:border-white/50'
+                  }`}
                   onClick={() => setActiveIndex(thumbIndex)}
                   type="button"
                 >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     alt={photo.original_file_name}
                     className="h-full w-full object-cover"
