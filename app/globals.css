@@ -4,6 +4,35 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
+  /* ── Design System: Architectural Narrative ─────────────────────── */
+  --ds-primary: #002045;
+  --ds-on-primary: #ffffff;
+  --ds-primary-container: #1a365d;
+  --ds-on-primary-container: #86a0cd;
+  --ds-inverse-primary: #adc7f7;
+  --ds-secondary: #b52426;
+  --ds-on-secondary: #ffffff;
+  --ds-secondary-container: #ff5a55;
+  --ds-on-secondary-container: #600008;
+  --ds-tertiary: #321b00;
+  --ds-surface: #f9f9ff;
+  --ds-surface-dim: #d0daf0;
+  --ds-surface-bright: #f9f9ff;
+  --ds-surface-container-lowest: #ffffff;
+  --ds-surface-container-low: #f0f3ff;
+  --ds-surface-container: #e7eeff;
+  --ds-surface-container-high: #dee8ff;
+  --ds-surface-container-highest: #d9e3f9;
+  --ds-on-surface: #121c2c;
+  --ds-on-surface-variant: #43474e;
+  --ds-outline: #74777f;
+  --ds-outline-variant: #c4c6cf;
+  --ds-surface-tint: #455f88;
+  --ds-error: #ba1a1a;
+  --ds-on-error: #ffffff;
+  --ds-error-container: #ffdad6;
+
+  /* ── shadcn / radix tokens (unchanged) ─────────────────────────── */
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -122,4 +151,44 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* ── Design System Typography Utilities ────────────────────────────── */
+.font-headline {
+  font-family: var(--font-noto-serif), 'Noto Serif', Georgia, serif;
+}
+
+.font-ui {
+  font-family: var(--font-manrope), 'Manrope', system-ui, sans-serif;
+}
+
+.text-display-xl {
+  font-family: var(--font-noto-serif), 'Noto Serif', Georgia, serif;
+  font-size: 48px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.text-headline-lg {
+  font-family: var(--font-noto-serif), 'Noto Serif', Georgia, serif;
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.text-headline-md {
+  font-family: var(--font-noto-serif), 'Noto Serif', Georgia, serif;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.text-label-caps {
+  font-family: var(--font-manrope), 'Manrope', system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }

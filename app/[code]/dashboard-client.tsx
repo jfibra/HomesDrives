@@ -6,6 +6,8 @@ import {
   Archive,
   ArchiveRestore,
   ArrowRight,
+  Check,
+  CheckCircle2,
   CheckSquare,
   CloudUpload,
   Copy,
@@ -469,19 +471,30 @@ function SidebarNavItem({
     <button
       onClick={onClick}
       className={cn(
-        'flex w-full items-center gap-3 rounded-full px-4 py-2.5 text-sm transition-colors text-left',
+        'flex w-full items-center gap-3 py-3 px-6 text-sm transition-all text-left',
         active
-          ? 'bg-[#c2e7ff] font-semibold text-[#001d35]'
-          : 'font-medium text-gray-600 hover:bg-gray-100',
+          ? 'font-semibold border-r-4'
+          : 'font-medium hover:opacity-80',
       )}
+      style={active ? {
+        backgroundColor: 'var(--ds-surface-container)',
+        color: 'var(--ds-primary)',
+        borderRightColor: 'var(--ds-primary)',
+      } : {
+        color: 'var(--ds-on-surface-variant)',
+      }}
       type="button"
     >
-      <span className={cn('shrink-0', active ? 'text-[#001d35]' : 'text-gray-500')}>
-        {icon}
-      </span>
+      <span className="shrink-0">{icon}</span>
       <span className="flex-1 truncate">{label}</span>
       {badge != null ? (
-        <span className="ml-auto shrink-0 rounded-full bg-gray-200 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600">
+        <span
+          className="ml-auto shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+          style={{
+            backgroundColor: 'var(--ds-surface-container-high)',
+            color: 'var(--ds-on-surface-variant)',
+          }}
+        >
           {badge}
         </span>
       ) : null}
@@ -563,6 +576,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
   const [moveTargetFolderId, setMoveTargetFolderId] = useState<string>('')
   const [movingPhotoIds, setMovingPhotoIds] = useState<Set<string>>(new Set())
   const [isMoveSubmitting, setIsMoveSubmitting] = useState(false)
+  const [moveSearchQuery, setMoveSearchQuery] = useState('')
 
   // Opened folder - bulk select / move
   const [isFolderBulkMode, setIsFolderBulkMode] = useState(false)
@@ -1743,63 +1757,209 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
 
   if (!isAuthChecked) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[#f6f8fc] px-4">
-        <div className="flex items-center gap-3 rounded-2xl border border-gray-200 bg-white px-5 py-4 shadow-sm">
-          <Spinner className="h-5 w-5 text-blue-500" />
-          <p className="text-sm font-medium text-gray-700">Checking your session...</p>
-        </div>
+      <div
+        className="flex h-screen flex-col items-center justify-center gap-6 px-4"
+        style={{ backgroundColor: 'var(--ds-surface-container-low)' }}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          alt="Homes.ph Drive"
+          className="h-20 w-auto object-contain"
+          src="/HomesPH.gif"
+        />
+        <p className="text-label-caps" style={{ color: 'var(--ds-on-surface-variant)', letterSpacing: '0.12em' }}>
+          Checking your session...
+        </p>
       </div>
     )
   }
 
   if (!isAuthenticated) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[#f6f8fc] px-4">
-        <div className="w-full max-w-md rounded-3xl border border-gray-200 bg-white p-6 shadow-lg">
-          <h1 className="text-xl font-semibold text-gray-800">Enter Password</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Welcome, {user.firstName}. Enter your password to continue.
-          </p>
-          <p className="mt-1 text-xs text-gray-400">Code: {user.code}</p>
+      <div
+        className="relative flex min-h-screen w-full items-center justify-center overflow-hidden p-8"
+        style={{ backgroundColor: 'var(--ds-surface)' }}
+      >
+        {/* Hero background */}
+        <div className="absolute inset-0 z-0">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            alt="Architectural interior background"
+            className="h-full w-full object-cover"
+            src="https://lh3.googleusercontent.com/aida-public/AB6AXuDpxTS0DczftdlIjSqE_KkPp0ZGAAI6Y9i3e1q1I8Cwu85L2s9JgnTSiSLn10J-qhaSGvT8BWz__PkS_tbosdTJl0t0lke7QNSFCmIuL4FU0fLJsZnt2hAqJKy1SxChfwry1pHEuZxqPIOipTWTU1R075I-lnB8bH9LeJFZV5OD8RoK1kavZAAv5nBpFAJUJuCwGqxehKYx3sSd9BxHgzTT0FqVbOsG2c06MH2oZpkMMPZ-RzDkrZNMz8Rc3Q8kiVqIQLypd7fRqBw"
+          />
+          <div
+            className="absolute inset-0"
+            style={{ background: 'linear-gradient(rgba(255,255,255,0.4), rgba(255,255,255,0.6))', backdropFilter: 'blur(4px)' }}
+          />
+        </div>
 
-          <form className="mt-5 space-y-3" onSubmit={(e) => void handlePasswordLogin(e)}>
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-gray-700" htmlFor="code-password-input">
-                Password
-              </label>
-              <input
-                autoFocus
-                className="h-11 w-full rounded-xl border border-gray-300 px-3 text-sm text-gray-800 shadow-sm outline-none transition-shadow focus:ring-2 focus:ring-slate-950"
-                id="code-password-input"
-                onChange={(e) => setPasswordInput(e.target.value)}
-                placeholder="Enter your password"
-                type="password"
-                value={passwordInput}
-              />
+        {/* Top logo */}
+        <header className="fixed inset-x-0 top-0 z-50 flex justify-center py-8">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            alt="Homes.ph Drive"
+            className="h-14 w-auto object-contain"
+            src="/HomesPH.gif"
+          />
+        </header>
+
+        {/* Login card */}
+        <main className="relative z-10 w-full max-w-[480px]">
+          <div
+            className="flex flex-col gap-8 rounded-xl border p-10"
+            style={{
+              backgroundColor: 'rgba(255,255,255,0.9)',
+              backdropFilter: 'blur(12px)',
+              borderColor: 'rgba(196,198,207,0.3)',
+              boxShadow: '0 32px 64px -12px rgba(0,32,69,0.15)',
+            }}
+          >
+            {/* Header */}
+            <div className="space-y-3 text-center">
+              <h1
+                className="text-headline-lg"
+                style={{ color: 'var(--ds-on-surface)' }}
+              >
+                Welcome back
+              </h1>
+              <p
+                className="text-label-caps flex items-center justify-center gap-2"
+                style={{ color: 'var(--ds-on-primary-container, #86a0cd)', letterSpacing: '0.15em' }}
+              >
+                <svg
+                  aria-hidden="true"
+                  className="h-4 w-4 shrink-0"
+                  fill="currentColor"
+                  style={{ color: 'var(--ds-surface-tint)' }}
+                  viewBox="0 0 24 24"
+                >
+                  <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z" />
+                </svg>
+                STUDIO CODE: {user.code.toUpperCase()}
+              </p>
             </div>
 
-            {authError ? (
-              <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                {authError}
-              </p>
-            ) : null}
+            {/* Form */}
+            <form className="flex flex-col gap-6" onSubmit={(e) => void handlePasswordLogin(e)}>
+              <div className="space-y-2">
+                <label
+                  className="text-label-caps ml-1 block"
+                  htmlFor="code-password-input"
+                  style={{ color: 'var(--ds-on-surface-variant)', fontSize: '11px' }}
+                >
+                  ACCESS PASSWORD
+                </label>
+                <div className="relative">
+                  <span
+                    className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2"
+                    style={{ color: 'var(--ds-outline)' }}
+                  >
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                    </svg>
+                  </span>
+                  <input
+                    autoFocus
+                    className="w-full rounded-lg border py-4 pl-12 pr-4 text-sm transition-all outline-none"
+                    id="code-password-input"
+                    onChange={(e) => setPasswordInput(e.target.value)}
+                    placeholder="••••••••••••"
+                    style={{
+                      backgroundColor: 'var(--ds-surface-container-low)',
+                      borderColor: 'var(--ds-outline-variant)',
+                      color: 'var(--ds-on-surface)',
+                    }}
+                    onFocus={(e) => {
+                      e.currentTarget.style.borderColor = 'var(--ds-primary)'
+                      e.currentTarget.style.boxShadow = '0 0 0 1px var(--ds-primary)'
+                    }}
+                    onBlur={(e) => {
+                      e.currentTarget.style.borderColor = 'var(--ds-outline-variant)'
+                      e.currentTarget.style.boxShadow = 'none'
+                    }}
+                    type="password"
+                    value={passwordInput}
+                  />
+                </div>
+              </div>
 
-            <button
-              className="w-full rounded-xl bg-slate-950 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-              disabled={isAuthenticating || !passwordInput.trim()}
-              type="submit"
+              {authError ? (
+                <p
+                  className="rounded-lg border px-3 py-2 text-xs"
+                  style={{
+                    backgroundColor: 'var(--ds-error-container)',
+                    borderColor: 'rgba(186,26,26,0.2)',
+                    color: 'var(--ds-error)',
+                  }}
+                >
+                  {authError}
+                </p>
+              ) : null}
+
+              <button
+                className="text-label-caps flex items-center justify-center gap-3 rounded-lg py-4 transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={isAuthenticating || !passwordInput.trim()}
+                style={{
+                  backgroundColor: 'var(--ds-primary)',
+                  color: 'var(--ds-on-primary)',
+                  boxShadow: '0 4px 16px rgba(0,32,69,0.2)',
+                }}
+                type="submit"
+              >
+                {isAuthenticating ? 'VERIFYING...' : 'ACCESS DASHBOARD'}
+                {!isAuthenticating && (
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                  </svg>
+                )}
+              </button>
+            </form>
+
+            {/* Help */}
+            <div className="text-center">
+              <a
+                className="text-label-caps transition-colors hover:opacity-70"
+                href="#"
+                style={{ fontSize: '10px', color: 'var(--ds-on-surface-variant)' }}
+              >
+                Forgot your access code? Contact your manager.
+              </a>
+            </div>
+          </div>
+
+          {/* Return link */}
+          <div className="mt-8 text-center">
+            <a
+              className="text-label-caps inline-flex items-center gap-2 transition-colors hover:opacity-70"
+              href="/"
+              style={{ color: 'var(--ds-on-surface-variant)', fontSize: '12px' }}
             >
-              {isAuthenticating ? 'Verifying...' : 'Continue'}
-            </button>
-          </form>
-        </div>
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+              </svg>
+              Return to Marketplace
+            </a>
+          </div>
+        </main>
+
+        {/* Footer */}
+        <footer
+          className="fixed inset-x-0 bottom-0 flex justify-between p-8 text-label-caps"
+          style={{ fontSize: '10px', color: 'rgba(67,71,78,0.4)', letterSpacing: '0.4em' }}
+        >
+          <div>© 2024 HOMES ALBUMS STUDIO</div>
+          <div className="hidden md:block">SECURE UPLOADER PORTAL v2.4</div>
+        </footer>
       </div>
     )
   }
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-[#f6f8fc]">
-
+    <div
+      className="flex h-screen flex-col overflow-hidden"
+      style={{ backgroundColor: 'var(--ds-surface)', color: 'var(--ds-on-surface)' }}
+    >
       {/* Hidden file input */}
       <input
         accept="image/*"
@@ -1835,41 +1995,69 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
       ) : null}
 
       {/* ─── Top Bar ─────────────────────────────────────────────────────────── */}
-      <header className="relative z-30 flex h-16 shrink-0 items-center gap-2 border-b border-gray-200 bg-white px-2 sm:px-4 shadow-sm">
+      <header
+        className="relative z-30 flex h-20 shrink-0 items-center gap-2 border-b px-4 sm:px-16"
+        style={{
+          backgroundColor: 'rgba(255,255,255,0.9)',
+          backdropFilter: 'blur(12px)',
+          borderColor: 'rgba(196,198,207,0.3)',
+          boxShadow: '0 1px 4px rgba(0,32,69,0.06)',
+        }}
+      >
         {/* Left: hamburger + logo */}
         <div className="flex shrink-0 items-center gap-1">
           <button
             aria-label="Toggle sidebar"
-            className="flex h-10 w-10 items-center justify-center rounded-full transition-colors hover:bg-gray-100"
+            className="flex h-10 w-10 items-center justify-center rounded-lg transition-colors hover:bg-gray-100"
             onClick={() => setIsSidebarOpen((s) => !s)}
             type="button"
           >
-            <Menu className="h-5 w-5 text-gray-600" />
+            <Menu className="h-5 w-5" style={{ color: 'var(--ds-on-surface-variant)' }} />
           </button>
           <div className="flex items-center gap-2 px-1 select-none">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               alt="Homes Albums"
               className="h-8 w-auto shrink-0"
-              src="/logo.png"
+              src="/Homes%20Drive%20Logo%20Blue.png"
             />
           </div>
         </div>
 
         {/* Center: search */}
-        <div className="mx-2 flex flex-1 max-w-2xl items-center gap-2 rounded-full bg-[#eaf1fb] px-4 py-2.5 transition-all hover:bg-[#dce8f8] focus-within:bg-white focus-within:shadow-md focus-within:ring-1 focus-within:ring-blue-200">
-          <Search className="h-4 w-4 shrink-0 text-gray-500" />
+        <div
+          className="mx-2 flex flex-1 max-w-2xl items-center gap-2 rounded-lg border px-4 py-2.5 transition-all"
+          style={{
+            backgroundColor: 'var(--ds-surface-container)',
+            borderColor: 'var(--ds-outline-variant)',
+          }}
+          onFocus={(e) => {
+            const el = e.currentTarget
+            el.style.backgroundColor = 'var(--ds-surface-container-lowest)'
+            el.style.boxShadow = '0 0 0 1px var(--ds-primary)'
+            el.style.borderColor = 'var(--ds-primary)'
+          }}
+          onBlur={(e) => {
+            const el = e.currentTarget
+            el.style.backgroundColor = 'var(--ds-surface-container)'
+            el.style.boxShadow = 'none'
+            el.style.borderColor = 'var(--ds-outline-variant)'
+          }}
+        >
+          <Search className="h-4 w-4 shrink-0" style={{ color: 'var(--ds-outline)' }} />
           <input
-            className="flex-1 bg-transparent text-sm text-gray-800 outline-none placeholder:text-gray-500"
+            className="flex-1 bg-transparent text-sm outline-none placeholder:text-gray-400"
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search in Homes Albums"
+            style={{ color: 'var(--ds-on-surface)' }}
             type="search"
             value={searchQuery}
           />
           {searchQuery ? (
             <button
-              className="text-gray-400 transition-colors hover:text-gray-600"
+              className="transition-colors hover:opacity-60"
               onClick={() => setSearchQuery('')}
+              style={{ color: 'var(--ds-outline)' }}
               type="button"
             >
               <X className="h-4 w-4" />
@@ -1880,7 +2068,8 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
         {/* Right: user avatar */}
         <div className="ml-auto flex shrink-0 items-center gap-2">
           <div
-            className="flex h-9 w-9 select-none items-center justify-center rounded-full bg-slate-950 text-sm font-bold text-white"
+            className="flex h-9 w-9 select-none items-center justify-center rounded-full text-sm font-bold text-white"
+            style={{ backgroundColor: 'var(--ds-primary)' }}
             title={user.fullName}
           >
             {initials}
@@ -1894,16 +2083,38 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
         {/* Sidebar */}
         <aside
           className={cn(
-            'fixed inset-y-0 left-0 z-20 flex w-64 flex-col bg-white pt-16 transition-transform duration-200',
+            'fixed inset-y-0 left-0 z-20 flex w-64 flex-col pt-20 transition-transform duration-200',
             'md:relative md:inset-auto md:z-auto md:pt-0 md:translate-x-0',
             isSidebarOpen ? 'translate-x-0 shadow-xl' : '-translate-x-full',
           )}
+          style={{
+            backgroundColor: 'var(--ds-surface-container-low)',
+            borderRight: '1px solid rgba(196,198,207,0.3)',
+          }}
         >
-          <div className="flex flex-1 flex-col gap-2 overflow-y-auto px-3 py-4">
+          <div className="flex flex-1 flex-col overflow-y-auto py-4">
+            {/* Workspace header */}
+            <div className="px-6 mb-6">
+              <h2
+                className="font-headline text-lg font-semibold"
+                style={{ color: 'var(--ds-primary)' }}
+              >
+                Studio Workspace
+              </h2>
+              <p className="text-xs font-ui mt-0.5" style={{ color: 'var(--ds-on-surface-variant)' }}>
+                Professional Mode
+              </p>
+            </div>
+
             {/* New upload button */}
-            <div className="mb-2">
+            <div className="px-6 mb-6">
               <button
-                className="flex items-center gap-2.5 rounded-2xl border border-gray-200 bg-white px-5 py-3.5 text-sm font-medium text-gray-700 shadow-md transition-colors hover:bg-gray-50"
+                className="flex items-center gap-2.5 rounded-lg border px-5 py-3.5 text-sm font-medium transition-all hover:opacity-80 w-full"
+                style={{
+                  backgroundColor: 'var(--ds-surface-container-lowest)',
+                  borderColor: 'rgba(0,32,69,0.2)',
+                  color: 'var(--ds-primary)',
+                }}
                 onClick={() => {
                   setActiveView('upload')
                   setIsSidebarOpen(false)
@@ -1912,13 +2123,13 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                 }}
                 type="button"
               >
-                <CloudUpload className="h-5 w-5 text-gray-500" />
-                <span>New upload</span>
+                <CloudUpload className="h-5 w-5" />
+                <span>New Upload</span>
               </button>
             </div>
 
             {/* Nav */}
-            <nav className="space-y-0.5">
+            <nav>
               <SidebarNavItem
                 active={activeView === 'upload'}
                 badge={uploadedImages.length > 0 ? uploadedImages.length : undefined}
@@ -1935,22 +2146,31 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
               />
             </nav>
 
-            <div className="my-2 border-t border-gray-100" />
+            <div className="my-4 mx-6 border-t" style={{ borderColor: 'var(--ds-outline-variant)' }} />
 
             {/* User info card */}
-            <div className="rounded-2xl bg-gradient-to-br from-slate-50 to-gray-100 p-4 space-y-2">
+            <div
+              className="mx-6 rounded-lg p-4 space-y-2"
+              style={{
+                backgroundColor: 'var(--ds-surface-container)',
+                border: '1px solid rgba(196,198,207,0.3)',
+              }}
+            >
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-950 text-sm font-bold text-white select-none">
+                <div
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white select-none"
+                  style={{ backgroundColor: 'var(--ds-primary)' }}
+                >
                   {initials}
                 </div>
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-gray-800">{user.fullName}</p>
-                  <p className="truncate text-xs text-gray-400">{user.email}</p>
+                  <p className="truncate text-sm font-semibold" style={{ color: 'var(--ds-on-surface)' }}>{user.fullName}</p>
+                  <p className="truncate text-xs" style={{ color: 'var(--ds-outline)' }}>{user.email}</p>
                 </div>
               </div>
               <div className="flex items-center gap-1.5 pt-1">
-                <MapPin className="h-3.5 w-3.5 shrink-0 text-orange-500" />
-                <span className="text-xs font-medium text-gray-600">{user.areaFocused}</span>
+                <MapPin className="h-3.5 w-3.5 shrink-0" style={{ color: 'var(--ds-secondary)' }} />
+                <span className="text-xs font-medium" style={{ color: 'var(--ds-on-surface-variant)' }}>{user.areaFocused}</span>
               </div>
             </div>
           </div>
@@ -1961,47 +2181,42 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
 
           {/* Upload view */}
           {activeView === 'upload' ? (
-            <div className="space-y-6 px-5 py-8 lg:px-10">
+            <div className="space-y-12 px-8 py-12 lg:px-16">
 
-              {/* Welcome header */}
-              <div>
-                <h1 className="text-2xl font-semibold text-gray-800">
-                  Good day, {user.firstName}!
-                </h1>
-                <p className="mt-1 text-sm text-gray-500">
-                  Upload your photos from {user.areaFocused}. They'll be stored and organized automatically.
-                </p>
+              {/* ── Dashboard header ─────────────────────────────────── */}
+              <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
+                <div>
+                  <h1
+                    className="text-display-xl font-headline mb-3"
+                    style={{ color: 'var(--ds-primary)' }}
+                  >
+                    Upload Studio
+                  </h1>
+                  <p className="max-w-2xl text-base" style={{ color: 'var(--ds-on-surface-variant)' }}>
+                    Manage your professional architectural portfolios. Organise assets by project, client, or location to maintain a curated high-end editorial workflow.
+                  </p>
+                </div>
+                <button
+                  className="shrink-0 inline-flex items-center gap-2 rounded-lg px-6 py-3 text-label-caps font-bold text-white transition-all hover:opacity-90 active:scale-95"
+                  style={{ backgroundColor: 'var(--ds-primary)', boxShadow: '0 4px 12px rgba(0,32,69,0.2)' }}
+                  onClick={() => { resetFolderModalState(); setIsFolderModalOpen(true) }}
+                  type="button"
+                >
+                  <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/>
+                  </svg>
+                  Create New Folder
+                </button>
               </div>
 
-              <section className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-                {!activeFolder ? (
+              {!activeFolder ? (
                   <>
-                    {/* Folder section header */}
-                    <div className="flex items-center justify-between gap-4 border-b border-gray-100 px-6 py-4">
-                      <div>
-                        <h2 className="text-base font-semibold text-gray-900">My Folders</h2>
-                        <p className="mt-0.5 text-xs text-gray-400">
-                          {activeFolders.length} folder{activeFolders.length !== 1 ? 's' : ''} · click to open
-                        </p>
-                      </div>
-                      <button
-                        className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800"
-                        onClick={() => {
-                          resetFolderModalState()
-                          setIsFolderModalOpen(true)
-                        }}
-                        type="button"
-                      >
-                        <CloudUpload className="h-4 w-4" />
-                        New folder
-                      </button>
-                    </div>
-
                     {/* Archive toggle */}
                     {archivedFolders.length > 0 ? (
-                      <div className="border-b border-gray-100 px-6 py-2">
+                      <div className="mb-6">
                         <button
-                          className="flex items-center gap-1.5 text-xs font-medium text-gray-400 transition-colors hover:text-gray-700"
+                          className="text-label-caps flex items-center gap-1.5 transition-colors hover:opacity-70"
+                          style={{ color: 'var(--ds-outline)', fontSize: '11px' }}
                           onClick={() => setShowArchivedFolders((v) => !v)}
                           type="button"
                         >
@@ -2013,105 +2228,211 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                       </div>
                     ) : null}
 
-                    {/* Folder grid */}
+                    {/* ── Folder card grid ─────────────────────────────── */}
                     {displayedFolders.length > 0 ? (
-                      <div className="grid grid-cols-1 gap-px bg-gray-100 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                      <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                         {displayedFolders.map((folder) => {
                           const isArchived = (folder.status ?? 'active') === 'archived'
                           const photoCount = folderPhotoCountById[folder.id] ?? 0
+                          // Use the most recent photo in this folder as the cover
+                          const coverPhoto = dbPhotos.find((p) => p.folder_id === folder.id && p.image_url)
                           return (
-                            <div key={folder.id} className="group relative bg-white">
+                            <div
+                              key={folder.id}
+                              className="group relative overflow-hidden rounded-xl border transition-all hover:shadow-xl"
+                              style={{
+                                backgroundColor: isArchived ? 'var(--ds-surface-container-low)' : 'white',
+                                borderColor: 'var(--ds-outline-variant)',
+                              }}
+                            >
+                              {/* Cover image */}
                               <button
-                                className={cn(
-                                  'flex w-full flex-col gap-3 p-5 text-left transition-colors hover:bg-gray-50/80',
-                                  isArchived && 'opacity-50',
-                                )}
+                                className="w-full text-left"
                                 onClick={() => setActiveFolderId(folder.id)}
                                 type="button"
                               >
-                                {/* Folder icon row */}
-                                <div className="flex items-start justify-between">
-                                  <div className={cn(
-                                    'rounded-2xl p-3 transition-colors',
-                                    isArchived ? 'bg-gray-100 text-gray-400' : 'bg-amber-50 text-amber-600 group-hover:bg-amber-100',
-                                  )}>
-                                    {isArchived ? <Archive className="h-8 w-8" /> : <Folder className="h-8 w-8" />}
-                                  </div>
-                                  {photoCount > 0 ? (
-                                    <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-500">
-                                      {photoCount}
+                                <div
+                                  className="relative aspect-[4/3] w-full overflow-hidden"
+                                  style={{ backgroundColor: 'var(--ds-surface-dim)' }}
+                                >
+                                  {coverPhoto ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img
+                                      alt={folder.folder_name}
+                                      className={cn(
+                                        'h-full w-full object-cover transition-transform duration-500 group-hover:scale-105',
+                                        isArchived ? 'opacity-50 grayscale' : 'opacity-90',
+                                      )}
+                                      src={coverPhoto.image_url}
+                                    />
+                                  ) : (
+                                    <div
+                                      className="flex h-full w-full items-center justify-center"
+                                      style={{ color: 'var(--ds-outline-variant)' }}
+                                    >
+                                      <Folder className="h-16 w-16" />
+                                    </div>
+                                  )}
+                                  {/* Gradient overlay */}
+                                  <div
+                                    className="absolute inset-0"
+                                    style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.45) 0%, transparent 60%)' }}
+                                  />
+                                  {/* Status badge */}
+                                  <div className="absolute left-3 top-3">
+                                    <span
+                                      className="text-label-caps rounded px-2 py-1 text-white"
+                                      style={{
+                                        backgroundColor: isArchived ? 'var(--ds-outline)' : 'var(--ds-primary)',
+                                        fontSize: '10px',
+                                      }}
+                                    >
+                                      {isArchived ? 'Archived' : 'Active'}
                                     </span>
-                                  ) : null}
-                                </div>
-                                {/* Name & address */}
-                                <div className="min-w-0">
-                                  <p className="truncate text-sm font-semibold text-gray-900 group-hover:text-slate-950">
-                                    {folder.folder_name}
-                                  </p>
-                                  <p className="mt-0.5 truncate text-xs text-gray-400">
-                                    {folder.city || folder.full_address || 'No address set'}
-                                    {isArchived ? ' · Archived' : ''}
-                                  </p>
-                                </div>
-                                {/* Tags */}
-                                {folder.tags.length > 0 ? (
-                                  <div className="flex flex-wrap gap-1">
-                                    {folder.tags.slice(0, 3).map((t) => (
-                                      <span key={t} className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700">
-                                        {t}
-                                      </span>
-                                    ))}
                                   </div>
-                                ) : null}
+                                  {/* Folder name on image */}
+                                  <div className="absolute bottom-3 left-4 right-4">
+                                    <p
+                                      className="font-headline truncate text-lg text-white"
+                                      style={{ textShadow: '0 1px 3px rgba(0,0,0,0.4)' }}
+                                    >
+                                      {folder.folder_name}
+                                    </p>
+                                  </div>
+                                </div>
                               </button>
 
-                              {/* Action menu — visible on hover */}
-                              <div className="absolute right-3 top-3 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                                <button
-                                  aria-label="Edit folder"
-                                  className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-gray-400 shadow-sm ring-1 ring-gray-200 transition-colors hover:text-gray-800"
-                                  onClick={(e) => { e.stopPropagation(); openEditFolderModal(folder) }}
-                                  type="button"
+                              {/* Card footer */}
+                              <div className="p-4 flex flex-col gap-3">
+                                <div className="flex justify-between items-center text-xs font-medium">
+                                  <span style={{ color: isArchived ? 'var(--ds-outline)' : 'var(--ds-on-surface-variant)' }}>
+                                    {photoCount} Photo{photoCount !== 1 ? 's' : ''}
+                                  </span>
+                                  <span style={{ color: isArchived ? 'var(--ds-outline)' : 'var(--ds-on-surface-variant)' }}>
+                                    {folder.city || folder.full_address || 'No location'}
+                                  </span>
+                                </div>
+                                <div
+                                  className="flex items-center justify-between pt-2 border-t"
+                                  style={{ borderColor: 'var(--ds-outline-variant)' }}
                                 >
-                                  <Pencil className="h-3.5 w-3.5" />
-                                </button>
-                                <button
-                                  aria-label={isArchived ? 'Unarchive' : 'Archive'}
-                                  className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-gray-400 shadow-sm ring-1 ring-gray-200 transition-colors hover:text-amber-600"
-                                  disabled={updatingFolderStatusId === folder.id}
-                                  onClick={(e) => { e.stopPropagation(); void handleArchiveToggle(folder) }}
-                                  type="button"
-                                >
-                                  {isArchived ? <ArchiveRestore className="h-3.5 w-3.5" /> : <Archive className="h-3.5 w-3.5" />}
-                                </button>
-                                <button
-                                  aria-label="Delete folder"
-                                  className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-red-400 shadow-sm ring-1 ring-gray-200 transition-colors hover:text-red-600"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    setDeleteFolderOption('unfile')
-                                    setDeleteFolderTarget(folder)
-                                  }}
-                                  type="button"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </button>
+                                  {!isArchived ? (
+                                    <div className="flex gap-1">
+                                      <button
+                                        className="rounded-full p-2 transition-colors hover:bg-surface-container"
+                                        style={{ color: 'var(--ds-on-surface-variant)' }}
+                                        title="Edit folder"
+                                        onClick={() => openEditFolderModal(folder)}
+                                        type="button"
+                                      >
+                                        <Pencil className="h-4 w-4" />
+                                      </button>
+                                      <button
+                                        className="rounded-full p-2 transition-colors"
+                                        style={{ color: 'var(--ds-on-surface-variant)' }}
+                                        title="Copy share link"
+                                        onClick={() => copyFolderShareLink(folder)}
+                                        type="button"
+                                      >
+                                        <Share2 className="h-4 w-4" />
+                                      </button>
+                                      <button
+                                        className="rounded-full p-2 transition-colors"
+                                        style={{ color: 'var(--ds-on-surface-variant)' }}
+                                        title="Archive folder"
+                                        disabled={updatingFolderStatusId === folder.id}
+                                        onClick={() => void handleArchiveToggle(folder)}
+                                        type="button"
+                                      >
+                                        <Archive className="h-4 w-4" />
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="flex gap-1">
+                                      <button
+                                        className="rounded-full p-2 transition-colors"
+                                        style={{ color: 'var(--ds-outline)' }}
+                                        title="Restore folder"
+                                        disabled={updatingFolderStatusId === folder.id}
+                                        onClick={() => void handleArchiveToggle(folder)}
+                                        type="button"
+                                      >
+                                        <ArchiveRestore className="h-4 w-4" />
+                                      </button>
+                                    </div>
+                                  )}
+                                  <button
+                                    className="rounded-full p-2 transition-all"
+                                    style={{ color: 'var(--ds-on-surface-variant)' }}
+                                    onMouseEnter={(e) => {
+                                      e.currentTarget.style.backgroundColor = 'var(--ds-error-container)'
+                                      e.currentTarget.style.color = 'var(--ds-error)'
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      e.currentTarget.style.backgroundColor = 'transparent'
+                                      e.currentTarget.style.color = 'var(--ds-on-surface-variant)'
+                                    }}
+                                    title="Delete folder"
+                                    onClick={() => { setDeleteFolderOption('unfile'); setDeleteFolderTarget(folder) }}
+                                    type="button"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                </div>
                               </div>
                             </div>
                           )
                         })}
+
+                        {/* New folder placeholder card */}
+                        <button
+                          className="group flex aspect-[4/3] flex-col items-center justify-center gap-4 rounded-xl border-2 border-dashed transition-all"
+                          style={{
+                            backgroundColor: 'var(--ds-surface-container-low)',
+                            borderColor: 'var(--ds-outline-variant)',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = 'var(--ds-surface-container)'
+                            e.currentTarget.style.borderColor = 'var(--ds-primary)'
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = 'var(--ds-surface-container-low)'
+                            e.currentTarget.style.borderColor = 'var(--ds-outline-variant)'
+                          }}
+                          onClick={() => { resetFolderModalState(); setIsFolderModalOpen(true) }}
+                          type="button"
+                        >
+                          <div
+                            className="flex h-12 w-12 items-center justify-center rounded-full bg-white transition-transform group-hover:scale-110"
+                            style={{
+                              color: 'var(--ds-primary)',
+                              boxShadow: '0 1px 4px rgba(0,0,0,0.1)',
+                            }}
+                          >
+                            <svg className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                            </svg>
+                          </div>
+                          <span className="text-sm font-bold transition-colors group-hover:text-primary" style={{ color: 'var(--ds-on-surface-variant)' }}>
+                            Create New Project
+                          </span>
+                        </button>
                       </div>
                     ) : (
-                      <div className="flex flex-col items-center gap-4 px-6 py-16 text-center">
-                        <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-amber-50 text-amber-500">
-                          <FolderOpen className="h-8 w-8" />
+                      <div className="flex flex-col items-center gap-4 py-20 text-center">
+                        <div
+                          className="flex h-20 w-20 items-center justify-center rounded-xl"
+                          style={{ backgroundColor: 'var(--ds-surface-container)', color: 'var(--ds-on-surface-variant)' }}
+                        >
+                          <FolderOpen className="h-10 w-10" />
                         </div>
                         <div>
-                          <p className="text-sm font-semibold text-gray-700">No folders yet</p>
-                          <p className="mt-1 text-xs text-gray-400">Create a folder to start organizing and uploading photos by location.</p>
+                          <p className="font-headline text-lg font-semibold" style={{ color: 'var(--ds-on-surface)' }}>No folders yet</p>
+                          <p className="mt-1 text-sm" style={{ color: 'var(--ds-on-surface-variant)' }}>Create a folder to start organizing and uploading photos by location.</p>
                         </div>
                         <button
-                          className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
+                          className="inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:opacity-90"
+                          style={{ backgroundColor: 'var(--ds-primary)' }}
                           onClick={() => { resetFolderModalState(); setIsFolderModalOpen(true) }}
                           type="button"
                         >
@@ -2120,6 +2441,116 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                         </button>
                       </div>
                     )}
+
+                    {/* ── Activity + Storage bento ───────────────────── */}
+                    {(activeFolders.length > 0 || dbPhotos.length > 0) ? (
+                      <div className="mt-12 grid grid-cols-1 gap-8 lg:grid-cols-12">
+                        {/* Recent Upload Activity */}
+                        <div
+                          className="lg:col-span-8 rounded-xl p-8"
+                          style={{
+                            backgroundColor: 'white',
+                            border: '1px solid var(--ds-outline-variant)',
+                          }}
+                        >
+                          <h3
+                            className="font-headline text-xl font-semibold mb-6"
+                            style={{ color: 'var(--ds-primary)' }}
+                          >
+                            Recent Upload Activity
+                          </h3>
+                          <div className="space-y-4">
+                            {dbPhotos.slice(0, 5).map((photo) => {
+                              const folder = folders.find((f) => f.id === photo.folder_id)
+                              return (
+                                <div
+                                  key={photo.id}
+                                  className="flex items-center justify-between py-3 border-b"
+                                  style={{ borderColor: 'var(--ds-outline-variant)' }}
+                                >
+                                  <div className="flex items-center gap-4">
+                                    <div
+                                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded"
+                                      style={{ backgroundColor: 'var(--ds-primary-fixed)', color: 'var(--ds-primary)' }}
+                                    >
+                                      <CloudUpload className="h-5 w-5" />
+                                    </div>
+                                    <div>
+                                      <p className="text-sm font-bold" style={{ color: 'var(--ds-on-surface)' }}>
+                                        {photo.original_file_name}
+                                      </p>
+                                      <p className="text-xs" style={{ color: 'var(--ds-on-surface-variant)' }}>
+                                        {folder ? folder.folder_name : 'Unfiled'}{photo.city ? ` · ${photo.city}` : ''}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <span className="text-xs font-medium shrink-0" style={{ color: 'var(--ds-outline)' }}>
+                                    {formatRelativeDate(photo.created_at)}
+                                  </span>
+                                </div>
+                              )
+                            })}
+                            {dbPhotos.length === 0 ? (
+                              <p className="text-sm" style={{ color: 'var(--ds-on-surface-variant)' }}>No uploads yet.</p>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        {/* Storage Usage */}
+                        <div
+                          className="lg:col-span-4 rounded-xl p-8 flex flex-col justify-between"
+                          style={{
+                            backgroundColor: 'var(--ds-surface-container)',
+                            border: '1px solid var(--ds-outline-variant)',
+                          }}
+                        >
+                          <div>
+                            <h3
+                              className="font-headline text-xl font-semibold mb-1"
+                              style={{ color: 'var(--ds-primary)' }}
+                            >
+                              Photo Summary
+                            </h3>
+                            <p
+                              className="text-label-caps mb-6"
+                              style={{ color: 'var(--ds-on-surface-variant)', fontSize: '10px', letterSpacing: '0.15em' }}
+                            >
+                              YOUR ACCOUNT
+                            </p>
+                            <div className="space-y-3">
+                              <div className="flex justify-between text-sm">
+                                <span style={{ color: 'var(--ds-on-surface-variant)' }}>Total photos</span>
+                                <span className="font-bold" style={{ color: 'var(--ds-on-surface)' }}>{dbPhotos.length}</span>
+                              </div>
+                              <div className="flex justify-between text-sm">
+                                <span style={{ color: 'var(--ds-on-surface-variant)' }}>Active folders</span>
+                                <span className="font-bold" style={{ color: 'var(--ds-on-surface)' }}>{activeFolders.length}</span>
+                              </div>
+                              <div className="flex justify-between text-sm">
+                                <span style={{ color: 'var(--ds-on-surface-variant)' }}>GPS tagged</span>
+                                <span className="font-bold" style={{ color: 'var(--ds-on-surface)' }}>
+                                  {dbPhotos.filter((p) => p.latitude != null).length}
+                                </span>
+                              </div>
+                              <div className="flex justify-between text-sm">
+                                <span style={{ color: 'var(--ds-on-surface-variant)' }}>Storage</span>
+                                <span className="font-bold" style={{ color: 'var(--ds-on-surface)' }}>
+                                  {formatBytes(dbPhotos.reduce((s, p) => s + (p.file_size_bytes ?? 0), 0))}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          <button
+                            className="mt-8 w-full rounded-lg border-2 py-3 text-sm font-bold transition-all hover:opacity-80"
+                            style={{ borderColor: 'var(--ds-primary)', color: 'var(--ds-primary)' }}
+                            onClick={() => setActiveView('my-photos')}
+                            type="button"
+                          >
+                            View All Photos
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
                   </>
                 ) : (
                   <>
@@ -2566,34 +2997,46 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                     </div>
                   </>
                 )}
-              </section>
 
               {isAnalyzing ? (
-                <div className="flex items-center gap-3 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3">
-                  <Spinner className="h-5 w-5 text-blue-500" />
-                  <p className="text-sm font-medium text-blue-700">Reading and uploading photos…</p>
+                <div
+                  className="flex items-center gap-3 rounded-lg border px-4 py-3"
+                  style={{ backgroundColor: 'var(--ds-surface-container)', borderColor: 'var(--ds-outline-variant)' }}
+                >
+                  <span style={{ color: 'var(--ds-primary)' }}><Spinner className="h-5 w-5" /></span>
+                  <p className="text-sm font-medium" style={{ color: 'var(--ds-on-surface-variant)' }}>Reading and uploading photos…</p>
                 </div>
               ) : null}
 
               {analysisError ? (
-                <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                <p
+                  className="rounded-lg border px-4 py-3 text-sm"
+                  style={{ backgroundColor: 'var(--ds-error-container)', borderColor: 'rgba(186,26,26,0.2)', color: 'var(--ds-error)' }}
+                >
                   {analysisError}
                 </p>
               ) : null}
 
               {/* Session uploads grid */}
               {activeFolder && uploadedImages.length > 0 ? (
-                <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-                  <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+                <div
+                  className="overflow-hidden rounded-xl"
+                  style={{ border: '1px solid var(--ds-outline-variant)', backgroundColor: 'white' }}
+                >
+                  <div
+                    className="flex items-center justify-between border-b px-6 py-4"
+                    style={{ borderColor: 'var(--ds-outline-variant)' }}
+                  >
                     <div>
-                      <h2 className="text-sm font-bold text-gray-900">Upload queue</h2>
-                      <p className="mt-0.5 text-xs text-gray-400">
+                      <h2 className="font-headline text-base font-semibold" style={{ color: 'var(--ds-on-surface)' }}>Upload queue</h2>
+                      <p className="mt-0.5 text-xs" style={{ color: 'var(--ds-on-surface-variant)' }}>
                         {uploadedImages.length} file{uploadedImages.length !== 1 ? 's' : ''}
                         {uploadingCount > 0 ? ` · ${uploadingCount} uploading` : ''}
                       </p>
                     </div>
                     <button
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800"
+                      className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold text-white transition-colors hover:opacity-90"
+                      style={{ backgroundColor: 'var(--ds-primary)' }}
                       onClick={() => fileInputRef.current?.click()}
                       type="button"
                     >
@@ -2619,10 +3062,12 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                               : '',
                           )}
                         >
-                          <button
-                            className="relative block w-full text-left transition-all hover:opacity-95 active:scale-[0.99]"
+                          <div
+                            className="relative block w-full cursor-pointer text-left transition-all hover:opacity-95 active:scale-[0.99]"
                             onClick={() => toggleImageSelection(image.id)}
-                            type="button"
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleImageSelection(image.id) }}
                           >
                             <button
                               aria-label={`View ${image.metadata.fileName}`}
@@ -2667,7 +3112,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                                 </svg>
                               </div>
                             ) : null}
-                          </button>
+                          </div>
                           <div className="p-2.5">
                             <p
                               className="truncate text-xs font-medium text-gray-800"
@@ -3409,6 +3854,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
           className="overflow-hidden border-0 bg-black p-0 sm:max-w-6xl"
           showCloseButton={false}
         >
+          <DialogTitle className="sr-only">Photo Lightbox</DialogTitle>
           {currentLightboxImage ? (
             <div className="relative">
               <button
@@ -3754,119 +4200,160 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
         </DialogContent>
       </Dialog>
 
-      {/* ─── Move photo(s) to folder modal ───────────────────────────────────── */}
+      {/* ─── Move photo(s) to folder modal ────────────────────────────────────── */}
       <Dialog
         open={isMoveModalOpen}
         onOpenChange={(open) => {
-          if (!open) { setIsMoveModalOpen(false); setMoveModalTargetIds([]); setMoveTargetFolderId('') }
+          if (!open) { setIsMoveModalOpen(false); setMoveModalTargetIds([]); setMoveTargetFolderId(''); setMoveSearchQuery('') }
         }}
       >
         <DialogContent
-          className="flex flex-col rounded-3xl p-0 sm:max-w-md"
+          className="flex max-h-[90dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg"
           showCloseButton={false}
+          style={{ borderRadius: '0.5rem', borderColor: 'var(--ds-outline-variant)' }}
         >
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-gray-100 px-6 py-5">
-            <div>
-              <DialogTitle className="text-base font-bold text-gray-900">
-                Move {moveModalTargetIds.length} photo{moveModalTargetIds.length !== 1 ? 's' : ''}
-              </DialogTitle>
-              <p className="mt-0.5 text-xs text-gray-400">Choose destination folder</p>
-            </div>
+          <div
+            className="flex items-center justify-between px-6 py-5"
+            style={{ borderBottom: '1px solid var(--ds-outline-variant)', backgroundColor: 'var(--ds-surface-container-lowest)' }}
+          >
+            <DialogTitle className="font-headline text-headline-md" style={{ color: 'var(--ds-on-surface)' }}>
+              Move {moveModalTargetIds.length} Selected Photo{moveModalTargetIds.length !== 1 ? 's' : ''}
+            </DialogTitle>
             <button
               aria-label="Close"
-              className="flex h-8 w-8 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100"
-              onClick={() => { setIsMoveModalOpen(false); setMoveModalTargetIds([]); setMoveTargetFolderId('') }}
+              className="flex h-8 w-8 items-center justify-center transition-colors hover:opacity-70"
+              onClick={() => { setIsMoveModalOpen(false); setMoveModalTargetIds([]); setMoveTargetFolderId(''); setMoveSearchQuery('') }}
+              style={{ color: 'var(--ds-outline)' }}
               type="button"
             >
-              <X className="h-4 w-4" />
+              <X className="h-5 w-5" />
             </button>
           </div>
 
-          {/* Scrollable folder list */}
-          <div className="max-h-80 overflow-y-auto px-3 py-3">
-            {/* Unassign option */}
+          {/* Quick Action */}
+          <div className="px-6 py-4" style={{ backgroundColor: 'var(--ds-surface-container-low)' }}>
             <button
-              className={cn(
-                'flex w-full items-center gap-4 rounded-2xl px-4 py-3 text-left transition-colors',
-                moveTargetFolderId === '__unfile__' ? 'bg-slate-950 text-white' : 'hover:bg-gray-50',
-              )}
+              className="text-label-caps flex w-full items-center justify-center gap-2 px-4 py-3 transition-all hover:opacity-80"
               onClick={() => setMoveTargetFolderId('__unfile__')}
+              style={{
+                border: moveTargetFolderId === '__unfile__' ? '1px solid var(--ds-secondary)' : '1px dashed rgba(181,36,38,0.3)',
+                backgroundColor: moveTargetFolderId === '__unfile__' ? 'rgba(181,36,38,0.08)' : 'rgba(181,36,38,0.04)',
+                color: 'var(--ds-secondary)',
+              }}
               type="button"
             >
-              <div className={cn(
-                'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl',
-                moveTargetFolderId === '__unfile__' ? 'bg-white/20' : 'bg-gray-100',
-              )}>
-                <FolderOpen className={cn('h-5 w-5', moveTargetFolderId === '__unfile__' ? 'text-white' : 'text-gray-400')} />
-              </div>
-              <span className={cn('text-sm font-semibold', moveTargetFolderId === '__unfile__' ? 'text-white' : 'text-gray-700')}>
-                Remove from folder
-              </span>
-              {moveTargetFolderId === '__unfile__' ? (
-                <span className="ml-auto text-white">✓</span>
-              ) : null}
+              <FolderOpen className="h-4 w-4" />
+              REMOVE FROM CURRENT FOLDER
             </button>
+          </div>
 
-            {activeFolders.length > 0 ? (
-              <div className="mt-1 space-y-px">
-                {activeFolders.map((folder) => {
-                  const selected = moveTargetFolderId === folder.id
-                  const count = folderPhotoCountById[folder.id] ?? 0
-                  return (
-                    <button
-                      key={folder.id}
-                      className={cn(
-                        'flex w-full items-center gap-4 rounded-2xl px-4 py-3 text-left transition-colors',
-                        selected ? 'bg-slate-950 text-white' : 'hover:bg-gray-50',
-                      )}
-                      onClick={() => setMoveTargetFolderId(folder.id)}
-                      type="button"
+          {/* Search */}
+          <div className="px-6 py-4">
+            <label className="text-label-caps mb-2 block" style={{ color: 'var(--ds-outline)' }}>
+              Find Destination Folder
+            </label>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" style={{ color: 'var(--ds-outline)' }} />
+              <input
+                className="w-full py-2 pl-10 pr-4 text-sm outline-none transition-colors"
+                onChange={(e) => setMoveSearchQuery(e.target.value)}
+                placeholder="Search folders..."
+                style={{
+                  border: '1px solid var(--ds-outline-variant)',
+                  backgroundColor: 'var(--ds-surface-container-lowest)',
+                  color: 'var(--ds-on-surface)',
+                }}
+                type="text"
+                value={moveSearchQuery}
+              />
+            </div>
+          </div>
+
+          {/* Folder list */}
+          <div className="flex-1 space-y-2 overflow-y-auto px-6 pb-6">
+            {activeFolders
+              .filter(f => !moveSearchQuery || f.folder_name.toLowerCase().includes(moveSearchQuery.toLowerCase()))
+              .map((folder) => {
+                const selected = moveTargetFolderId === folder.id
+                const count = folderPhotoCountById[folder.id] ?? 0
+                return (
+                  <button
+                    key={folder.id}
+                    className="flex w-full items-center gap-4 px-4 py-3 text-left transition-colors hover:opacity-90"
+                    onClick={() => setMoveTargetFolderId(folder.id)}
+                    style={{
+                      border: selected ? '1px solid var(--ds-primary-container)' : '1px solid var(--ds-outline-variant)',
+                      backgroundColor: selected ? 'var(--ds-primary)' : 'var(--ds-surface-container-lowest)',
+                    }}
+                    type="button"
+                  >
+                    <div
+                      className="flex h-10 w-10 shrink-0 items-center justify-center"
+                      style={{ backgroundColor: selected ? 'rgba(255,255,255,0.15)' : 'var(--ds-surface-container-low)' }}
                     >
-                      <div className={cn(
-                        'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl',
-                        selected ? 'bg-white/20' : 'bg-amber-50',
-                      )}>
-                        <Folder className={cn('h-5 w-5', selected ? 'text-white' : 'text-amber-600')} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className={cn('truncate text-sm font-semibold', selected ? 'text-white' : 'text-gray-800')}>
-                          {folder.folder_name}
-                        </p>
-                        <p className={cn('truncate text-xs', selected ? 'text-white/70' : 'text-gray-400')}>
-                          {count} photo{count !== 1 ? 's' : ''}{folder.city ? ` · ${folder.city}` : ''}
-                        </p>
-                      </div>
-                      {selected ? <span className="ml-auto shrink-0 text-white">✓</span> : null}
-                    </button>
-                  )
-                })}
-              </div>
-            ) : (
-              <p className="py-6 text-center text-sm text-gray-400">No active folders available.</p>
-            )}
+                      <Folder className="h-5 w-5" style={{ color: selected ? 'white' : 'var(--ds-primary)' }} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold" style={{ color: selected ? 'white' : 'var(--ds-on-surface)' }}>
+                        {folder.folder_name}
+                      </p>
+                      <p className="truncate text-xs" style={{ color: selected ? 'rgba(255,255,255,0.7)' : 'var(--ds-on-surface-variant)' }}>
+                        {folder.city ?? 'No location'}
+                      </p>
+                    </div>
+                    <span className="ml-auto shrink-0 text-xs font-semibold" style={{ color: selected ? 'rgba(255,255,255,0.7)' : 'var(--ds-on-surface-variant)' }}>
+                      {count} Photos
+                    </span>
+                    {selected ? (
+                      <CheckCircle2 className="h-5 w-5 shrink-0 text-white" />
+                    ) : null}
+                  </button>
+                )
+              })}
+            {activeFolders.length === 0 ? (
+              <p className="py-6 text-center text-sm" style={{ color: 'var(--ds-outline)' }}>No active folders available.</p>
+            ) : null}
           </div>
 
           {/* Footer */}
-          <div className="flex gap-3 border-t border-gray-100 px-6 py-4">
+          <div
+            className="flex items-center justify-end gap-4 px-6 py-4"
+            style={{ borderTop: '1px solid var(--ds-outline-variant)', backgroundColor: 'var(--ds-surface-container-lowest)' }}
+          >
             <button
-              className="flex-1 rounded-2xl border border-gray-200 py-3 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
-              onClick={() => { setIsMoveModalOpen(false); setMoveModalTargetIds([]); setMoveTargetFolderId('') }}
+              className="text-label-caps px-6 py-3 text-sm transition-colors hover:opacity-70"
+              onClick={() => { setIsMoveModalOpen(false); setMoveModalTargetIds([]); setMoveTargetFolderId(''); setMoveSearchQuery('') }}
+              style={{ color: 'var(--ds-on-surface-variant)' }}
               type="button"
             >
               Cancel
             </button>
             <button
-              className="flex-1 rounded-2xl bg-slate-950 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:opacity-40"
+              className="text-label-caps px-8 py-3 text-sm text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
               disabled={!moveTargetFolderId || isMoveSubmitting}
               onClick={() => void handleMovePhotos()}
+              style={{ backgroundColor: 'var(--ds-primary)' }}
               type="button"
             >
-              {isMoveSubmitting ? 'Moving…' : 'Move here'}
+              {isMoveSubmitting ? 'MOVING…' : 'MOVE PHOTOS'}
             </button>
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* ─── Floating Action Button ───────────────────────────────────────────── */}
+      {activeView === 'upload' && activeFolder ? (
+        <button
+          className="fixed bottom-10 right-10 z-50 flex h-16 w-16 items-center justify-center rounded-full text-white shadow-2xl transition-transform hover:scale-110 active:scale-95"
+          style={{ backgroundColor: 'var(--ds-primary)' }}
+          onClick={() => fileInputRef.current?.click()}
+          title="Upload photos"
+          type="button"
+        >
+          <Upload className="h-7 w-7" />
+        </button>
+      ) : null}
     </div>
   )
 }

@@ -8,9 +8,9 @@ export default function NotFound() {
         <div className="flex justify-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            alt="Homes Albums"
-            className="h-12 w-auto opacity-80"
-            src="/logo.png"
+            alt="Homes.ph Drive"
+            className="h-16 w-auto"
+            src="/HomesPH.gif"
           />
         </div>
 

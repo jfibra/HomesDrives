@@ -1,7 +1,6 @@
 'use client'
 
 import Link from 'next/link'
-import { Cormorant_Garamond, Space_Grotesk } from 'next/font/google'
 
 import type { AlbumTaxonomyOption, AlbumsMarketplacePhoto, AlbumsMarketplaceSort } from '@/lib/server/albums'
 import PhotoWall from '@/components/marketplace/photo-wall'
@@ -21,24 +20,6 @@ type HomeMarketplaceClientProps = {
   totalPages: number
 }
 
-const headingFont = Cormorant_Garamond({
-  subsets: ['latin'],
-  weight: ['600', '700'],
-})
-
-const bodyFont = Space_Grotesk({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
-})
-
-function toTitleCase(value: string) {
-  return value
-    .split(/[-_\s]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
-    .join(' ')
-}
-
 function createUrlWithFilters(params: {
   page?: number
   placeType: string
@@ -47,57 +28,13 @@ function createUrlWithFilters(params: {
   tag: string
 }) {
   const next = new URLSearchParams()
-
-  if (params.query) {
-    next.set('q', params.query)
-  }
-
-  if (params.placeType) {
-    next.set('placeType', params.placeType)
-  }
-
-  if (params.tag) {
-    next.set('tag', params.tag)
-  }
-
-  if (params.sort !== 'newest') {
-    next.set('sort', params.sort)
-  }
-
-  if (params.page && params.page > 1) {
-    next.set('page', String(params.page))
-  }
-
+  if (params.query) next.set('q', params.query)
+  if (params.placeType) next.set('placeType', params.placeType)
+  if (params.tag) next.set('tag', params.tag)
+  if (params.sort !== 'newest') next.set('sort', params.sort)
+  if (params.page && params.page > 1) next.set('page', String(params.page))
   const value = next.toString()
-
   return value ? `/?${value}` : '/'
-}
-
-function countActiveFilters(params: {
-  placeType: string
-  query: string
-  sort: AlbumsMarketplaceSort
-  tag: string
-}) {
-  let count = 0
-
-  if (params.query) {
-    count += 1
-  }
-
-  if (params.placeType) {
-    count += 1
-  }
-
-  if (params.tag) {
-    count += 1
-  }
-
-  if (params.sort !== 'newest') {
-    count += 1
-  }
-
-  return count
 }
 
 export default function HomeMarketplaceClient({
@@ -114,216 +51,222 @@ export default function HomeMarketplaceClient({
   totalCount,
   totalPages,
 }: HomeMarketplaceClientProps) {
-  const featuredPhotos = photos.slice(0, 5)
-  const activeFilters = countActiveFilters({ placeType, query, sort, tag })
-  const contributorsCount = new Set(photos.map((photo) => photo.uploader_name)).size
+  const featuredPhotos = photos.slice(0, 4)
+  const contributorsCount = new Set(photos.map((p) => p.uploader_name)).size
   const locationsCount = new Set(
     photos
-      .map((photo) => [photo.city, photo.province, photo.country].filter(Boolean).join(', '))
+      .map((p) => [p.city, p.province, p.country].filter(Boolean).join(', '))
       .filter(Boolean),
   ).size
 
   function createPageHref(nextPage: number) {
-    return createUrlWithFilters({
-      page: nextPage,
-      placeType,
-      query,
-      sort,
-      tag,
-    })
+    return createUrlWithFilters({ page: nextPage, placeType, query, sort, tag })
   }
 
   return (
-    <main className={`min-h-screen bg-white text-[#001f3f] ${bodyFont.className}`}>
-      <section className="relative overflow-hidden border-b border-[#001f3f]/10 bg-[radial-gradient(circle_at_8%_10%,rgba(193,18,31,0.12),transparent_30%),radial-gradient(circle_at_88%_15%,rgba(0,31,63,0.12),transparent_34%),linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)]">
-        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,rgba(0,31,63,0.035)_1px,transparent_1px),linear-gradient(to_bottom,rgba(0,31,63,0.03)_1px,transparent_1px)] bg-[size:34px_34px]" />
-        <div className="relative mx-auto max-w-[96rem] px-4 pb-8 pt-8 sm:px-6 lg:px-8 xl:px-10">
-          <header>
-            <nav className="flex items-center justify-between rounded-2xl border border-[#001f3f]/10 bg-white/85 px-4 py-3 shadow-[0_20px_60px_-45px_rgba(0,31,63,0.65)] backdrop-blur sm:px-6">
-              <Link className="inline-flex items-center gap-3" href="/">
-                <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-[#001f3f] text-sm font-bold text-white">
-                  HD
-                </span>
-                <span className="text-sm font-semibold tracking-wide text-[#001f3f] sm:text-base">
-                  HomesDrives Photos
-                </span>
-              </Link>
-              <div className="hidden items-center gap-2 text-xs sm:flex">
-                <span className="rounded-full border border-[#001f3f]/20 bg-white px-3 py-1.5 font-semibold text-[#001f3f]">
-                  Premium Marketplace
-                </span>
-                <span className="rounded-full border border-[#c1121f]/25 bg-[#c1121f]/10 px-3 py-1.5 font-semibold text-[#c1121f]">
-                  {totalCount.toLocaleString('en-US')} photos
-                </span>
-              </div>
-            </nav>
-          </header>
+    <div style={{ backgroundColor: '#f9f9ff', color: '#121c2c', minHeight: '100vh' }}>
 
-          <div className="grid gap-7 pt-8 lg:grid-cols-[1.05fr_0.95fr] lg:items-end">
-            <div className="space-y-6">
-              <p className="inline-flex items-center rounded-full border border-[#001f3f]/15 bg-white px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#001f3f]">
-                Curated visual intelligence for real estate
-              </p>
-              <h1 className={`${headingFont.className} max-w-3xl text-5xl leading-[0.95] tracking-tight text-[#001f3f] sm:text-6xl lg:text-7xl`}>
-                Discover striking home and location photography at scale.
-              </h1>
-              <p className="max-w-2xl text-base text-[#001f3f]/75 sm:text-lg">
-                A premium stock-style catalog where every contributor adds visual depth.
-                Search by place, filter by taxonomy, and open any image in an immersive viewer.
-              </p>
-            </div>
+      {/* ── Fixed top navigation ────────────────────────────────────── */}
+      <header
+        className="fixed inset-x-0 top-0 z-50 flex h-20 items-center"
+        style={{
+          backgroundColor: 'rgba(249,249,255,0.85)',
+          backdropFilter: 'blur(12px)',
+          borderBottom: '1px solid #c4c6cf',
+        }}
+      >
+        <div className="mx-auto flex w-full max-w-[1280px] items-center justify-between px-8">
+          <Link href="/" className="inline-flex items-center">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/Homes%20Drive%20Logo%20Blue.png"
+              alt="Homes.ph Drive"
+              className="h-10 w-auto object-contain"
+            />
+          </Link>
 
-            <div className="grid grid-cols-3 gap-3">
-              {featuredPhotos.map((photo, index) => (
-                <div
-                  className={`overflow-hidden rounded-2xl border border-white/70 bg-white shadow-[0_24px_60px_-42px_rgba(0,31,63,0.8)] ${
-                    index === 0 ? 'col-span-2 row-span-2' : ''
-                  }`}
-                  key={photo.id}
-                >
-                  <img
-                    alt={photo.original_file_name}
-                    className={`h-full w-full object-cover transition duration-500 hover:scale-[1.03] ${
-                      index === 0 ? 'aspect-[4/3]' : 'aspect-square'
-                    }`}
-                    loading="lazy"
-                    src={photo.image_url}
-                  />
-                </div>
-              ))}
+          <nav className="hidden md:flex items-center gap-8">
+            {['MARKETPLACE', 'ABOUT', 'CONTACT'].map((label) => (
+              <span
+                key={label}
+                className="text-xs font-semibold tracking-[0.18em] cursor-pointer transition-opacity hover:opacity-70"
+                style={{ color: '#43474e' }}
+              >
+                {label}
+              </span>
+            ))}
+          </nav>
+
+          <Link
+            href="/"
+            className="hidden sm:inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
+            style={{ backgroundColor: '#b52426' }}
+          >
+            Explore Photos
+          </Link>
+        </div>
+      </header>
+
+      {/* ── Hero ───────────────────────────────────────────────────────── */}
+      <section className="pt-20" style={{ backgroundColor: '#f0f3ff' }}>
+        <div className="mx-auto grid max-w-[1280px] grid-cols-1 gap-12 px-8 py-20 lg:grid-cols-2 lg:items-center">
+
+          {/* Left: copy */}
+          <div className="space-y-7">
+            <p
+              className="inline-block text-xs font-semibold uppercase tracking-[0.2em]"
+              style={{ color: '#b52426' }}
+            >
+              Real Estate Photography Marketplace
+            </p>
+            <h1
+              className="text-5xl font-bold leading-tight lg:text-6xl"
+              style={{ color: '#002045' }}
+            >
+              Discover striking home and location photography at scale.
+            </h1>
+            <p className="text-lg leading-relaxed" style={{ color: '#43474e' }}>
+              A curated collection of premium real estate imagery. Browse by place type, filter by
+              style tags, and open any photo in an immersive full-screen viewer.
+            </p>
+            <div className="flex flex-wrap items-center gap-4">
+              <a
+                href="#marketplace"
+                className="inline-flex items-center gap-2 rounded-full px-7 py-3.5 text-sm font-semibold text-white transition hover:opacity-90"
+                style={{ backgroundColor: '#002045' }}
+              >
+                Explore Photos
+              </a>
+              <a
+                href="#marketplace"
+                className="inline-flex items-center gap-2 rounded-full border px-7 py-3.5 text-sm font-semibold transition hover:opacity-70"
+                style={{ borderColor: '#002045', color: '#002045' }}
+              >
+                Join as Contributor
+              </a>
             </div>
           </div>
 
-          <form
-            action="/"
-            className="mt-8 rounded-3xl border border-[#001f3f]/10 bg-white p-3 shadow-[0_35px_90px_-45px_rgba(0,31,63,0.55)] sm:p-4"
-          >
-            <div className="grid gap-3 lg:grid-cols-[2.4fr_1fr_1fr_1fr_auto]">
-              <input
-                className="h-12 rounded-2xl border border-[#001f3f]/20 bg-white px-4 text-sm text-[#001f3f] outline-none transition focus:border-[#001f3f] focus:ring-2 focus:ring-[#001f3f]/15"
-                defaultValue={query}
-                name="q"
-                placeholder="Search homes, neighborhoods, cities, contributors"
-                type="search"
-              />
-              <select
-                className="h-12 rounded-2xl border border-[#001f3f]/20 bg-white px-3 text-sm text-[#001f3f] outline-none transition focus:border-[#001f3f] focus:ring-2 focus:ring-[#001f3f]/15"
-                defaultValue={placeType}
-                name="placeType"
-              >
-                <option value="">All place types</option>
-                {placeTypes.map((option) => (
-                  <option key={option.slug} value={option.label}>
-                    {option.label}
-                  </option>
+          {/* Right: 2-column featured photo collage */}
+          {featuredPhotos.length >= 2 ? (
+            <div className="grid grid-cols-2 gap-3">
+              {/* left column — offset top so the two columns stagger */}
+              <div className="flex flex-col gap-3 pt-12">
+                {featuredPhotos.filter((_, i) => i % 2 === 0).map((photo) => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    key={photo.id}
+                    src={photo.image_url}
+                    alt={photo.original_file_name}
+                    className="w-full rounded-2xl object-cover"
+                    style={{ border: '1px solid #c4c6cf' }}
+                    loading="eager"
+                  />
                 ))}
-              </select>
-              <select
-                className="h-12 rounded-2xl border border-[#001f3f]/20 bg-white px-3 text-sm text-[#001f3f] outline-none transition focus:border-[#001f3f] focus:ring-2 focus:ring-[#001f3f]/15"
-                defaultValue={tag}
-                name="tag"
-              >
-                <option value="">All tags</option>
-                {tags.map((option) => (
-                  <option key={option.slug} value={option.label}>
-                    {option.label}
-                  </option>
+              </div>
+              {/* right column */}
+              <div className="flex flex-col gap-3">
+                {featuredPhotos.filter((_, i) => i % 2 !== 0).map((photo) => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    key={photo.id}
+                    src={photo.image_url}
+                    alt={photo.original_file_name}
+                    className="w-full rounded-2xl object-cover"
+                    style={{ border: '1px solid #c4c6cf' }}
+                    loading="eager"
+                  />
                 ))}
-              </select>
-              <select
-                className="h-12 rounded-2xl border border-[#001f3f]/20 bg-white px-3 text-sm text-[#001f3f] outline-none transition focus:border-[#001f3f] focus:ring-2 focus:ring-[#001f3f]/15"
-                defaultValue={sort}
-                name="sort"
-              >
-                <option value="newest">Newest uploads</option>
-                <option value="oldest">Oldest uploads</option>
-                <option value="captured">Latest capture date</option>
-              </select>
-              <div className="flex gap-2">
-                <button
-                  className="h-12 flex-1 rounded-2xl bg-[#001f3f] px-4 text-sm font-semibold text-white transition hover:bg-[#052d58]"
-                  type="submit"
-                >
-                  Search
-                </button>
-                <Link
-                  className="inline-flex h-12 items-center justify-center rounded-2xl border border-[#c1121f]/35 px-4 text-sm font-semibold text-[#c1121f] transition hover:bg-[#c1121f] hover:text-white"
-                  href="/"
-                >
-                  Reset
-                </Link>
               </div>
             </div>
-          </form>
+          ) : null}
         </div>
       </section>
 
-      <section className="w-full px-3 pb-14 pt-8 sm:px-5 lg:px-7">
-        <div className="grid gap-6 lg:grid-cols-[18rem_minmax(0,1fr)] xl:grid-cols-[20rem_minmax(0,1fr)]">
-          <aside className="hidden lg:block">
-            <div className="sticky top-6 h-[calc(100vh-3rem)] overflow-y-auto rounded-3xl border border-[#001f3f]/10 bg-white p-5 shadow-[0_20px_60px_-50px_rgba(0,31,63,0.6)]">
-              <div className="space-y-1">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#001f3f]/70">
-                  Filters
-                </p>
-                <p className="text-sm text-[#001f3f]/75">
-                  {activeFilters} active • page {page} of {totalPages}
-                </p>
-              </div>
+      {/* ── Stats bar ──────────────────────────────────────────────────── */}
+      <section className="py-12" style={{ backgroundColor: '#f9f9ff', borderBottom: '1px solid #c4c6cf' }}>
+        <div className="mx-auto grid max-w-[1280px] grid-cols-1 gap-6 px-8 sm:grid-cols-3">
+          {[
+            { label: 'TOTAL PHOTOS', value: totalCount.toLocaleString('en-US') },
+            { label: 'CONTRIBUTORS', value: contributorsCount.toLocaleString('en-US') },
+            { label: 'LOCATIONS', value: locationsCount.toLocaleString('en-US') },
+          ].map(({ label, value }) => (
+            <div
+              key={label}
+              className="rounded-2xl p-6 text-center"
+              style={{ border: '1px solid #c4c6cf', backgroundColor: '#ffffff' }}
+            >
+              <p
+                className="mb-1 text-xs font-semibold uppercase tracking-[0.18em]"
+                style={{ color: '#74777f' }}
+              >
+                {label}
+              </p>
+              <p className="text-4xl font-bold" style={{ color: '#002045' }}>
+                {value}
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
 
-              <div className="mt-5 space-y-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#001f3f]/70">
-                  Sort
-                </p>
-                {(['newest', 'oldest', 'captured'] as AlbumsMarketplaceSort[]).map((sortOption) => {
-                  const selected = sortOption === sort
+      {/* ── Marketplace section ────────────────────────────────────────── */}
+      <section id="marketplace" className="mx-auto max-w-[1280px] px-8 py-20">
+        <div className="flex gap-16">
 
-                  return (
-                    <Link
-                      className={`flex items-center justify-between rounded-xl border px-3 py-2 text-sm transition ${
-                        selected
-                          ? 'border-[#001f3f] bg-[#001f3f] text-white'
-                          : 'border-[#001f3f]/15 text-[#001f3f] hover:bg-[#001f3f]/6'
-                      }`}
-                      href={createUrlWithFilters({
-                        page: 1,
-                        placeType,
-                        query,
-                        sort: sortOption,
-                        tag,
-                      })}
-                      key={sortOption}
-                    >
-                      <span>{toTitleCase(sortOption)}</span>
-                      {selected ? <span>•</span> : null}
-                    </Link>
-                  )
-                })}
-              </div>
+          {/* Sidebar */}
+          <aside className="hidden w-72 shrink-0 lg:block">
+            <div className="sticky top-24 space-y-8">
 
-              <div className="mt-6 space-y-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#001f3f]/70">
+              {/* Search form */}
+              <form action="/" className="flex gap-2">
+                {placeType && <input type="hidden" name="placeType" value={placeType} />}
+                {tag && <input type="hidden" name="tag" value={tag} />}
+                {sort !== 'newest' && <input type="hidden" name="sort" value={sort} />}
+                <input
+                  type="search"
+                  name="q"
+                  defaultValue={query}
+                  placeholder="Search photos…"
+                  className="flex-1 rounded-xl border px-4 py-2.5 text-sm outline-none transition focus:ring-2"
+                  style={{ borderColor: '#c4c6cf', color: '#121c2c', focusRingColor: '#002045' } as React.CSSProperties}
+                />
+                <button
+                  type="submit"
+                  className="rounded-xl px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
+                  style={{ backgroundColor: '#002045' }}
+                >
+                  Go
+                </button>
+              </form>
+
+              {/* Place Types */}
+              <div>
+                <p
+                  className="mb-3 text-xs font-semibold uppercase tracking-[0.18em]"
+                  style={{ color: '#74777f' }}
+                >
                   Place Types
                 </p>
-                <div className="space-y-2">
-                  {placeTypes.slice(0, 14).map((option) => {
-                    const selected = option.label === placeType
-
+                <div className="space-y-1">
+                  {placeTypes.map((option) => {
+                    const active = option.label === placeType
                     return (
                       <Link
-                        className={`block rounded-xl border px-3 py-2 text-sm transition ${
-                          selected
-                            ? 'border-[#c1121f] bg-[#c1121f] text-white'
-                            : 'border-[#001f3f]/15 text-[#001f3f] hover:bg-[#001f3f]/6'
-                        }`}
+                        key={option.slug}
                         href={createUrlWithFilters({
                           page: 1,
-                          placeType: selected ? '' : option.label,
+                          placeType: active ? '' : option.label,
                           query,
                           sort,
                           tag,
                         })}
-                        key={option.slug}
+                        className="block rounded-lg px-3 py-2 text-sm font-medium transition"
+                        style={
+                          active
+                            ? { backgroundColor: '#002045', color: '#ffffff' }
+                            : { color: '#43474e' }
+                        }
                       >
                         {option.label}
                       </Link>
@@ -332,29 +275,33 @@ export default function HomeMarketplaceClient({
                 </div>
               </div>
 
-              <div className="mt-6 space-y-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#001f3f]/70">
-                  Tags
+              {/* Tags */}
+              <div>
+                <p
+                  className="mb-3 text-xs font-semibold uppercase tracking-[0.18em]"
+                  style={{ color: '#74777f' }}
+                >
+                  Popular Tags
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  {tags.slice(0, 18).map((option) => {
-                    const selected = option.label === tag
-
+                  {tags.map((option) => {
+                    const active = option.label === tag
                     return (
                       <Link
-                        className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
-                          selected
-                            ? 'border-[#001f3f] bg-[#001f3f] text-white'
-                            : 'border-[#001f3f]/20 text-[#001f3f] hover:bg-[#001f3f]/8'
-                        }`}
+                        key={option.slug}
                         href={createUrlWithFilters({
                           page: 1,
                           placeType,
                           query,
                           sort,
-                          tag: selected ? '' : option.label,
+                          tag: active ? '' : option.label,
                         })}
-                        key={option.slug}
+                        className="rounded-full border px-3 py-1 text-xs font-medium transition"
+                        style={
+                          active
+                            ? { borderColor: '#b52426', backgroundColor: '#b52426', color: '#ffffff' }
+                            : { borderColor: '#c4c6cf', color: '#43474e' }
+                        }
                       >
                         {option.label}
                       </Link>
@@ -363,95 +310,240 @@ export default function HomeMarketplaceClient({
                 </div>
               </div>
 
+              {/* Sort */}
+              <div>
+                <p
+                  className="mb-3 text-xs font-semibold uppercase tracking-[0.18em]"
+                  style={{ color: '#74777f' }}
+                >
+                  Sort By
+                </p>
+                <div className="space-y-1">
+                  {(
+                    [
+                      { value: 'newest', label: 'Newest uploads' },
+                      { value: 'oldest', label: 'Oldest uploads' },
+                      { value: 'captured', label: 'Latest capture date' },
+                    ] as { value: AlbumsMarketplaceSort; label: string }[]
+                  ).map(({ value, label }) => {
+                    const active = value === sort
+                    return (
+                      <Link
+                        key={value}
+                        href={createUrlWithFilters({ page: 1, placeType, query, sort: value, tag })}
+                        className="block rounded-lg px-3 py-2 text-sm font-medium transition"
+                        style={
+                          active
+                            ? { backgroundColor: '#f0f3ff', color: '#002045', fontWeight: 600 }
+                            : { color: '#43474e' }
+                        }
+                      >
+                        {label}
+                      </Link>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Clear all */}
               <Link
-                className="mt-7 inline-flex w-full items-center justify-center rounded-xl border border-[#c1121f]/35 bg-[#c1121f]/10 px-4 py-2.5 text-sm font-semibold text-[#c1121f] transition hover:bg-[#c1121f] hover:text-white"
                 href="/"
+                className="block text-center text-sm font-medium transition hover:opacity-70"
+                style={{ color: '#b52426' }}
               >
                 Clear all filters
               </Link>
             </div>
           </aside>
 
-          <div className="space-y-6">
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="rounded-2xl border border-[#001f3f]/10 bg-white p-4 shadow-[0_20px_50px_-45px_rgba(0,31,63,0.9)]">
-                <p className="text-xs uppercase tracking-[0.14em] text-[#001f3f]/65">Visible Photos</p>
-                <p className="mt-2 text-2xl font-bold text-[#001f3f]">{photos.length}</p>
-              </div>
-              <div className="rounded-2xl border border-[#001f3f]/10 bg-white p-4 shadow-[0_20px_50px_-45px_rgba(0,31,63,0.9)]">
-                <p className="text-xs uppercase tracking-[0.14em] text-[#001f3f]/65">Contributors</p>
-                <p className="mt-2 text-2xl font-bold text-[#001f3f]">{contributorsCount}</p>
-              </div>
-              <div className="rounded-2xl border border-[#001f3f]/10 bg-white p-4 shadow-[0_20px_50px_-45px_rgba(0,31,63,0.9)]">
-                <p className="text-xs uppercase tracking-[0.14em] text-[#001f3f]/65">Locations</p>
-                <p className="mt-2 text-2xl font-bold text-[#001f3f]">{locationsCount}</p>
-              </div>
-            </div>
+          {/* Content */}
+          <div className="min-w-0 flex-1 space-y-6">
 
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#001f3f]/10 bg-white p-4">
-              <p className="text-sm text-[#001f3f]/75">
-                Showing <span className="font-semibold text-[#001f3f]">{photos.length}</span> of{' '}
-                <span className="font-semibold text-[#001f3f]">{totalCount}</span> photos
+            {/* Results header + active chips */}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm" style={{ color: '#43474e' }}>
+                <span className="font-semibold" style={{ color: '#121c2c' }}>
+                  {totalCount.toLocaleString('en-US')}
+                </span>{' '}
+                photos — page {page} of {totalPages}
               </p>
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                {query ? (
-                  <span className="rounded-full border border-[#001f3f]/15 bg-[#001f3f]/5 px-3 py-1 text-[#001f3f]">
-                    Query: {query}
-                  </span>
-                ) : null}
-                {placeType ? (
-                  <span className="rounded-full border border-[#001f3f]/15 bg-[#001f3f]/5 px-3 py-1 text-[#001f3f]">
-                    Place: {placeType}
-                  </span>
-                ) : null}
-                {tag ? (
-                  <span className="rounded-full border border-[#c1121f]/20 bg-[#c1121f]/10 px-3 py-1 text-[#c1121f]">
-                    Tag: {tag}
-                  </span>
-                ) : null}
-                <span className="rounded-full border border-[#001f3f]/15 bg-white px-3 py-1 text-[#001f3f]">
-                  Sort: {toTitleCase(sort)}
-                </span>
+              <div className="flex flex-wrap gap-2">
+                {query && (
+                  <Link
+                    href={createUrlWithFilters({ page: 1, placeType, query: '', sort, tag })}
+                    className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition hover:opacity-70"
+                    style={{ borderColor: '#c4c6cf', color: '#43474e' }}
+                  >
+                    &ldquo;{query}&rdquo; ×
+                  </Link>
+                )}
+                {placeType && (
+                  <Link
+                    href={createUrlWithFilters({ page: 1, placeType: '', query, sort, tag })}
+                    className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition hover:opacity-70"
+                    style={{ borderColor: '#c4c6cf', color: '#43474e' }}
+                  >
+                    {placeType} ×
+                  </Link>
+                )}
+                {tag && (
+                  <Link
+                    href={createUrlWithFilters({ page: 1, placeType, query, sort, tag: '' })}
+                    className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition hover:opacity-70"
+                    style={{ borderColor: '#b52426', color: '#b52426' }}
+                  >
+                    {tag} ×
+                  </Link>
+                )}
               </div>
             </div>
 
+            {/* Photo grid */}
             <PhotoWall photos={photos} />
 
-            <nav className="mt-10 flex flex-wrap items-center justify-center gap-2" aria-label="Photo pages">
-              <Link
-                aria-disabled={safePage <= 1}
-                className="inline-flex h-10 items-center rounded-xl border border-[#001f3f]/20 px-4 text-sm font-semibold text-[#001f3f] transition hover:bg-[#001f3f] hover:text-white aria-disabled:pointer-events-none aria-disabled:opacity-40"
-                href={createPageHref(Math.max(1, safePage - 1))}
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <nav
+                className="mt-8 flex flex-wrap items-center justify-center gap-2"
+                aria-label="Pagination"
               >
-                Previous
-              </Link>
-
-              {pagesToShow.map((pageNumber) => (
                 <Link
-                  aria-current={pageNumber === safePage ? 'page' : undefined}
-                  className={`inline-flex h-10 min-w-10 items-center justify-center rounded-xl border px-3 text-sm font-semibold transition ${
-                    pageNumber === safePage
-                      ? 'border-[#c1121f] bg-[#c1121f] text-white'
-                      : 'border-[#001f3f]/20 text-[#001f3f] hover:bg-[#001f3f] hover:text-white'
-                  }`}
-                  href={createPageHref(pageNumber)}
-                  key={pageNumber}
+                  href={createPageHref(Math.max(1, safePage - 1))}
+                  aria-disabled={safePage <= 1}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border text-sm transition hover:opacity-70 aria-disabled:pointer-events-none aria-disabled:opacity-30"
+                  style={{ borderColor: '#c4c6cf', color: '#002045' }}
                 >
-                  {pageNumber}
+                  ‹
                 </Link>
-              ))}
 
-              <Link
-                aria-disabled={safePage >= totalPages}
-                className="inline-flex h-10 items-center rounded-xl border border-[#001f3f]/20 px-4 text-sm font-semibold text-[#001f3f] transition hover:bg-[#001f3f] hover:text-white aria-disabled:pointer-events-none aria-disabled:opacity-40"
-                href={createPageHref(Math.min(totalPages, safePage + 1))}
-              >
-                Next
-              </Link>
-            </nav>
+                {pagesToShow.map((pageNumber) => (
+                  <Link
+                    key={pageNumber}
+                    href={createPageHref(pageNumber)}
+                    aria-current={pageNumber === safePage ? 'page' : undefined}
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-full border text-sm font-semibold transition"
+                    style={
+                      pageNumber === safePage
+                        ? { backgroundColor: '#002045', borderColor: '#002045', color: '#ffffff' }
+                        : { borderColor: '#c4c6cf', color: '#002045' }
+                    }
+                  >
+                    {pageNumber}
+                  </Link>
+                ))}
+
+                <Link
+                  href={createPageHref(Math.min(totalPages, safePage + 1))}
+                  aria-disabled={safePage >= totalPages}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border text-sm transition hover:opacity-70 aria-disabled:pointer-events-none aria-disabled:opacity-30"
+                  style={{ borderColor: '#c4c6cf', color: '#002045' }}
+                >
+                  ›
+                </Link>
+              </nav>
+            )}
           </div>
         </div>
       </section>
-    </main>
+
+      {/* ── Footer ─────────────────────────────────────────────────────── */}
+      <footer className="mt-20" style={{ backgroundColor: '#002045' }}>
+        <div className="mx-auto grid max-w-[1280px] grid-cols-1 gap-12 px-8 py-16 sm:grid-cols-2 lg:grid-cols-4">
+          {/* Brand */}
+          <div className="space-y-4">
+            <div>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/Homes%20Drive%20Logo%20White.png"
+                alt="Homes.ph Drive"
+                className="h-9 w-auto object-contain"
+              />
+            </div>
+            <p className="text-sm leading-relaxed" style={{ color: 'rgba(255,255,255,0.65)' }}>
+              A curated marketplace for real estate photography across the Philippines and beyond.
+            </p>
+          </div>
+
+          {/* Platform */}
+          <div>
+            <p
+              className="mb-4 text-xs font-semibold uppercase tracking-[0.18em]"
+              style={{ color: 'rgba(255,255,255,0.45)' }}
+            >
+              Platform
+            </p>
+            <ul className="space-y-2">
+              {['Browse Marketplace', 'Collections', 'Latest Uploads', 'Featured Work'].map((item) => (
+                <li key={item}>
+                  <span
+                    className="text-sm transition-opacity cursor-pointer hover:opacity-80"
+                    style={{ color: 'rgba(255,255,255,0.75)' }}
+                  >
+                    {item}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Company */}
+          <div>
+            <p
+              className="mb-4 text-xs font-semibold uppercase tracking-[0.18em]"
+              style={{ color: 'rgba(255,255,255,0.45)' }}
+            >
+              Company
+            </p>
+            <ul className="space-y-2">
+              {['About Us', 'For Contributors', 'Privacy Policy', 'Terms of Service'].map((item) => (
+                <li key={item}>
+                  <span
+                    className="text-sm transition-opacity cursor-pointer hover:opacity-80"
+                    style={{ color: 'rgba(255,255,255,0.75)' }}
+                  >
+                    {item}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Newsletter */}
+          <div>
+            <p
+              className="mb-4 text-xs font-semibold uppercase tracking-[0.18em]"
+              style={{ color: 'rgba(255,255,255,0.45)' }}
+            >
+              Stay Updated
+            </p>
+            <p className="mb-4 text-sm" style={{ color: 'rgba(255,255,255,0.65)' }}>
+              Get notified when new collections are published.
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="email"
+                placeholder="you@example.com"
+                className="flex-1 rounded-xl px-4 py-2.5 text-sm outline-none"
+                style={{ backgroundColor: 'rgba(255,255,255,0.1)', color: '#ffffff', border: '1px solid rgba(255,255,255,0.2)' }}
+              />
+              <button
+                type="button"
+                className="rounded-xl px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
+                style={{ backgroundColor: '#b52426' }}
+              >
+                Join
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div
+          className="border-t px-8 py-6 text-center text-xs"
+          style={{ borderColor: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.45)' }}
+        >
+          © {new Date().getFullYear()} homes.ph · Leuterio Realty · All rights reserved
+        </div>
+      </footer>
+    </div>
   )
 }
