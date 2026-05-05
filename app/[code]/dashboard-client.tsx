@@ -633,12 +633,18 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
 
   const [isAuthChecked, setIsAuthChecked] = useState(false)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [emailInput, setEmailInput] = useState('')
   const [passwordInput, setPasswordInput] = useState('')
   const [authError, setAuthError] = useState('')
   const [isAuthenticating, setIsAuthenticating] = useState(false)
 
   async function handlePasswordLogin(event?: React.FormEvent<HTMLFormElement>) {
     event?.preventDefault()
+
+    if (!emailInput.trim()) {
+      setAuthError('Please enter your email address.')
+      return
+    }
 
     if (!passwordInput.trim()) {
       setAuthError('Please enter your password.')
@@ -653,19 +659,21 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          code: user.code,
+          email: emailInput.trim().toLowerCase(),
           password: passwordInput,
+          code: user.code,
         }),
       })
 
       const data = await response.json().catch(() => null)
 
       if (!response.ok) {
-        throw new Error(data?.error || 'Invalid password.')
+        throw new Error(data?.error || 'Invalid email or password.')
       }
 
       localStorage.setItem(authStorageKey, '1')
       setIsAuthenticated(true)
+      setEmailInput('')
       setPasswordInput('')
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : 'Unable to log in right now.')
@@ -1824,31 +1832,67 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                 Welcome back
               </h1>
               <p
-                className="text-label-caps flex items-center justify-center gap-2"
-                style={{ color: 'var(--ds-on-primary-container, #86a0cd)', letterSpacing: '0.15em' }}
+                className="text-label-caps"
+                style={{ color: 'var(--ds-on-surface-variant)', fontSize: '11px', letterSpacing: '0.08em' }}
               >
-                <svg
-                  aria-hidden="true"
-                  className="h-4 w-4 shrink-0"
-                  fill="currentColor"
-                  style={{ color: 'var(--ds-surface-tint)' }}
-                  viewBox="0 0 24 24"
-                >
-                  <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z" />
-                </svg>
-                STUDIO CODE: {user.code.toUpperCase()}
+                Sign in to access your dashboard
               </p>
             </div>
 
             {/* Form */}
             <form className="flex flex-col gap-6" onSubmit={(e) => void handlePasswordLogin(e)}>
+              {/* Email */}
               <div className="space-y-2">
                 <label
                   className="text-label-caps ml-1 block"
-                  htmlFor="code-password-input"
+                  htmlFor="auth-email-input"
                   style={{ color: 'var(--ds-on-surface-variant)', fontSize: '11px' }}
                 >
-                  ACCESS PASSWORD
+                  EMAIL ADDRESS
+                </label>
+                <div className="relative">
+                  <span
+                    className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2"
+                    style={{ color: 'var(--ds-outline)' }}
+                  >
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+                    </svg>
+                  </span>
+                  <input
+                    autoFocus
+                    autoComplete="email"
+                    className="w-full rounded-lg border py-4 pl-12 pr-4 text-sm transition-all outline-none"
+                    id="auth-email-input"
+                    onChange={(e) => setEmailInput(e.target.value)}
+                    placeholder="you@example.com"
+                    style={{
+                      backgroundColor: 'var(--ds-surface-container-low)',
+                      borderColor: 'var(--ds-outline-variant)',
+                      color: 'var(--ds-on-surface)',
+                    }}
+                    onFocus={(e) => {
+                      e.currentTarget.style.borderColor = 'var(--ds-primary)'
+                      e.currentTarget.style.boxShadow = '0 0 0 1px var(--ds-primary)'
+                    }}
+                    onBlur={(e) => {
+                      e.currentTarget.style.borderColor = 'var(--ds-outline-variant)'
+                      e.currentTarget.style.boxShadow = 'none'
+                    }}
+                    type="email"
+                    value={emailInput}
+                  />
+                </div>
+              </div>
+
+              {/* Password */}
+              <div className="space-y-2">
+                <label
+                  className="text-label-caps ml-1 block"
+                  htmlFor="auth-password-input"
+                  style={{ color: 'var(--ds-on-surface-variant)', fontSize: '11px' }}
+                >
+                  PASSWORD
                 </label>
                 <div className="relative">
                   <span
@@ -1860,9 +1904,9 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                     </svg>
                   </span>
                   <input
-                    autoFocus
+                    autoComplete="current-password"
                     className="w-full rounded-lg border py-4 pl-12 pr-4 text-sm transition-all outline-none"
-                    id="code-password-input"
+                    id="auth-password-input"
                     onChange={(e) => setPasswordInput(e.target.value)}
                     placeholder="••••••••••••"
                     style={{
@@ -1899,7 +1943,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
 
               <button
                 className="text-label-caps flex items-center justify-center gap-3 rounded-lg py-4 transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={isAuthenticating || !passwordInput.trim()}
+                disabled={isAuthenticating || !emailInput.trim() || !passwordInput.trim()}
                 style={{
                   backgroundColor: 'var(--ds-primary)',
                   color: 'var(--ds-on-primary)',
@@ -1923,7 +1967,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                 href="#"
                 style={{ fontSize: '10px', color: 'var(--ds-on-surface-variant)' }}
               >
-                Forgot your access code? Contact your manager.
+                Forgot your password? Contact your manager.
               </a>
             </div>
           </div>
