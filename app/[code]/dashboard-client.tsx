@@ -2144,6 +2144,24 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                 label="My Photos"
                 onClick={() => { setActiveView('my-photos'); setIsSidebarOpen(false) }}
               />
+              <SidebarNavItem
+                active={false}
+                icon={<CheckSquare className="h-5 w-5" />}
+                label="All Questionnaires"
+                onClick={() => {
+                  setIsSidebarOpen(false)
+                  window.location.href = '/questionnaires'
+                }}
+              />
+              <SidebarNavItem
+                active={false}
+                icon={<CheckSquare className="h-5 w-5" />}
+                label="Questionnaire Builder"
+                onClick={() => {
+                  setIsSidebarOpen(false)
+                  window.location.href = '/questionnaires/new'
+                }}
+              />
             </nav>
 
             <div className="my-4 mx-6 border-t" style={{ borderColor: 'var(--ds-outline-variant)' }} />
