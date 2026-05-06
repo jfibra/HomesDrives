@@ -28,13 +28,13 @@ export default function Navbar() {
         borderBottom: "1px solid #c4c6cf",
       }}
     >
-      <div className="mx-auto flex w-full max-w-[1280px] items-center justify-between px-8">
-        <Link href="/" className="inline-flex items-center">
+      <div className="mx-auto flex w-full max-w-[1280px] items-center justify-between gap-2 px-4 sm:px-6 lg:px-8">
+        <Link href="/" className="inline-flex items-center shrink-0">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/Homes%20Drive%20Logo%20Blue.png"
             alt="Homes.ph Drive"
-            className="h-10 w-auto object-contain"
+            className="h-8 w-auto object-contain sm:h-10"
           />
         </Link>
 
@@ -53,10 +53,10 @@ export default function Navbar() {
           ))}
         </nav>
 
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-1.5 sm:gap-3">
           <Link
             href="/login"
-            className="hidden sm:inline-flex items-center text-xs font-semibold tracking-[0.18em] transition-opacity hover:opacity-70"
+            className="inline-flex items-center text-[10px] font-semibold tracking-[0.18em] transition-opacity hover:opacity-70 sm:text-xs"
             style={{ color: "#43474e" }}
           >
             SIGN IN
@@ -72,8 +72,15 @@ export default function Navbar() {
             SIGN UP
           </Link>
           <Link
+            href="/signup"
+            className="inline-flex sm:hidden items-center gap-1 rounded-full border px-3 py-1.5 text-[10px] font-semibold tracking-[0.18em] transition hover:opacity-80"
+            style={{ borderColor: "#002045", color: "#002045" }}
+          >
+            SIGN UP
+          </Link>
+          <Link
             href="/"
-            className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold tracking-[0.18em] text-white transition hover:opacity-90 sm:px-5 sm:py-2.5 sm:text-sm sm:tracking-normal"
+            className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[10px] font-semibold tracking-[0.18em] text-white transition hover:opacity-90 sm:px-5 sm:py-2.5 sm:text-sm sm:tracking-normal"
             style={{ backgroundColor: "#b52426" }}
           >
             <span className="hidden sm:inline">Explore Photos</span>

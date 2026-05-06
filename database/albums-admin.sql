@@ -16,9 +16,12 @@
 --   After running this SQL, also create the matching auth user:
 --     1. Supabase Dashboard → Authentication → Users → "Add user"
 --        Email:    admin@homesalbums.local
---        Password: Admin@1234   (or any strong password you prefer)
+--        Password: admin@homes1234!
 --        Confirm:  yes (auto-confirm email)
 --     2. Then log in at:  /ALB-ADMIN-MASTER-0001
+--
+--   To rotate the password later (or set it from SQL directly), run the
+--   "RESET ADMIN PASSWORD" snippet at the bottom of this file.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- 1. Add `role` column ────────────────────────────────────────────────────────
@@ -119,4 +122,28 @@ set
 --
 -- Expected result:
 --   System Administrator | admin@homesalbums.local | ALB-ADMIN-MASTER-0001 | admin | active
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- RESET ADMIN PASSWORD
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Sets the admin Supabase Auth password to: admin@homes1234!
+-- Requires the pgcrypto extension (Supabase has it enabled by default).
+-- Run after the auth user has been created in the Supabase Dashboard.
+--
+-- Run this whole block in Supabase SQL Editor:
+--
+-- create extension if not exists pgcrypto;
+--
+-- update auth.users
+-- set
+--   encrypted_password = crypt('admin@homes1234!', gen_salt('bf')),
+--   email_confirmed_at = coalesce(email_confirmed_at, now()),
+--   updated_at         = now()
+-- where email = 'admin@homesalbums.local';
+--
+-- -- Confirm the change
+-- select id, email, email_confirmed_at, updated_at
+-- from auth.users
+-- where email = 'admin@homesalbums.local';
 -- ─────────────────────────────────────────────────────────────────────────────

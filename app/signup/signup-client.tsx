@@ -114,7 +114,7 @@ export default function SignupClient() {
 
   return (
     <div
-      className="min-h-screen"
+      className="min-h-screen min-w-0 overflow-x-hidden"
       style={{ backgroundColor: 'var(--ds-surface)', color: 'var(--ds-on-surface)' }}
     >
       <Navbar />

@@ -1,5 +1,6 @@
 'use client'
 
+import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import {
   AlertTriangle,
@@ -33,6 +34,11 @@ import {
 } from 'lucide-react'
 
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import {
+  MAX_AVATAR_UPLOAD_BYTES,
+  MAX_PHOTO_UPLOAD_BYTES,
+  TARGET_STORED_PHOTO_BYTES,
+} from '@/lib/photo-upload-limits'
 import { cn } from '@/lib/utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -119,9 +125,13 @@ export type DashboardUser = {
   id: string
   fullName: string
   firstName: string
+  lastName: string
+  phoneNumber: string
   areaFocused: string
   email: string
   code: string
+  avatarUrl?: string | null
+  role: 'media' | 'customer'
 }
 
 type DbPhoto = {
@@ -518,9 +528,49 @@ function Spinner({ className }: { className?: string }) {
   )
 }
 
+function ProfileAvatarBubble({
+  avatarUrl,
+  initials,
+  sizeClasses,
+}: {
+  avatarUrl?: string | null
+  initials: string
+  sizeClasses: string
+}) {
+  if (avatarUrl) {
+    return (
+      <>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          alt=""
+          className={cn('shrink-0 rounded-full object-cover', sizeClasses)}
+          src={avatarUrl}
+        />
+      </>
+    )
+  }
+  return (
+    <div
+      className={cn(
+        'flex shrink-0 select-none items-center justify-center rounded-full font-bold text-white',
+        sizeClasses,
+      )}
+      style={{ backgroundColor: 'var(--ds-primary)' }}
+    >
+      {initials}
+    </div>
+  )
+}
+
 // ─── DashboardClient ──────────────────────────────────────────────────────────
 
 export default function DashboardClient({ user }: { user: DashboardUser }) {
+  const router = useRouter()
+  const [liveUser, setLiveUser] = useState<DashboardUser>(user)
+  useEffect(() => {
+    setLiveUser(user)
+  }, [user])
+
   // Layout
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [activeView, setActiveView] = useState<DashboardView>('upload')
@@ -628,8 +678,10 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
   const folderMapRef = useRef<any>(null)
   const folderMarkerRef = useRef<any>(null)
   const folderDebouncedSearchRef = useRef<((...args: Parameters<(q: string) => void>) => void) | null>(null)
+  const profileAvatarInputRef = useRef<HTMLInputElement | null>(null)
 
-  const initials = (user.firstName?.[0] ?? '?').toUpperCase()
+  const initialsRaw = `${liveUser.firstName?.[0] ?? ''}${liveUser.lastName?.[0] ?? ''}`.trim()
+  const initials = (initialsRaw || '?').toUpperCase()
   const authStorageKey = `homes-albums-auth:${user.code}`
 
   const [isAuthChecked, setIsAuthChecked] = useState(false)
@@ -638,6 +690,15 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
   const [passwordInput, setPasswordInput] = useState('')
   const [authError, setAuthError] = useState('')
   const [isAuthenticating, setIsAuthenticating] = useState(false)
+
+  const [isProfileOpen, setIsProfileOpen] = useState(false)
+  const [profileFirstName, setProfileFirstName] = useState('')
+  const [profileLastName, setProfileLastName] = useState('')
+  const [profilePhone, setProfilePhone] = useState('')
+  const [profileArea, setProfileArea] = useState('')
+  const [profileError, setProfileError] = useState('')
+  const [profileSaving, setProfileSaving] = useState(false)
+  const [avatarUploading, setAvatarUploading] = useState(false)
 
   async function handlePasswordLogin(event?: React.FormEvent<HTMLFormElement>) {
     event?.preventDefault()
@@ -691,6 +752,95 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
     setIsSidebarOpen(false)
   }
 
+  function openProfileModal() {
+    setProfileFirstName(liveUser.firstName)
+    setProfileLastName(liveUser.lastName)
+    setProfilePhone(liveUser.phoneNumber)
+    setProfileArea(liveUser.areaFocused)
+    setProfileError('')
+    setIsProfileOpen(true)
+  }
+
+  async function handleSaveProfile(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setProfileSaving(true)
+    setProfileError('')
+    try {
+      const response = await fetch('/api/user/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uploaderCode: user.code,
+          firstName: profileFirstName,
+          lastName: profileLastName,
+          phoneNumber: profilePhone,
+          areaFocused: profileArea,
+        }),
+      })
+      const data = await response.json().catch(() => null)
+      if (!response.ok) {
+        throw new Error(data?.error || 'Could not save profile.')
+      }
+      const u = data.user as {
+        fullName: string
+        firstName: string
+        lastName: string
+        phoneNumber: string
+        areaFocused: string
+        avatarUrl?: string | null
+      }
+      setLiveUser((prev) => ({
+        ...prev,
+        fullName: u.fullName,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        phoneNumber: u.phoneNumber,
+        areaFocused: u.areaFocused,
+        avatarUrl: u.avatarUrl ?? prev.avatarUrl,
+      }))
+      setIsProfileOpen(false)
+      router.refresh()
+    } catch (error) {
+      setProfileError(error instanceof Error ? error.message : 'Could not save profile.')
+    } finally {
+      setProfileSaving(false)
+    }
+  }
+
+  async function handleProfileAvatarPick(files: FileList | null) {
+    const file = files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      setProfileError('Please choose an image file.')
+      return
+    }
+    if (file.size > MAX_AVATAR_UPLOAD_BYTES) {
+      setProfileError(
+        `Avatar must be ${MAX_AVATAR_UPLOAD_BYTES / (1024 * 1024)} MB or smaller.`,
+      )
+      return
+    }
+    setAvatarUploading(true)
+    setProfileError('')
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('uploaderCode', user.code)
+      const response = await fetch('/api/user/avatar', { method: 'POST', body: formData })
+      const data = await response.json().catch(() => null)
+      if (!response.ok) {
+        throw new Error(data?.error || 'Could not upload avatar.')
+      }
+      setLiveUser((prev) => ({ ...prev, avatarUrl: data.avatarUrl as string }))
+      router.refresh()
+    } catch (error) {
+      setProfileError(error instanceof Error ? error.message : 'Could not upload avatar.')
+    } finally {
+      setAvatarUploading(false)
+      if (profileAvatarInputRef.current) profileAvatarInputRef.current.value = ''
+    }
+  }
+
   // ─── Effects ────────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -732,7 +882,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
     }
     try {
       const r = await fetch(
-        `/api/photos?uploader=${encodeURIComponent(user.fullName)}&uploaderCode=${encodeURIComponent(user.code)}`,
+        `/api/photos?uploader=${encodeURIComponent(liveUser.fullName)}&uploaderCode=${encodeURIComponent(user.code)}`,
       )
       const data = await r.json()
       if (!r.ok) throw new Error(data?.error || 'Unable to load photos.')
@@ -748,7 +898,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
   useEffect(() => {
     if (!isAuthenticated) return
     void loadPhotos()
-  }, [isAuthenticated, user.fullName, user.code])
+  }, [isAuthenticated, liveUser.fullName, user.code])
 
   useEffect(() => {
     if (!isAuthenticated) return
@@ -759,7 +909,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
   useEffect(() => {
     if (!isAuthenticated) return
     void loadFolders()
-  }, [isAuthenticated, user.fullName, user.code])
+  }, [isAuthenticated, liveUser.fullName, user.code])
 
   useEffect(() => {
     if (!isTagModalOpen) return
@@ -912,7 +1062,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
   async function loadFolders() {
     try {
       const r = await fetch(
-        `/api/folders?uploader=${encodeURIComponent(user.fullName)}&uploaderCode=${encodeURIComponent(user.code)}`,
+        `/api/folders?uploader=${encodeURIComponent(liveUser.fullName)}&uploaderCode=${encodeURIComponent(user.code)}`,
       )
       const data = await r.json()
       if (!r.ok) throw new Error(data?.error || 'Unable to load folders.')
@@ -1125,7 +1275,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
     try {
       const formData = new FormData()
       formData.append('file', file)
-      formData.append('uploaderName', user.fullName)
+      formData.append('uploaderName', liveUser.fullName)
       formData.append('uploaderCode', user.code)
       formData.append('metadata', JSON.stringify(image.metadata))
       if (activeFolderId) {
@@ -1215,6 +1365,15 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
     }
     const files = Array.from(fileList).filter((f) => f.type.startsWith('image/'))
     if (!files.length) { setAnalysisError('Please upload image files only.'); return }
+
+    const oversize = files.filter((f) => f.size > MAX_PHOTO_UPLOAD_BYTES)
+    if (oversize.length > 0) {
+      const mb = MAX_PHOTO_UPLOAD_BYTES / (1024 * 1024)
+      const detail = oversize.map((f) => `${f.name} (${formatBytes(f.size)})`).join(', ')
+      setAnalysisError(`Each photo must be at most ${mb} MB. Too large: ${detail}`)
+      return
+    }
+
     setAnalysisError('')
     setIsAnalyzing(true)
     try {
@@ -1287,7 +1446,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          uploaderName: user.fullName,
+          uploaderName: liveUser.fullName,
           uploaderCode: user.code,
           folderName: trimmedName,
           fullAddress: folderLocationDetails.fullAddress ?? (normalizeChipValue(folderAddressQuery) || null),
@@ -1706,7 +1865,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
   const hasPhotosFilters = !!(photosFilterFolderId || photosFilterGpsOnly || photosFilterUntagged)
 
   const openedFolderPhotos = activeFolderId
-    ? filteredDbPhotos.filter((photo) => photo.folder_id === activeFolderId)
+    ? dbPhotos.filter((photo) => photo.folder_id === activeFolderId)
     : []
 
   const uploadedLightboxItems: LightboxImage[] = uploadedImages.map((image) => ({
@@ -2048,7 +2207,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
 
       {/* ─── Top Bar ─────────────────────────────────────────────────────────── */}
       <header
-        className="relative z-30 flex h-20 shrink-0 items-center gap-2 border-b px-4 sm:px-16"
+        className="relative z-30 flex h-20 min-w-0 shrink-0 items-center gap-2 border-b px-4 sm:px-16"
         style={{
           backgroundColor: 'rgba(255,255,255,0.9)',
           backdropFilter: 'blur(12px)',
@@ -2060,7 +2219,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
         <div className="flex shrink-0 items-center gap-1">
           <button
             aria-label="Toggle sidebar"
-            className="flex h-10 w-10 items-center justify-center rounded-lg transition-colors hover:bg-gray-100"
+            className="flex h-10 w-10 items-center justify-center rounded-lg transition-colors hover:bg-gray-100 md:hidden"
             onClick={() => setIsSidebarOpen((s) => !s)}
             type="button"
           >
@@ -2078,7 +2237,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
 
         {/* Center: search */}
         <div
-          className="mx-2 flex flex-1 max-w-2xl items-center gap-2 rounded-lg border px-4 py-2.5 transition-all"
+          className="mx-2 flex min-w-0 flex-1 max-w-2xl items-center gap-2 rounded-lg border px-4 py-2.5 transition-all"
           style={{
             backgroundColor: 'var(--ds-surface-container)',
             borderColor: 'var(--ds-outline-variant)',
@@ -2119,18 +2278,23 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
 
         {/* Right: user avatar */}
         <div className="ml-auto flex shrink-0 items-center gap-2">
-          <div
-            className="flex h-9 w-9 select-none items-center justify-center rounded-full text-sm font-bold text-white"
-            style={{ backgroundColor: 'var(--ds-primary)' }}
-            title={user.fullName}
+          <button
+            className="rounded-full transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ds-primary)] focus-visible:ring-offset-2"
+            onClick={openProfileModal}
+            title={`Edit profile · ${liveUser.fullName}`}
+            type="button"
           >
-            {initials}
-          </div>
+            <ProfileAvatarBubble
+              avatarUrl={liveUser.avatarUrl}
+              initials={initials}
+              sizeClasses="h-9 w-9 text-sm"
+            />
+          </button>
         </div>
       </header>
 
       {/* ─── Body ─────────────────────────────────────────────────────────────── */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex min-w-0 flex-1 overflow-hidden">
 
         {/* Sidebar */}
         <aside
@@ -2178,6 +2342,10 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                 <CloudUpload className="h-5 w-5" />
                 <span>New Upload</span>
               </button>
+              <p className="mt-2 text-[10px] leading-snug" style={{ color: 'var(--ds-on-surface-variant)' }}>
+                Max {MAX_PHOTO_UPLOAD_BYTES / (1024 * 1024)} MB per photo · Compressed to ~{TARGET_STORED_PHOTO_BYTES / 1024}{' '}
+                KB when saved
+              </p>
             </div>
 
             {/* Nav */}
@@ -2202,28 +2370,40 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
 
             {/* User info card */}
             <div
-              className="mx-6 rounded-lg p-4 space-y-2"
+              className="mx-6 rounded-lg p-4 space-y-3"
               style={{
                 backgroundColor: 'var(--ds-surface-container)',
                 border: '1px solid rgba(196,198,207,0.3)',
               }}
             >
               <div className="flex items-center gap-3">
-                <div
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white select-none"
-                  style={{ backgroundColor: 'var(--ds-primary)' }}
-                >
-                  {initials}
-                </div>
+                <ProfileAvatarBubble
+                  avatarUrl={liveUser.avatarUrl}
+                  initials={initials}
+                  sizeClasses="h-10 w-10 text-sm"
+                />
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold" style={{ color: 'var(--ds-on-surface)' }}>{user.fullName}</p>
-                  <p className="truncate text-xs" style={{ color: 'var(--ds-outline)' }}>{user.email}</p>
+                  <p className="truncate text-sm font-semibold" style={{ color: 'var(--ds-on-surface)' }}>{liveUser.fullName}</p>
+                  <p className="truncate text-xs" style={{ color: 'var(--ds-outline)' }}>{liveUser.email}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-1.5 pt-1">
+              <div className="flex items-center gap-1.5">
                 <MapPin className="h-3.5 w-3.5 shrink-0" style={{ color: 'var(--ds-secondary)' }} />
-                <span className="text-xs font-medium" style={{ color: 'var(--ds-on-surface-variant)' }}>{user.areaFocused}</span>
+                <span className="text-xs font-medium" style={{ color: 'var(--ds-on-surface-variant)' }}>{liveUser.areaFocused}</span>
               </div>
+              <button
+                className="flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors hover:bg-white"
+                onClick={openProfileModal}
+                style={{
+                  borderColor: 'var(--ds-outline-variant)',
+                  color: 'var(--ds-primary)',
+                  backgroundColor: 'var(--ds-surface-container-lowest)',
+                }}
+                type="button"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                Edit profile
+              </button>
             </div>
 
             {/* Logout button — pinned to the bottom */}
@@ -2246,7 +2426,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
         </aside>
 
         {/* ─── Main content ────────────────────────────────────────────────────── */}
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1 min-w-0 overflow-y-auto">
 
           {/* Upload view */}
           {activeView === 'upload' ? (
@@ -2752,10 +2932,14 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                             Upload
                           </button>
                         </div>
+                        <p className="mt-2 basis-full text-[11px] leading-snug text-gray-500">
+                          Up to {MAX_PHOTO_UPLOAD_BYTES / (1024 * 1024)} MB per photo. After upload, each file is stored at about{' '}
+                          {TARGET_STORED_PHOTO_BYTES / 1024} KB (compressed JPEG).
+                        </p>
                       </div>
 
                       {/* Stats strip */}
-                      <div className="grid grid-cols-4 border-t border-gray-100">
+                      <div className="grid grid-cols-2 border-t border-gray-100 sm:grid-cols-4">
                         {[
                           { label: 'Photos', value: String(openedFolderPhotos.length) },
                           {
@@ -2773,7 +2957,14 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                         ].map(({ label, value }, i) => (
                           <div
                             key={label}
-                            className={cn('px-6 py-3', i > 0 && 'border-l border-gray-100')}
+                            className={cn(
+                              'px-4 py-3 sm:px-6',
+                              // Borders that work cleanly on a 2-col mobile / 4-col desktop grid
+                              i % 2 === 1 && 'border-l border-gray-100',
+                              i >= 2 && 'border-t border-gray-100 sm:border-t-0',
+                              i === 2 && 'sm:border-l',
+                              i === 3 && 'sm:border-l',
+                            )}
                           >
                             <p className="text-[11px] font-medium text-gray-400">{label}</p>
                             <p className="text-sm font-bold text-gray-800">{value}</p>
@@ -2960,7 +3151,8 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                       ) : null}
 
                       {openedFolderPhotos.length > 0 && folderPhotosViewMode === 'list' ? (
-                        <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white">
+                        <div className="overflow-x-auto rounded-2xl border border-gray-100 bg-white">
+                          <div className="min-w-[640px]">
                           <div className="grid grid-cols-[2rem_2.5rem_1.5fr_1fr_1fr_auto_auto] items-center gap-3 border-b border-gray-100 px-4 py-2.5">
                             {isFolderBulkMode ? <span className="text-xs text-gray-400">✓</span> : <span />}
                             <span />
@@ -3053,6 +3245,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                               </div>
                             )
                           })}
+                          </div>
                         </div>
                       ) : null}
 
@@ -3245,7 +3438,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                 <div>
                   <h1 className="text-2xl font-semibold text-gray-800">My Photos</h1>
                   <p className="mt-1 text-sm text-gray-500">
-                    All photos uploaded by {user.fullName}
+                    All photos uploaded by {liveUser.fullName}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -3370,7 +3563,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
 
               {/* Stats row */}
               {!isLoadingPhotos && !photosError && dbPhotos.length > 0 ? (
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                   {[
                     { label: 'Total photos', value: String(dbPhotos.length) },
                     { label: 'Storage used', value: formatBytes(totalStorageBytes) },
@@ -3380,7 +3573,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                       key={label}
                       className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm"
                     >
-                      <p className="text-2xl font-bold text-gray-800">{value}</p>
+                      <p className="text-xl font-bold text-gray-800 sm:text-2xl">{value}</p>
                       <p className="mt-0.5 text-xs text-gray-400">{label}</p>
                     </div>
                   ))}
@@ -3535,7 +3728,8 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
 
               {/* List view */}
               {!isLoadingPhotos && !photosError && filteredDbPhotosWithFilters.length > 0 && photosViewMode === 'list' ? (
-                <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+                <div className="overflow-x-auto rounded-2xl border border-gray-100 bg-white shadow-sm">
+                  <div className="min-w-[640px]">
                   <div className="grid grid-cols-[2rem_2.5rem_1fr_auto_auto_auto] items-center gap-3 border-b border-gray-100 px-4 py-2.5">
                     {isBulkMode ? <span className="text-xs text-gray-400">✓</span> : <span />}
                     <span />
@@ -3629,6 +3823,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                       </div>
                     )
                   })}
+                  </div>
                 </div>
               ) : null}
 
@@ -3719,6 +3914,116 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
           </div>
         </div>
       ) : null}
+
+      {/* ─── Profile modal ────────────────────────────────────────────────────── */}
+      <Dialog
+        open={isProfileOpen}
+        onOpenChange={(open) => {
+          setIsProfileOpen(open)
+          if (!open) setProfileError('')
+        }}
+      >
+        <DialogContent className="max-h-[90dvh] overflow-y-auto rounded-3xl sm:max-w-md">
+          <DialogTitle className="text-lg font-semibold">Your profile</DialogTitle>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Names sync across folders and photos you uploaded. Avatar upload limit{' '}
+            {MAX_AVATAR_UPLOAD_BYTES / (1024 * 1024)} MB — JPEG preview stored about 512×512.
+          </p>
+          <form className="mt-4 space-y-4" onSubmit={handleSaveProfile}>
+            <div className="flex flex-col items-center gap-3">
+              <ProfileAvatarBubble
+                avatarUrl={liveUser.avatarUrl}
+                initials={initials}
+                sizeClasses="h-20 w-20 text-xl"
+              />
+              <input
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => void handleProfileAvatarPick(e.target.files)}
+                ref={profileAvatarInputRef}
+                type="file"
+              />
+              <button
+                className="text-sm font-semibold transition-opacity hover:opacity-80 disabled:opacity-50"
+                disabled={avatarUploading}
+                onClick={() => profileAvatarInputRef.current?.click()}
+                style={{ color: 'var(--ds-primary)' }}
+                type="button"
+              >
+                {avatarUploading ? 'Uploading…' : 'Change photo'}
+              </button>
+            </div>
+            {profileError ? (
+              <p className="text-center text-sm text-red-600">{profileError}</p>
+            ) : null}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-foreground" htmlFor="profile-first">
+                First name
+              </label>
+              <input
+                className="h-11 w-full rounded-xl border border-border/70 bg-white px-4 text-sm text-foreground shadow-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-slate-950"
+                id="profile-first"
+                onChange={(e) => setProfileFirstName(e.target.value)}
+                required
+                value={profileFirstName}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-foreground" htmlFor="profile-last">
+                Last name
+              </label>
+              <input
+                className="h-11 w-full rounded-xl border border-border/70 bg-white px-4 text-sm text-foreground shadow-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-slate-950"
+                id="profile-last"
+                onChange={(e) => setProfileLastName(e.target.value)}
+                required
+                value={profileLastName}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-foreground" htmlFor="profile-phone">
+                Phone
+              </label>
+              <input
+                className="h-11 w-full rounded-xl border border-border/70 bg-white px-4 text-sm text-foreground shadow-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-slate-950"
+                id="profile-phone"
+                onChange={(e) => setProfilePhone(e.target.value)}
+                required
+                value={profilePhone}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-foreground" htmlFor="profile-area">
+                Area focused
+              </label>
+              <input
+                className="h-11 w-full rounded-xl border border-border/70 bg-white px-4 text-sm text-foreground shadow-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-slate-950"
+                id="profile-area"
+                onChange={(e) => setProfileArea(e.target.value)}
+                required
+                value={profileArea}
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                className="rounded-xl border border-border/70 px-4 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-muted/40"
+                onClick={() => setIsProfileOpen(false)}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className="rounded-xl px-5 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                disabled={profileSaving || avatarUploading}
+                style={{ backgroundColor: 'var(--ds-primary)' }}
+                type="submit"
+              >
+                {profileSaving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* ─── Folder modal ─────────────────────────────────────────────────────── */}
       <Dialog

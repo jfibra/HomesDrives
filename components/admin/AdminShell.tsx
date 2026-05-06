@@ -64,7 +64,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
   if (checkState === 'pending') {
     return (
       <div
-        className="flex min-h-screen items-center justify-center"
+        className="flex min-h-screen min-w-0 items-center justify-center overflow-x-hidden"
         style={{ backgroundColor: 'var(--ds-surface)' }}
       >
         <div className="text-sm" style={{ color: 'var(--ds-on-surface-variant)' }}>
@@ -77,7 +77,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
   if (checkState === 'unauthorized' || !admin) {
     return (
       <div
-        className="flex min-h-screen items-center justify-center px-4"
+        className="flex min-h-screen min-w-0 items-center justify-center overflow-x-hidden px-4"
         style={{ backgroundColor: 'var(--ds-surface)' }}
       >
         <div
@@ -162,67 +162,77 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
 
   return (
     <div
-      className="flex min-h-screen flex-col"
+      className="flex min-h-screen min-w-0 flex-col overflow-x-hidden"
       style={{ backgroundColor: 'var(--ds-surface)', color: 'var(--ds-on-surface)' }}
     >
       {/* Top bar */}
       <header
-        className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3 border-b bg-white/90 px-4 backdrop-blur sm:px-6"
+        className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-2 border-b bg-white/90 px-4 backdrop-blur sm:gap-3 sm:px-6"
         style={{ borderColor: 'rgba(196,198,207,0.4)' }}
       >
-        <button
-          aria-label="Toggle sidebar"
-          className="flex h-9 w-9 items-center justify-center rounded-lg transition-colors hover:bg-gray-100 md:hidden"
-          onClick={() => setIsSidebarOpen((s) => !s)}
-          type="button"
-        >
-          <Menu className="h-5 w-5" style={{ color: 'var(--ds-on-surface-variant)' }} />
-        </button>
-
-        <Link className="flex items-center gap-2" href={adminCodeHref}>
-          <div
-            className="flex h-8 w-8 items-center justify-center rounded-lg"
-            style={{ backgroundColor: 'var(--ds-primary)', color: 'var(--ds-on-primary)' }}
+        <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+          <button
+            aria-label="Toggle sidebar"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-gray-100 md:hidden"
+            onClick={() => setIsSidebarOpen((s) => !s)}
+            type="button"
           >
-            <Shield className="h-4 w-4" />
-          </div>
-          <div className="flex flex-col leading-tight">
-            <span className="text-sm font-semibold">Admin Console</span>
-            <span
-              className="text-[10px] uppercase tracking-wider"
-              style={{ color: 'var(--ds-on-surface-variant)' }}
-            >
-              Homes Albums Studio
-            </span>
-          </div>
-        </Link>
+            <Menu className="h-5 w-5" style={{ color: 'var(--ds-on-surface-variant)' }} />
+          </button>
 
-        <div className="ml-auto flex items-center gap-3">
-          <div className="hidden text-right sm:block">
-            <div className="text-xs font-semibold">{admin.fullName}</div>
+          <Link className="flex min-w-0 items-center gap-2" href={adminCodeHref}>
             <div
-              className="text-[10px]"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
+              style={{ backgroundColor: 'var(--ds-primary)', color: 'var(--ds-on-primary)' }}
+            >
+              <Shield className="h-4 w-4" aria-hidden />
+            </div>
+            <div className="min-w-0 leading-tight">
+              <span
+                className="block truncate text-sm font-semibold"
+                style={{ fontFamily: 'var(--font-noto-serif)', color: 'var(--ds-on-surface)' }}
+              >
+                Admin Console
+              </span>
+              <span
+                className="block truncate text-[10px] font-semibold uppercase tracking-[0.12em]"
+                style={{ color: 'var(--ds-on-surface-variant)' }}
+              >
+                Homes Albums Studio
+              </span>
+            </div>
+          </Link>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+          <div className="hidden min-w-0 max-w-[8rem] text-right sm:block md:max-w-[11rem] lg:max-w-[14rem]">
+            <div className="truncate text-xs font-semibold">{admin.fullName}</div>
+            <div
+              className="truncate text-[10px]"
               style={{ color: 'var(--ds-on-surface-variant)' }}
             >
               {admin.email}
             </div>
           </div>
           <div
-            className="flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold"
             style={{
               backgroundColor: 'var(--ds-primary)',
               color: 'var(--ds-on-primary)',
             }}
+            title={admin.fullName}
           >
             {initials}
           </div>
           <button
-            className="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition-colors hover:bg-gray-50"
+            aria-label="Sign out"
+            className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition-colors hover:bg-gray-50 sm:px-3"
             onClick={handleLogout}
             style={{
               borderColor: 'var(--ds-outline-variant)',
               color: 'var(--ds-on-surface-variant)',
             }}
+            title="Sign out"
             type="button"
           >
             <LogOut className="h-3.5 w-3.5" />
@@ -307,7 +317,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         </aside>
 
         {/* Main */}
-        <main className="flex-1">{children}</main>
+        <main className="flex-1 min-w-0">{children}</main>
       </div>
     </div>
   )

@@ -531,7 +531,7 @@ export default function AdminClient({ user }: { user: AdminUser }) {
   if (!isAuthChecked) {
     return (
       <div
-        className="flex min-h-screen items-center justify-center"
+        className="flex min-h-screen min-w-0 items-center justify-center overflow-x-hidden"
         style={{ backgroundColor: 'var(--ds-surface)' }}
       >
         <div className="text-sm" style={{ color: 'var(--ds-on-surface-variant)' }}>
@@ -544,7 +544,7 @@ export default function AdminClient({ user }: { user: AdminUser }) {
   if (!isAuthenticated) {
     return (
       <div
-        className="flex min-h-screen items-center justify-center px-4"
+        className="flex min-h-screen min-w-0 items-center justify-center overflow-x-hidden px-4"
         style={{ backgroundColor: 'var(--ds-surface)' }}
       >
         <main className="w-full max-w-md">
@@ -677,61 +677,74 @@ export default function AdminClient({ user }: { user: AdminUser }) {
 
   return (
     <div
-      className="flex min-h-screen flex-col"
+      className="flex min-h-screen min-w-0 flex-col overflow-x-hidden"
       style={{ backgroundColor: 'var(--ds-surface)', color: 'var(--ds-on-surface)' }}
     >
       {/* ─── Top Bar ─────────────────────────────────────────────────────── */}
       <header
-        className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3 border-b bg-white/90 px-4 backdrop-blur sm:px-6"
+        className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-2 border-b bg-white/90 px-4 backdrop-blur sm:gap-3 sm:px-6"
         style={{ borderColor: 'rgba(196,198,207,0.4)' }}
       >
-        <button
-          aria-label="Toggle sidebar"
-          className="flex h-9 w-9 items-center justify-center rounded-lg transition-colors hover:bg-gray-100 md:hidden"
-          onClick={() => setIsSidebarOpen((s) => !s)}
-          type="button"
-        >
-          <Menu className="h-5 w-5" style={{ color: 'var(--ds-on-surface-variant)' }} />
-        </button>
-
-        <div className="flex items-center gap-2">
-          <div
-            className="flex h-8 w-8 items-center justify-center rounded-lg"
-            style={{
-              backgroundColor: 'var(--ds-primary)',
-              color: 'var(--ds-on-primary)',
-            }}
+        <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+          <button
+            aria-label="Toggle sidebar"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-gray-100 md:hidden"
+            onClick={() => setIsSidebarOpen((s) => !s)}
+            type="button"
           >
-            <Shield className="h-4 w-4" />
-          </div>
-          <div className="flex flex-col leading-tight">
-            <span className="text-sm font-semibold">Admin Console</span>
-            <span className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--ds-on-surface-variant)' }}>
-              Homes Albums Studio
-            </span>
+            <Menu className="h-5 w-5" style={{ color: 'var(--ds-on-surface-variant)' }} />
+          </button>
+
+          <div className="flex min-w-0 items-center gap-2">
+            <div
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
+              style={{
+                backgroundColor: 'var(--ds-primary)',
+                color: 'var(--ds-on-primary)',
+              }}
+            >
+              <Shield className="h-4 w-4" aria-hidden />
+            </div>
+            <div className="min-w-0 leading-tight">
+              <span
+                className="block truncate text-sm font-semibold"
+                style={{ fontFamily: 'var(--font-noto-serif)', color: 'var(--ds-on-surface)' }}
+              >
+                Admin Console
+              </span>
+              <span
+                className="block truncate text-[10px] font-semibold uppercase tracking-[0.12em]"
+                style={{ color: 'var(--ds-on-surface-variant)' }}
+              >
+                Homes Albums Studio
+              </span>
+            </div>
           </div>
         </div>
 
-        <div className="ml-auto flex items-center gap-3">
-          <div className="hidden text-right sm:block">
-            <div className="text-xs font-semibold">{user.fullName}</div>
-            <div className="text-[10px]" style={{ color: 'var(--ds-on-surface-variant)' }}>
+        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+          <div className="hidden min-w-0 max-w-[8rem] text-right sm:block md:max-w-[11rem] lg:max-w-[14rem]">
+            <div className="truncate text-xs font-semibold">{user.fullName}</div>
+            <div className="truncate text-[10px]" style={{ color: 'var(--ds-on-surface-variant)' }}>
               {user.email}
             </div>
           </div>
           <div
-            className="flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold"
             style={{
               backgroundColor: 'var(--ds-primary)',
               color: 'var(--ds-on-primary)',
             }}
+            title={`${user.fullName}`}
           >
             {initials}
           </div>
           <button
-            className="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition-colors hover:bg-gray-50"
+            aria-label="Sign out"
+            className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition-colors hover:bg-gray-50 sm:px-3"
             onClick={handleLogout}
             style={{ borderColor: 'var(--ds-outline-variant)', color: 'var(--ds-on-surface-variant)' }}
+            title="Sign out"
             type="button"
           >
             <LogOut className="h-3.5 w-3.5" />
@@ -828,7 +841,7 @@ export default function AdminClient({ user }: { user: AdminUser }) {
         </aside>
 
         {/* ─── Main ────────────────────────────────────────────────────── */}
-        <main className="flex-1 p-4 sm:p-6 lg:p-8">
+        <main className="flex-1 min-w-0 p-4 sm:p-6 lg:p-8">
           {activeView === 'overview' ? (
             <section className="mx-auto flex max-w-6xl flex-col gap-6">
               <div>
@@ -1059,7 +1072,7 @@ export default function AdminClient({ user }: { user: AdminUser }) {
                       >
                         {(stats?.uploadsByUserByDay ?? []).length}{' '}
                         {(stats?.uploadsByUserByDay ?? []).length === 1 ? 'uploader' : 'uploaders'} active
-                        · click a row to browse
+                        <span className="hidden sm:inline"> · click a row to browse</span>
                       </span>
                     }
                   >
@@ -1497,16 +1510,16 @@ export default function AdminClient({ user }: { user: AdminUser }) {
       {/* ─── Browse user folders + photos ────────────────────────────────── */}
       {browseUser ? (
         <div
-          className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4 sm:p-6"
+          className="fixed inset-0 z-40 flex items-stretch justify-center bg-black/50 sm:items-center sm:p-4 md:p-6"
           onClick={closeBrowse}
         >
           <div
-            className="flex h-full max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+            className="flex h-full w-full flex-col overflow-hidden bg-white shadow-2xl sm:max-h-[90vh] sm:max-w-3xl sm:rounded-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Drawer header */}
             <header
-              className="flex items-center gap-3 border-b px-5 py-4"
+              className="flex items-center gap-3 border-b px-4 py-3 sm:px-5 sm:py-4"
               style={{ borderColor: 'var(--ds-outline-variant)' }}
             >
               {browseFolder ? (
@@ -1563,7 +1576,7 @@ export default function AdminClient({ user }: { user: AdminUser }) {
             </header>
 
             {/* Drawer body */}
-            <div className="flex-1 overflow-y-auto p-5">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-5">
               {/* Folder list view */}
               {!browseFolder ? (
                 <>
@@ -1968,7 +1981,7 @@ function Panel({
       className={`rounded-2xl border bg-white p-4 ${className ?? ''}`}
       style={{ borderColor: 'var(--ds-outline-variant)' }}
     >
-      <div className="mb-3 flex items-center justify-between gap-2">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div
           className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider"
           style={{ color: 'var(--ds-on-surface-variant)' }}
@@ -1976,7 +1989,7 @@ function Panel({
           {icon}
           {title}
         </div>
-        {action}
+        {action ? <div className="ml-auto">{action}</div> : null}
       </div>
       {children}
     </div>

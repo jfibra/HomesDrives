@@ -1,7 +1,7 @@
 import { DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { createClient } from '@supabase/supabase-js'
 
-type UploadedImageMetadata = {
+export type UploadedImageMetadata = {
   altitude: number | null
   aperture: number | null
   captureDate: string | null
@@ -185,6 +185,44 @@ export async function uploadImageObject(params: {
   }
 }
 
+export function buildAvatarStoragePath(userCode: string, uploadedAt: Date) {
+  const prefix = getStoragePrefix()
+  const safeCode = sanitizePathSegment(userCode) || 'user'
+  const year = String(uploadedAt.getFullYear())
+  const month = String(uploadedAt.getMonth() + 1).padStart(2, '0')
+  const day = String(uploadedAt.getDate()).padStart(2, '0')
+  const uniquePrefix = crypto.randomUUID().slice(0, 8)
+
+  return `${prefix}/albums/avatars/${safeCode}/${year}/${month}/${day}/${uniquePrefix}.jpg`
+}
+
+export async function uploadAvatarObject(params: { fileBuffer: Buffer; userCode: string }) {
+  const uploadedAt = new Date()
+  const bucketName = getBucketEnv()
+
+  if (!bucketName) {
+    throw new Error('Missing required environment variable: AWS_S3_BUCKET or AWS_S3_BUCKET_NAME')
+  }
+
+  const storagePath = buildAvatarStoragePath(params.userCode, uploadedAt)
+  const storageClient = createStorageClient()
+
+  await storageClient.send(
+    new PutObjectCommand({
+      Bucket: bucketName,
+      Key: storagePath,
+      Body: params.fileBuffer,
+      ContentType: 'image/jpeg',
+    }),
+  )
+
+  return {
+    bucketName,
+    storagePath,
+    uploadedAt,
+  }
+}
+
 export async function deleteImageObject(bucketName: string, storagePath: string) {
   const storageClient = createStorageClient()
 
@@ -346,6 +384,7 @@ export type AlbumUser = {
   phone_number: string
   code: string
   role: AlbumUserRole
+  avatar_url?: string | null
   created_at?: string
   updated_at?: string
 }
@@ -468,7 +507,9 @@ export async function getUserByCode(code: string): Promise<AlbumUser | null> {
   const supabaseAdmin = createSupabaseAdminClient()
   const { data, error } = await supabaseAdmin
     .from('album_users')
-    .select('id, first_name, last_name, full_name, status, area_focused, email, phone_number, code, role')
+    .select(
+      'id, first_name, last_name, full_name, status, area_focused, email, phone_number, code, role, avatar_url',
+    )
     .eq('code', code)
     .maybeSingle()
 
@@ -483,7 +524,9 @@ export async function getUserByEmail(email: string): Promise<AlbumUser | null> {
   const supabaseAdmin = createSupabaseAdminClient()
   const { data, error } = await supabaseAdmin
     .from('album_users')
-    .select('id, first_name, last_name, full_name, status, area_focused, email, phone_number, code, role')
+    .select(
+      'id, first_name, last_name, full_name, status, area_focused, email, phone_number, code, role, avatar_url',
+    )
     .eq('email', email.trim().toLowerCase())
     .maybeSingle()
 
@@ -689,6 +732,74 @@ export async function createAdminAlbumUser(params: {
   }
 
   return data as AdminUserRow
+}
+
+/** Media & customer: update own profile (names, phone, area). Keeps folders/photos uploader_name in sync. */
+export async function updateAlbumUserOwnProfile(params: {
+  code: string
+  firstName?: string
+  lastName?: string
+  phoneNumber?: string
+  areaFocused?: string
+}): Promise<AlbumUser> {
+  const code = params.code.trim()
+  const user = await getUserByCode(code)
+  if (!user) throw new Error('User not found.')
+  if (user.status !== 'active') throw new Error('Account is not active.')
+  if (user.role !== 'media' && user.role !== 'customer') {
+    throw new Error('Only media and customer accounts can update their profile here.')
+  }
+
+  const fn = params.firstName !== undefined ? params.firstName.trim() : user.first_name
+  const ln = params.lastName !== undefined ? params.lastName.trim() : user.last_name
+  if (!fn || !ln) throw new Error('First and last name are required.')
+
+  const phone = params.phoneNumber !== undefined ? params.phoneNumber.trim() : user.phone_number
+  const area = params.areaFocused !== undefined ? params.areaFocused.trim() : user.area_focused
+  if (!phone) throw new Error('Phone number is required.')
+  if (!area) throw new Error('Area focused is required.')
+
+  const fullName = `${fn} ${ln}`.trim()
+
+  const supabaseAdmin = createSupabaseAdminClient()
+
+  const { data: updated, error } = await supabaseAdmin
+    .from('album_users')
+    .update({
+      first_name: fn,
+      last_name: ln,
+      full_name: fullName,
+      phone_number: phone,
+      area_focused: area,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', user.id)
+    .eq('code', code)
+    .select(
+      'id, first_name, last_name, full_name, status, area_focused, email, phone_number, code, role, avatar_url',
+    )
+    .single()
+
+  if (error) throw new Error(error.message)
+
+  await supabaseAdmin.from('albums_folders').update({ uploader_name: fullName }).eq('album_user_id', user.id)
+  await supabaseAdmin.from('albums_photos').update({ uploader_name: fullName }).eq('album_user_id', user.id)
+
+  return updated as AlbumUser
+}
+
+export async function setAlbumUserAvatarUrl(params: { userId: number; code: string; avatarUrl: string }) {
+  const supabaseAdmin = createSupabaseAdminClient()
+  const { error } = await supabaseAdmin
+    .from('album_users')
+    .update({
+      avatar_url: params.avatarUrl,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', params.userId)
+    .eq('code', params.code.trim())
+
+  if (error) throw new Error(error.message)
 }
 
 export async function updateAdminAlbumUser(params: {
@@ -1084,11 +1195,15 @@ export async function listPhotosByUploader(params: {
   uploaderName: string
 }) {
   const supabaseAdmin = createSupabaseAdminClient()
+  // Dashboard needs all of a user's photos for per-folder views and counts.
+  // Keep a high cap so Supabase/PostgREST stays bounded (adjust if you shard by user).
+  const maxRows = 50_000
+
   let query = supabaseAdmin
     .from('albums_photos')
     .select('id, album_user_id, uploader_code, folder_id, image_url, original_file_name, file_size_bytes, created_at, capture_date, device_make, device_model, place_name, city, province, type_of_place, tags, latitude, longitude')
     .order('created_at', { ascending: false })
-    .limit(200)
+    .limit(maxRows)
 
   if (params.uploaderCode) {
     query = query.eq('uploader_code', params.uploaderCode)

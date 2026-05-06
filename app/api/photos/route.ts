@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 
+import { MAX_PHOTO_UPLOAD_BYTES } from '@/lib/photo-upload-limits'
+import type { UploadedImageMetadata } from '@/lib/server/albums'
 import {
   buildPublicImageUrl,
   deleteImageObject,
@@ -9,6 +11,7 @@ import {
   listPhotosByUploader,
   uploadImageObject,
 } from '@/lib/server/albums'
+import { compressPhotoForAlbumStorage, storageJpegFileName } from '@/lib/server/photo-compress'
 
 export const runtime = 'nodejs'
 
@@ -71,8 +74,23 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid folder id.' }, { status: 400 })
     }
 
-    const metadata = JSON.parse(metadataValue)
+    let metadata: Record<string, unknown>
+    try {
+      metadata = JSON.parse(metadataValue) as Record<string, unknown>
+    } catch {
+      return NextResponse.json({ error: 'Invalid image metadata JSON.' }, { status: 400 })
+    }
+
     const fileBuffer = Buffer.from(await file.arrayBuffer())
+
+    if (fileBuffer.length > MAX_PHOTO_UPLOAD_BYTES) {
+      return NextResponse.json(
+        {
+          error: `Each photo must be ${MAX_PHOTO_UPLOAD_BYTES / (1024 * 1024)} MB or smaller (received ${(fileBuffer.length / (1024 * 1024)).toFixed(2)} MB).`,
+        },
+        { status: 413 },
+      )
+    }
     const trimmedUploaderName = uploaderName.trim()
     const trimmedUploaderCode = uploaderCode.trim()
     const trimmedFolderId = typeof folderId === 'string' && folderId.trim() ? folderId.trim() : null
@@ -104,10 +122,38 @@ export async function POST(request: Request) {
       : (request.headers.get('x-real-ip') ?? null)
     const uploaderUserAgent = request.headers.get('user-agent') ?? null
 
+    let processedBuffer = fileBuffer
+    let storageFileName = file.name
+    let contentType = file.type || 'application/octet-stream'
+
+    try {
+      const compressed = await compressPhotoForAlbumStorage(fileBuffer)
+      processedBuffer = Buffer.from(compressed.buffer)
+      storageFileName = storageJpegFileName(file.name)
+      contentType = 'image/jpeg'
+      metadata = {
+        ...metadata,
+        fileSize: compressed.buffer.length,
+        fileType: 'image/jpeg',
+        width: compressed.width,
+        height: compressed.height,
+      }
+    } catch (compressErr) {
+      return NextResponse.json(
+        {
+          error:
+            compressErr instanceof Error
+              ? compressErr.message
+              : 'Unable to process this image. Try JPEG or PNG.',
+        },
+        { status: 400 },
+      )
+    }
+
     uploadedObject = await uploadImageObject({
-      contentType: file.type,
-      fileBuffer,
-      fileName: file.name,
+      contentType,
+      fileBuffer: processedBuffer,
+      fileName: storageFileName,
       uploaderName: trimmedUploaderName,
     })
 
@@ -117,7 +163,7 @@ export async function POST(request: Request) {
       bucketName: uploadedObject.bucketName,
       folderContext,
       imageUrl,
-      metadata,
+      metadata: metadata as UploadedImageMetadata,
       storagePath: uploadedObject.storagePath,
       uploaderCode: trimmedUploaderCode,
       uploaderName: trimmedUploaderName,

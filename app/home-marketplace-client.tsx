@@ -78,6 +78,7 @@ export default function HomeMarketplaceClient({
 
   return (
     <div
+      className="overflow-x-hidden"
       style={{
         backgroundColor: "#f9f9ff",
         color: "#121c2c",
@@ -87,38 +88,41 @@ export default function HomeMarketplaceClient({
       <Navbar />
 
       {/* ── Hero ───────────────────────────────────────────────────────── */}
-      <section className="pt-20" style={{ backgroundColor: "#f0f3ff" }}>
-        <div className="mx-auto grid max-w-[1280px] grid-cols-1 gap-12 px-8 py-20 lg:grid-cols-2 lg:items-center">
+      <section className="pt-16 sm:pt-20" style={{ backgroundColor: "#f0f3ff" }}>
+        <div className="mx-auto grid max-w-[1280px] grid-cols-1 gap-8 px-4 py-12 sm:gap-10 sm:px-6 sm:py-16 lg:grid-cols-2 lg:items-center lg:gap-12 lg:px-8 lg:py-20">
           {/* Left: copy */}
-          <div className="space-y-7">
+          <div className="space-y-5 sm:space-y-7">
             <p
-              className="inline-block text-xs font-semibold uppercase tracking-[0.2em]"
+              className="inline-block text-[10px] font-semibold uppercase tracking-[0.2em] sm:text-xs"
               style={{ color: "#b52426" }}
             >
               Real Estate Photography Marketplace
             </p>
             <h1
-              className="text-5xl font-bold leading-tight lg:text-6xl"
+              className="text-3xl font-bold leading-tight sm:text-4xl md:text-5xl lg:text-6xl"
               style={{ color: "#002045" }}
             >
               Discover striking home and location photography at scale.
             </h1>
-            <p className="text-lg leading-relaxed" style={{ color: "#43474e" }}>
+            <p
+              className="text-base leading-relaxed sm:text-lg"
+              style={{ color: "#43474e" }}
+            >
               A curated collection of premium real estate imagery. Browse by
               place type, filter by style tags, and open any photo in an
               immersive full-screen viewer.
             </p>
-            <div className="flex flex-wrap items-center gap-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
               <a
                 href="#marketplace"
-                className="inline-flex items-center gap-2 rounded-full px-7 py-3.5 text-sm font-semibold text-white transition hover:opacity-90"
+                className="inline-flex items-center justify-center gap-2 rounded-full px-6 py-3 text-sm font-semibold text-white transition hover:opacity-90 sm:px-7 sm:py-3.5"
                 style={{ backgroundColor: "#002045" }}
               >
                 Explore Photos
               </a>
               <a
                 href="#marketplace"
-                className="inline-flex items-center gap-2 rounded-full border px-7 py-3.5 text-sm font-semibold transition hover:opacity-70"
+                className="inline-flex items-center justify-center gap-2 rounded-full border px-6 py-3 text-sm font-semibold transition hover:opacity-70 sm:px-7 sm:py-3.5"
                 style={{ borderColor: "#002045", color: "#002045" }}
               >
                 Join as Contributor
@@ -128,9 +132,9 @@ export default function HomeMarketplaceClient({
 
           {/* Right: 2-column featured photo collage */}
           {featuredPhotos.length >= 2 ? (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-2 sm:gap-3">
               {/* left column — offset top so the two columns stagger */}
-              <div className="flex flex-col gap-3 pt-12">
+              <div className="flex flex-col gap-2 pt-8 sm:gap-3 sm:pt-12">
                 {featuredPhotos
                   .filter((_, i) => i % 2 === 0)
                   .map((photo) => (
@@ -144,7 +148,7 @@ export default function HomeMarketplaceClient({
                   ))}
               </div>
               {/* right column */}
-              <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-2 sm:gap-3">
                 {featuredPhotos
                   .filter((_, i) => i % 2 !== 0)
                   .map((photo) => (
@@ -164,13 +168,13 @@ export default function HomeMarketplaceClient({
 
       {/* ── Stats bar ──────────────────────────────────────────────────── */}
       <section
-        className="py-12"
+        className="py-8 sm:py-12"
         style={{
           backgroundColor: "#f9f9ff",
           borderBottom: "1px solid #c4c6cf",
         }}
       >
-        <div className="mx-auto grid max-w-[1280px] grid-cols-1 gap-6 px-8 sm:grid-cols-3">
+        <div className="mx-auto grid max-w-[1280px] grid-cols-1 gap-6 px-4 sm:grid-cols-3 sm:px-6 lg:px-8">
           {[
             {
               label: "TOTAL PHOTOS",
@@ -199,7 +203,7 @@ export default function HomeMarketplaceClient({
               >
                 {label}
               </p>
-              <p className="text-4xl font-bold" style={{ color: "#002045" }}>
+              <p className="text-3xl font-bold sm:text-4xl" style={{ color: "#002045" }}>
                 {value}
               </p>
             </div>
@@ -210,10 +214,115 @@ export default function HomeMarketplaceClient({
       {/* ── Marketplace section ────────────────────────────────────────── */}
       <section
         id="marketplace"
-        className="mx-auto max-w-[1280px] px-8 py-20"
+        className="mx-auto max-w-[1280px] px-4 py-12 sm:px-6 sm:py-16 lg:px-8 lg:py-20"
         style={{ scrollMarginTop: "140px" }}
       >
-        <div className="flex gap-16">
+        {/* Mobile / tablet filter bar — hidden on lg where the sidebar takes over */}
+        <div className="mb-6 space-y-3 lg:hidden">
+          <form action="/" className="flex gap-2">
+            {placeType && (
+              <input type="hidden" name="placeType" value={placeType} />
+            )}
+            {tag && <input type="hidden" name="tag" value={tag} />}
+            {sort !== "newest" && (
+              <input type="hidden" name="sort" value={sort} />
+            )}
+            <input
+              type="search"
+              name="q"
+              defaultValue={query}
+              placeholder="Search photos…"
+              className="flex-1 rounded-xl border px-4 py-2.5 text-sm outline-none transition focus:ring-2"
+              style={{
+                borderColor: "#c4c6cf",
+                color: "#121c2c",
+              }}
+            />
+            <button
+              type="submit"
+              className="rounded-xl px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
+              style={{ backgroundColor: "#002045" }}
+            >
+              Go
+            </button>
+          </form>
+
+          {/* Horizontally scrolling place-type chips */}
+          {placeTypes.length > 0 ? (
+            <div className="overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
+              <div className="flex gap-2 whitespace-nowrap pb-1">
+                {placeTypes.map((option) => {
+                  const active = option.label === placeType;
+                  return (
+                    <Link
+                      key={option.slug}
+                      href={createUrlWithFilters({
+                        page: 1,
+                        placeType: active ? "" : option.label,
+                        query,
+                        sort,
+                        tag,
+                      })}
+                      className="rounded-full border px-3 py-1.5 text-xs font-medium transition"
+                      style={
+                        active
+                          ? {
+                              borderColor: "#002045",
+                              backgroundColor: "#002045",
+                              color: "#ffffff",
+                            }
+                          : { borderColor: "#c4c6cf", color: "#43474e" }
+                      }
+                    >
+                      {option.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
+          {/* Sort selector */}
+          <div className="flex items-center gap-2">
+            <label
+              className="text-[11px] font-semibold uppercase tracking-[0.18em]"
+              htmlFor="mobile-sort"
+              style={{ color: "#74777f" }}
+            >
+              Sort
+            </label>
+            <form action="/" className="flex-1">
+              {placeType && (
+                <input type="hidden" name="placeType" value={placeType} />
+              )}
+              {tag && <input type="hidden" name="tag" value={tag} />}
+              {query && <input type="hidden" name="q" value={query} />}
+              <select
+                id="mobile-sort"
+                name="sort"
+                defaultValue={sort}
+                className="w-full rounded-xl border bg-white px-3 py-2 text-sm outline-none"
+                style={{ borderColor: "#c4c6cf", color: "#121c2c" }}
+                onChange={(e) => e.currentTarget.form?.submit()}
+              >
+                <option value="newest">Newest uploads</option>
+                <option value="oldest">Oldest uploads</option>
+                <option value="captured">Latest capture date</option>
+              </select>
+            </form>
+            {(query || placeType || tag) ? (
+              <Link
+                href="/"
+                className="rounded-xl border px-3 py-2 text-xs font-semibold transition hover:opacity-70"
+                style={{ borderColor: "#b52426", color: "#b52426" }}
+              >
+                Clear
+              </Link>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="flex gap-8 lg:gap-16">
           {/* Sidebar */}
           <aside className="hidden w-72 shrink-0 lg:block">
             <div className="sticky top-24 space-y-8">
@@ -494,8 +603,8 @@ export default function HomeMarketplaceClient({
       </section>
 
       {/* ── Footer ─────────────────────────────────────────────────────── */}
-      <footer className="mt-20" style={{ backgroundColor: "#002045" }}>
-        <div className="mx-auto grid max-w-[1280px] grid-cols-1 gap-12 px-8 py-16 sm:grid-cols-2 lg:grid-cols-4">
+      <footer className="mt-12 sm:mt-16 lg:mt-20" style={{ backgroundColor: "#002045" }}>
+        <div className="mx-auto grid max-w-[1280px] grid-cols-1 gap-10 px-4 py-12 sm:grid-cols-2 sm:gap-12 sm:px-6 sm:py-16 lg:grid-cols-4 lg:px-8">
           {/* Brand */}
           <div className="space-y-4">
             <div>
@@ -606,7 +715,7 @@ export default function HomeMarketplaceClient({
         </div>
 
         <div
-          className="border-t px-8 py-6 text-center text-xs"
+          className="border-t px-4 py-6 text-center text-xs sm:px-6 lg:px-8"
           style={{
             borderColor: "rgba(255,255,255,0.12)",
             color: "rgba(255,255,255,0.45)",

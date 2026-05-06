@@ -38,9 +38,13 @@ export default async function UserDashboardPage({ params }: PageProps) {
         id: String(user.id),
         fullName: user.full_name,
         firstName: user.first_name,
+        lastName: user.last_name,
+        phoneNumber: user.phone_number,
         areaFocused: user.area_focused,
         email: user.email,
         code: user.code,
+        avatarUrl: user.avatar_url ?? null,
+        role: user.role,
       }}
     />
   )
