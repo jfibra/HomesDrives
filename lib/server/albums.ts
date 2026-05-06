@@ -761,6 +761,105 @@ export async function updateAdminAlbumUser(params: {
   return data as AdminUserRow
 }
 
+// ─── Admin browse: a user's folders + a folder's photos ──────────────────────
+
+export type AdminUserFolder = {
+  id: string
+  uploader_code: string | null
+  uploader_name: string
+  folder_name: string
+  full_address: string | null
+  street: string | null
+  city: string | null
+  province: string | null
+  zip_code: string | null
+  country: string | null
+  latitude: number | null
+  longitude: number | null
+  type_of_place: string[]
+  tags: string[]
+  notes: string | null
+  status: string
+  created_at: string
+  updated_at: string
+  photo_count: number
+  cover_image_url: string | null
+}
+
+export async function listFoldersByUserId(userId: number): Promise<AdminUserFolder[]> {
+  const supabaseAdmin = createSupabaseAdminClient()
+  const { data: folders, error } = await supabaseAdmin
+    .from('albums_folders')
+    .select(
+      'id, uploader_code, uploader_name, folder_name, full_address, street, city, province, zip_code, country, latitude, longitude, type_of_place, tags, notes, status, created_at, updated_at',
+    )
+    .eq('album_user_id', userId)
+    .order('created_at', { ascending: false })
+
+  if (error) throw new Error(error.message)
+  const list = (folders ?? []) as Omit<AdminUserFolder, 'photo_count' | 'cover_image_url'>[]
+  if (list.length === 0) return []
+
+  const ids = list.map((f) => f.id)
+
+  const { data: photos, error: photosErr } = await supabaseAdmin
+    .from('albums_photos')
+    .select('id, folder_id, image_url, created_at')
+    .in('folder_id', ids)
+    .order('created_at', { ascending: false })
+
+  if (photosErr) throw new Error(photosErr.message)
+
+  const countByFolder = new Map<string, number>()
+  const coverByFolder = new Map<string, string>()
+  for (const p of photos ?? []) {
+    if (!p.folder_id) continue
+    countByFolder.set(p.folder_id, (countByFolder.get(p.folder_id) ?? 0) + 1)
+    if (!coverByFolder.has(p.folder_id) && p.image_url) {
+      coverByFolder.set(p.folder_id, p.image_url)
+    }
+  }
+
+  return list.map((f) => ({
+    ...f,
+    photo_count: countByFolder.get(f.id) ?? 0,
+    cover_image_url: coverByFolder.get(f.id) ?? null,
+  }))
+}
+
+export type AdminFolderPhoto = {
+  id: string
+  image_url: string
+  original_file_name: string
+  file_size_bytes: number
+  capture_date: string | null
+  created_at: string
+  device_make: string | null
+  device_model: string | null
+  width: number | null
+  height: number | null
+  place_name: string | null
+  city: string | null
+  province: string | null
+  type_of_place: string[]
+  tags: string[]
+}
+
+export async function listPhotosByFolderId(folderId: string): Promise<AdminFolderPhoto[]> {
+  const supabaseAdmin = createSupabaseAdminClient()
+  const { data, error } = await supabaseAdmin
+    .from('albums_photos')
+    .select(
+      'id, image_url, original_file_name, file_size_bytes, capture_date, created_at, device_make, device_model, width, height, place_name, city, province, type_of_place, tags',
+    )
+    .eq('folder_id', folderId)
+    .order('created_at', { ascending: false })
+    .limit(1000)
+
+  if (error) throw new Error(error.message)
+  return (data ?? []) as AdminFolderPhoto[]
+}
+
 export async function deleteAdminAlbumUser(params: { id: number }) {
   const supabaseAdmin = createSupabaseAdminClient()
 
@@ -815,6 +914,13 @@ export type AdminStats = {
     place_name: string | null
   }[]
   uploadsByDay: { day: string; count: number }[]
+  uploadsByUserByDay: {
+    code: string
+    name: string
+    total: number
+    today: number
+    days: { day: string; count: number }[]
+  }[]
 }
 
 export async function getAdminStats(): Promise<AdminStats> {
@@ -856,10 +962,11 @@ export async function getAdminStats(): Promise<AdminStats> {
       .select('id, image_url, original_file_name, uploader_name, uploader_code, created_at, place_name')
       .order('created_at', { ascending: false })
       .limit(10),
-    // 14-day chart — explicit date filter, no row cap risk
+    // 14-day chart — explicit date filter, no row cap risk.
+    // Includes uploader info so we can also build the per-user breakdown.
     supabaseAdmin
       .from('albums_photos')
-      .select('created_at')
+      .select('created_at, uploader_code, uploader_name')
       .gte('created_at', windowStartIso)
       .order('created_at', { ascending: true })
       .limit(50000),
@@ -912,25 +1019,63 @@ export async function getAdminStats(): Promise<AdminStats> {
     .sort((a, b) => b.photos - a.photos)
     .slice(0, 5)
 
-  // Uploads per day (last 14 days, UTC day buckets)
-  const byDay = new Map<string, number>()
+  // Uploads per day (last 14 days, UTC day buckets) — aggregate window
+  const dayKeys: string[] = []
   for (let i = 13; i >= 0; i--) {
     const d = new Date(now)
     d.setUTCDate(d.getUTCDate() - i)
-    byDay.set(d.toISOString().slice(0, 10), 0)
+    dayKeys.push(d.toISOString().slice(0, 10))
   }
-  for (const row of chartRows as { created_at: string }[]) {
+  const todayKey = dayKeys[dayKeys.length - 1]
+
+  const byDay = new Map<string, number>(dayKeys.map((k) => [k, 0]))
+
+  // Per-user-per-day map: uploaderCode → { name, days: Map<day,count> }
+  const perUserByDay = new Map<
+    string,
+    { code: string; name: string; days: Map<string, number> }
+  >()
+
+  for (const row of chartRows as {
+    created_at: string
+    uploader_code: string | null
+    uploader_name: string | null
+  }[]) {
     const day = row.created_at?.slice(0, 10)
-    if (!day) continue
-    if (byDay.has(day)) byDay.set(day, (byDay.get(day) ?? 0) + 1)
+    if (!day || !byDay.has(day)) continue
+
+    byDay.set(day, (byDay.get(day) ?? 0) + 1)
+
+    const code = row.uploader_code ?? '—'
+    let entry = perUserByDay.get(code)
+    if (!entry) {
+      entry = {
+        code,
+        name: row.uploader_name ?? 'Unknown',
+        days: new Map(dayKeys.map((k) => [k, 0])),
+      }
+      perUserByDay.set(code, entry)
+    }
+    entry.days.set(day, (entry.days.get(day) ?? 0) + 1)
   }
-  const uploadsByDay = Array.from(byDay.entries()).map(([day, count]) => ({ day, count }))
+
+  const uploadsByDay = dayKeys.map((day) => ({ day, count: byDay.get(day) ?? 0 }))
+
+  const uploadsByUserByDay = Array.from(perUserByDay.values())
+    .map((entry) => {
+      const days = dayKeys.map((day) => ({ day, count: entry.days.get(day) ?? 0 }))
+      const total = days.reduce((s, d) => s + d.count, 0)
+      const today = entry.days.get(todayKey) ?? 0
+      return { code: entry.code, name: entry.name, total, today, days }
+    })
+    .sort((a, b) => b.total - a.total)
 
   return {
     totals,
     topUploaders,
     recentUploads: (recentRes.data ?? []) as AdminStats['recentUploads'],
     uploadsByDay,
+    uploadsByUserByDay,
   }
 }
 

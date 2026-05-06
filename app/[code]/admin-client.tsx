@@ -2,18 +2,23 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  ArrowLeft,
   ArrowRight,
   BarChart3,
   Calendar,
+  CalendarDays,
   Camera,
+  ChevronRight,
   ClipboardList,
   Edit3,
   FilePlus2,
   Folder,
+  FolderOpen,
   HardDrive,
   Image as ImageIcon,
   LogOut,
   Mail,
+  MapPin,
   Menu,
   Phone,
   Plus,
@@ -83,6 +88,13 @@ type AdminStats = {
     place_name: string | null
   }[]
   uploadsByDay: { day: string; count: number }[]
+  uploadsByUserByDay: {
+    code: string
+    name: string
+    total: number
+    today: number
+    days: { day: string; count: number }[]
+  }[]
 }
 
 type AdminView = 'overview' | 'users'
@@ -169,6 +181,53 @@ export default function AdminClient({ user }: { user: AdminUser }) {
   // Delete confirm
   const [deleteTarget, setDeleteTarget] = useState<AdminUserRow | null>(null)
   const [isDeletingUser, setIsDeletingUser] = useState(false)
+
+  // Browse user folders + photos
+  type BrowseUser = {
+    id: number
+    code: string
+    name: string
+  }
+  type BrowseFolder = {
+    id: string
+    folder_name: string
+    full_address: string | null
+    city: string | null
+    province: string | null
+    type_of_place: string[]
+    tags: string[]
+    notes: string | null
+    status: string
+    created_at: string
+    photo_count: number
+    cover_image_url: string | null
+  }
+  type BrowsePhoto = {
+    id: string
+    image_url: string
+    original_file_name: string
+    file_size_bytes: number
+    capture_date: string | null
+    created_at: string
+    device_make: string | null
+    device_model: string | null
+    width: number | null
+    height: number | null
+    place_name: string | null
+    city: string | null
+    province: string | null
+    type_of_place: string[]
+    tags: string[]
+  }
+  const [browseUser, setBrowseUser] = useState<BrowseUser | null>(null)
+  const [browseFolders, setBrowseFolders] = useState<BrowseFolder[]>([])
+  const [isLoadingBrowseFolders, setIsLoadingBrowseFolders] = useState(false)
+  const [browseFoldersError, setBrowseFoldersError] = useState('')
+  const [browseFolder, setBrowseFolder] = useState<BrowseFolder | null>(null)
+  const [browsePhotos, setBrowsePhotos] = useState<BrowsePhoto[]>([])
+  const [isLoadingBrowsePhotos, setIsLoadingBrowsePhotos] = useState(false)
+  const [browsePhotosError, setBrowsePhotosError] = useState('')
+  const [lightboxPhoto, setLightboxPhoto] = useState<BrowsePhoto | null>(null)
 
   // ─── Auth ───────────────────────────────────────────────────────────────────
 
@@ -392,6 +451,60 @@ export default function AdminClient({ user }: { user: AdminUser }) {
     } finally {
       setIsDeletingUser(false)
     }
+  }
+
+  // ─── Browse user → folders → photos ─────────────────────────────────────────
+
+  async function openUserBrowse(target: { id: number; code: string; name: string }) {
+    setBrowseUser(target)
+    setBrowseFolder(null)
+    setBrowsePhotos([])
+    setBrowseFolders([])
+    setBrowseFoldersError('')
+    setIsLoadingBrowseFolders(true)
+    try {
+      const r = await fetch(
+        `/api/admin/users/${target.id}/folders?adminCode=${encodeURIComponent(user.code)}`,
+      )
+      const data = await r.json().catch(() => null)
+      if (!r.ok) throw new Error(data?.error || 'Unable to load folders.')
+      setBrowseFolders(Array.isArray(data?.folders) ? data.folders : [])
+    } catch (error) {
+      setBrowseFoldersError(
+        error instanceof Error ? error.message : 'Unable to load folders.',
+      )
+    } finally {
+      setIsLoadingBrowseFolders(false)
+    }
+  }
+
+  async function openFolderPhotos(folder: BrowseFolder) {
+    setBrowseFolder(folder)
+    setBrowsePhotos([])
+    setBrowsePhotosError('')
+    setIsLoadingBrowsePhotos(true)
+    try {
+      const r = await fetch(
+        `/api/admin/folders/${folder.id}/photos?adminCode=${encodeURIComponent(user.code)}`,
+      )
+      const data = await r.json().catch(() => null)
+      if (!r.ok) throw new Error(data?.error || 'Unable to load photos.')
+      setBrowsePhotos(Array.isArray(data?.photos) ? data.photos : [])
+    } catch (error) {
+      setBrowsePhotosError(
+        error instanceof Error ? error.message : 'Unable to load photos.',
+      )
+    } finally {
+      setIsLoadingBrowsePhotos(false)
+    }
+  }
+
+  function closeBrowse() {
+    setBrowseUser(null)
+    setBrowseFolder(null)
+    setBrowseFolders([])
+    setBrowsePhotos([])
+    setLightboxPhoto(null)
   }
 
   // ─── Filtered users ─────────────────────────────────────────────────────────
@@ -935,6 +1048,30 @@ export default function AdminClient({ user }: { user: AdminUser }) {
                     </Panel>
                   </div>
 
+                  {/* Daily Uploads by User */}
+                  <Panel
+                    icon={<CalendarDays className="h-4 w-4" />}
+                    title="Daily Uploads by User · Last 14 days"
+                    action={
+                      <span
+                        className="text-[11px] font-semibold tabular-nums"
+                        style={{ color: 'var(--ds-on-surface-variant)' }}
+                      >
+                        {(stats?.uploadsByUserByDay ?? []).length}{' '}
+                        {(stats?.uploadsByUserByDay ?? []).length === 1 ? 'uploader' : 'uploaders'} active
+                        · click a row to browse
+                      </span>
+                    }
+                  >
+                    <UploadsByUserHeatmap
+                      data={stats?.uploadsByUserByDay ?? []}
+                      users={users}
+                      onSelectUser={(u) =>
+                        openUserBrowse({ id: u.id, code: u.code, name: u.name })
+                      }
+                    />
+                  </Panel>
+
                   {/* Recent uploads */}
                   <Panel icon={<ImageIcon className="h-4 w-4" />} title="Recent Uploads">
                     {stats?.recentUploads.length ? (
@@ -1357,6 +1494,346 @@ export default function AdminClient({ user }: { user: AdminUser }) {
         </div>
       ) : null}
 
+      {/* ─── Browse user folders + photos ────────────────────────────────── */}
+      {browseUser ? (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4 sm:p-6"
+          onClick={closeBrowse}
+        >
+          <div
+            className="flex h-full max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Drawer header */}
+            <header
+              className="flex items-center gap-3 border-b px-5 py-4"
+              style={{ borderColor: 'var(--ds-outline-variant)' }}
+            >
+              {browseFolder ? (
+                <button
+                  aria-label="Back to folders"
+                  className="flex h-9 w-9 items-center justify-center rounded-lg transition-colors hover:bg-slate-100"
+                  onClick={() => {
+                    setBrowseFolder(null)
+                    setBrowsePhotos([])
+                  }}
+                  type="button"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </button>
+              ) : null}
+
+              <div className="min-w-0 flex-1">
+                <div
+                  className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider"
+                  style={{ color: 'var(--ds-on-surface-variant)' }}
+                >
+                  <span>{browseUser.name}</span>
+                  {browseFolder ? (
+                    <>
+                      <ChevronRight className="h-3 w-3" />
+                      <span>Folder</span>
+                    </>
+                  ) : null}
+                </div>
+                <div
+                  className="mt-0.5 truncate text-lg font-bold"
+                  style={{ fontFamily: 'var(--font-noto-serif)' }}
+                >
+                  {browseFolder
+                    ? browseFolder.folder_name
+                    : `${browseUser.name}'s Folders`}
+                </div>
+                <div
+                  className="truncate font-mono text-[11px]"
+                  style={{ color: 'var(--ds-on-surface-variant)' }}
+                >
+                  {browseUser.code}
+                </div>
+              </div>
+
+              <button
+                aria-label="Close"
+                className="flex h-9 w-9 items-center justify-center rounded-lg transition-colors hover:bg-slate-100"
+                onClick={closeBrowse}
+                type="button"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </header>
+
+            {/* Drawer body */}
+            <div className="flex-1 overflow-y-auto p-5">
+              {/* Folder list view */}
+              {!browseFolder ? (
+                <>
+                  {browseFoldersError ? (
+                    <div
+                      className="mb-4 rounded-lg border px-3 py-2 text-sm"
+                      style={{
+                        backgroundColor: 'var(--ds-error-container)',
+                        borderColor: 'rgba(186,26,26,0.2)',
+                        color: 'var(--ds-error)',
+                      }}
+                    >
+                      {browseFoldersError}
+                    </div>
+                  ) : null}
+
+                  {isLoadingBrowseFolders ? (
+                    <div
+                      className="flex h-40 items-center justify-center text-sm"
+                      style={{ color: 'var(--ds-on-surface-variant)' }}
+                    >
+                      Loading folders...
+                    </div>
+                  ) : browseFolders.length === 0 ? (
+                    <div
+                      className="flex h-40 flex-col items-center justify-center gap-2 rounded-lg border border-dashed text-center"
+                      style={{
+                        borderColor: 'var(--ds-outline-variant)',
+                        color: 'var(--ds-on-surface-variant)',
+                      }}
+                    >
+                      <Folder className="h-7 w-7 opacity-50" />
+                      <div className="text-sm font-semibold">
+                        This user has not created any folders yet.
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div
+                        className="mb-3 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider"
+                        style={{ color: 'var(--ds-on-surface-variant)' }}
+                      >
+                        <span>{browseFolders.length} folder{browseFolders.length === 1 ? '' : 's'}</span>
+                        <span>
+                          Total photos:{' '}
+                          {browseFolders.reduce((s, f) => s + f.photo_count, 0)}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        {browseFolders.map((folder) => (
+                          <button
+                            key={folder.id}
+                            className="group flex flex-col gap-2 overflow-hidden rounded-2xl border bg-white text-left transition-all hover:-translate-y-0.5 hover:shadow-md"
+                            onClick={() => openFolderPhotos(folder)}
+                            style={{ borderColor: 'var(--ds-outline-variant)' }}
+                            type="button"
+                          >
+                            {folder.cover_image_url ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                alt={folder.folder_name}
+                                className="h-28 w-full object-cover"
+                                src={folder.cover_image_url}
+                              />
+                            ) : (
+                              <div
+                                className="flex h-28 w-full items-center justify-center"
+                                style={{ backgroundColor: 'var(--ds-surface-container)' }}
+                              >
+                                <FolderOpen
+                                  className="h-8 w-8"
+                                  style={{ color: 'var(--ds-on-surface-variant)' }}
+                                />
+                              </div>
+                            )}
+                            <div className="flex flex-col gap-1 px-3 pb-3">
+                              <div className="flex items-start justify-between gap-2">
+                                <div
+                                  className="min-w-0 flex-1 truncate font-semibold"
+                                  style={{ color: 'var(--ds-on-surface)' }}
+                                >
+                                  {folder.folder_name}
+                                </div>
+                                <span
+                                  className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold tabular-nums"
+                                  style={{
+                                    backgroundColor:
+                                      folder.photo_count > 0
+                                        ? 'var(--ds-primary)'
+                                        : 'var(--ds-surface-container-high)',
+                                    color:
+                                      folder.photo_count > 0
+                                        ? 'var(--ds-on-primary)'
+                                        : 'var(--ds-on-surface-variant)',
+                                  }}
+                                >
+                                  {folder.photo_count} {folder.photo_count === 1 ? 'photo' : 'photos'}
+                                </span>
+                              </div>
+                              {folder.full_address ? (
+                                <div
+                                  className="flex items-start gap-1 text-[11px]"
+                                  style={{ color: 'var(--ds-on-surface-variant)' }}
+                                >
+                                  <MapPin className="mt-0.5 h-3 w-3 shrink-0" />
+                                  <span className="line-clamp-2">{folder.full_address}</span>
+                                </div>
+                              ) : null}
+                              <div
+                                className="flex items-center justify-between text-[10px]"
+                                style={{ color: 'var(--ds-on-surface-variant)' }}
+                              >
+                                <span>{formatDate(folder.created_at)}</span>
+                                {folder.status === 'archived' ? (
+                                  <span
+                                    className="rounded-full px-2 py-0.5 font-semibold"
+                                    style={{
+                                      backgroundColor: 'var(--ds-surface-container-high)',
+                                      color: 'var(--ds-on-surface-variant)',
+                                    }}
+                                  >
+                                    Archived
+                                  </span>
+                                ) : null}
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </>
+              ) : (
+                <>
+                  {/* Folder details */}
+                  {browseFolder.full_address ? (
+                    <div
+                      className="mb-3 rounded-lg border bg-slate-50 px-3 py-2 text-xs"
+                      style={{
+                        borderColor: 'var(--ds-outline-variant)',
+                        color: 'var(--ds-on-surface-variant)',
+                      }}
+                    >
+                      <div className="flex items-start gap-1.5">
+                        <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        <span>{browseFolder.full_address}</span>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {browsePhotosError ? (
+                    <div
+                      className="mb-4 rounded-lg border px-3 py-2 text-sm"
+                      style={{
+                        backgroundColor: 'var(--ds-error-container)',
+                        borderColor: 'rgba(186,26,26,0.2)',
+                        color: 'var(--ds-error)',
+                      }}
+                    >
+                      {browsePhotosError}
+                    </div>
+                  ) : null}
+
+                  {isLoadingBrowsePhotos ? (
+                    <div
+                      className="flex h-40 items-center justify-center text-sm"
+                      style={{ color: 'var(--ds-on-surface-variant)' }}
+                    >
+                      Loading photos...
+                    </div>
+                  ) : browsePhotos.length === 0 ? (
+                    <div
+                      className="flex h-40 flex-col items-center justify-center gap-2 rounded-lg border border-dashed text-center"
+                      style={{
+                        borderColor: 'var(--ds-outline-variant)',
+                        color: 'var(--ds-on-surface-variant)',
+                      }}
+                    >
+                      <ImageIcon className="h-7 w-7 opacity-50" />
+                      <div className="text-sm font-semibold">
+                        No photos in this folder yet.
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div
+                        className="mb-3 text-[11px] font-semibold uppercase tracking-wider"
+                        style={{ color: 'var(--ds-on-surface-variant)' }}
+                      >
+                        {browsePhotos.length} photo{browsePhotos.length === 1 ? '' : 's'}
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                        {browsePhotos.map((photo) => (
+                          <button
+                            key={photo.id}
+                            className="group relative overflow-hidden rounded-lg border bg-slate-100 transition-all hover:opacity-90"
+                            onClick={() => setLightboxPhoto(photo)}
+                            style={{ borderColor: 'var(--ds-outline-variant)' }}
+                            type="button"
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              alt={photo.original_file_name}
+                              className="aspect-square w-full object-cover"
+                              loading="lazy"
+                              src={photo.image_url}
+                            />
+                            <div
+                              className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100"
+                            >
+                              <div className="truncate text-[10px] font-semibold text-white">
+                                {photo.original_file_name}
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Photo lightbox */}
+      {lightboxPhoto ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 px-4"
+          onClick={() => setLightboxPhoto(null)}
+        >
+          <div
+            className="flex max-h-full max-w-5xl flex-col gap-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 text-white">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold">
+                  {lightboxPhoto.original_file_name}
+                </div>
+                <div className="truncate text-[11px] opacity-70">
+                  {[
+                    lightboxPhoto.place_name,
+                    lightboxPhoto.city,
+                    lightboxPhoto.province,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ') || formatDate(lightboxPhoto.created_at)}
+                </div>
+              </div>
+              <button
+                aria-label="Close"
+                className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/10 transition-colors hover:bg-white/20"
+                onClick={() => setLightboxPhoto(null)}
+                type="button"
+              >
+                <X className="h-4 w-4 text-white" />
+              </button>
+            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              alt={lightboxPhoto.original_file_name}
+              className="max-h-[80vh] w-auto max-w-full rounded-lg object-contain"
+              src={lightboxPhoto.image_url}
+            />
+          </div>
+        </div>
+      ) : null}
+
       {/* ─── Local CSS for form inputs ──────────────────────────────────── */}
       <style jsx>{`
         :global(.form-input) {
@@ -1561,5 +2038,222 @@ function FormField({
       </span>
       {children}
     </label>
+  )
+}
+
+// ─── Per-user-per-day heatmap ─────────────────────────────────────────────────
+
+function UploadsByUserHeatmap({
+  data,
+  users,
+  onSelectUser,
+}: {
+  data: AdminStats['uploadsByUserByDay']
+  users: AdminUserRow[]
+  onSelectUser: (user: { id: number; code: string; name: string }) => void
+}) {
+  if (data.length === 0) {
+    return (
+      <div
+        className="flex h-32 flex-col items-center justify-center gap-2 rounded-lg border border-dashed text-center"
+        style={{
+          borderColor: 'var(--ds-outline-variant)',
+          color: 'var(--ds-on-surface-variant)',
+        }}
+      >
+        <CalendarDays className="h-6 w-6 opacity-50" />
+        <div className="text-sm font-semibold">
+          No user uploads in the last 14 days
+        </div>
+      </div>
+    )
+  }
+
+  const userByCode = new Map(users.map((u) => [u.code, u]))
+
+  const globalMax = Math.max(
+    1,
+    ...data.flatMap((user) => user.days.map((d) => d.count)),
+  )
+  const dayKeys = data[0]?.days.map((d) => d.day) ?? []
+  const todayKey = dayKeys[dayKeys.length - 1]
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr>
+            <th
+              className="sticky left-0 z-[1] bg-white px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider"
+              style={{ color: 'var(--ds-on-surface-variant)' }}
+            >
+              User
+            </th>
+            {dayKeys.map((day) => {
+              const isToday = day === todayKey
+              return (
+                <th
+                  key={day}
+                  className="px-1 py-2 text-center text-[9px] font-semibold uppercase tabular-nums"
+                  style={{
+                    color: isToday ? 'var(--ds-primary)' : 'var(--ds-on-surface-variant)',
+                  }}
+                >
+                  {formatDayShort(day)}
+                </th>
+              )
+            })}
+            <th
+              className="px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wider"
+              style={{ color: 'var(--ds-on-surface-variant)' }}
+            >
+              Today
+            </th>
+            <th
+              className="px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wider"
+              style={{ color: 'var(--ds-on-surface-variant)' }}
+            >
+              Total
+            </th>
+            <th className="w-6 py-2"></th>
+          </tr>
+        </thead>
+        <tbody className="divide-y" style={{ borderColor: 'var(--ds-outline-variant)' }}>
+          {data.map((row) => {
+            const matchedUser = userByCode.get(row.code)
+            const canBrowse = !!matchedUser
+            return (
+              <tr
+                key={row.code}
+                className={
+                  canBrowse
+                    ? 'group cursor-pointer transition-colors hover:bg-slate-50'
+                    : ''
+                }
+                onClick={() => {
+                  if (matchedUser) {
+                    onSelectUser({
+                      id: matchedUser.id,
+                      code: matchedUser.code,
+                      name: matchedUser.full_name,
+                    })
+                  }
+                }}
+                title={canBrowse ? 'Click to browse this user\'s folders and photos' : undefined}
+              >
+                <td className="sticky left-0 z-[1] bg-white py-2 pr-3 transition-colors group-hover:bg-slate-50">
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold"
+                      style={{
+                        backgroundColor: 'var(--ds-surface-container-high)',
+                        color: 'var(--ds-on-surface)',
+                      }}
+                    >
+                      {(row.name?.[0] ?? '?').toUpperCase()}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="truncate text-xs font-semibold">{row.name}</div>
+                      <div
+                        className="truncate font-mono text-[10px]"
+                        style={{ color: 'var(--ds-on-surface-variant)' }}
+                      >
+                        {row.code}
+                      </div>
+                    </div>
+                  </div>
+                </td>
+                {row.days.map((d) => (
+                  <td key={d.day} className="px-0.5 py-1.5">
+                    <HeatCell
+                      count={d.count}
+                      max={globalMax}
+                      day={d.day}
+                      isToday={d.day === todayKey}
+                    />
+                  </td>
+                ))}
+                <td
+                  className="px-2 py-2 text-right text-sm font-bold tabular-nums"
+                  style={{
+                    color: row.today > 0 ? 'var(--ds-primary)' : 'var(--ds-on-surface-variant)',
+                  }}
+                >
+                  {row.today}
+                </td>
+                <td className="px-2 py-2 text-right text-sm font-bold tabular-nums">
+                  {row.total}
+                </td>
+                <td className="pr-2 text-right">
+                  {canBrowse ? (
+                    <ChevronRight
+                      className="h-4 w-4 inline-block"
+                      style={{ color: 'var(--ds-on-surface-variant)' }}
+                    />
+                  ) : null}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+
+      <div
+        className="mt-3 flex items-center gap-2 text-[10px] uppercase tracking-wider"
+        style={{ color: 'var(--ds-on-surface-variant)' }}
+      >
+        <span>Less</span>
+        {[0, 0.25, 0.5, 0.75, 1].map((step) => (
+          <span
+            key={step}
+            className="h-3 w-5 rounded-sm"
+            style={{ backgroundColor: heatColor(step) }}
+          />
+        ))}
+        <span>More</span>
+      </div>
+    </div>
+  )
+}
+
+function HeatCell({
+  count,
+  day,
+  isToday,
+  max,
+}: {
+  count: number
+  day: string
+  isToday: boolean
+  max: number
+}) {
+  const intensity = max > 0 ? count / max : 0
+  return (
+    <div
+      className="mx-auto flex h-7 w-7 items-center justify-center rounded-md text-[10px] font-bold tabular-nums"
+      style={{
+        backgroundColor: heatColor(intensity),
+        color: intensity > 0.5 ? 'var(--ds-on-primary)' : 'var(--ds-on-surface)',
+        outline: isToday ? `2px solid var(--ds-primary)` : 'none',
+        outlineOffset: '-1px',
+      }}
+      title={`${formatDayShort(day)}: ${count} upload${count === 1 ? '' : 's'}`}
+    >
+      {count > 0 ? count : ''}
+    </div>
+  )
+}
+
+function heatColor(intensity: number) {
+  if (intensity <= 0) return 'var(--ds-surface-container-high)'
+  if (intensity <= 0.25) return '#dee8ff'
+  if (intensity <= 0.5) return '#a5c0e8'
+  if (intensity <= 0.75) return '#5b85bc'
+  return 'var(--ds-primary)'
+}
+
+function formatDayShort(iso: string) {
+  return new Intl.DateTimeFormat('en-PH', { month: 'short', day: 'numeric' }).format(
+    new Date(iso),
   )
 }
