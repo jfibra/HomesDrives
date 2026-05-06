@@ -18,6 +18,7 @@ import {
   Grid3X3,
   ImageIcon,
   List,
+  LogOut,
   MapPin,
   Maximize2,
   Menu,
@@ -681,6 +682,13 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
     } finally {
       setIsAuthenticating(false)
     }
+  }
+
+  function handleLogout() {
+    localStorage.removeItem(authStorageKey)
+    localStorage.removeItem('homes-admin-context')
+    setIsAuthenticated(false)
+    setIsSidebarOpen(false)
   }
 
   // ─── Effects ────────────────────────────────────────────────────────────────
@@ -2188,24 +2196,6 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                 label="My Photos"
                 onClick={() => { setActiveView('my-photos'); setIsSidebarOpen(false) }}
               />
-              <SidebarNavItem
-                active={false}
-                icon={<CheckSquare className="h-5 w-5" />}
-                label="All Questionnaires"
-                onClick={() => {
-                  setIsSidebarOpen(false)
-                  window.location.href = '/questionnaires'
-                }}
-              />
-              <SidebarNavItem
-                active={false}
-                icon={<CheckSquare className="h-5 w-5" />}
-                label="Questionnaire Builder"
-                onClick={() => {
-                  setIsSidebarOpen(false)
-                  window.location.href = '/questionnaires/new'
-                }}
-              />
             </nav>
 
             <div className="my-4 mx-6 border-t" style={{ borderColor: 'var(--ds-outline-variant)' }} />
@@ -2234,6 +2224,23 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                 <MapPin className="h-3.5 w-3.5 shrink-0" style={{ color: 'var(--ds-secondary)' }} />
                 <span className="text-xs font-medium" style={{ color: 'var(--ds-on-surface-variant)' }}>{user.areaFocused}</span>
               </div>
+            </div>
+
+            {/* Logout button — pinned to the bottom */}
+            <div className="mt-auto px-6 pt-6">
+              <button
+                className="flex w-full items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-semibold transition-colors hover:bg-white"
+                onClick={handleLogout}
+                style={{
+                  borderColor: 'var(--ds-outline-variant)',
+                  color: 'var(--ds-error)',
+                  backgroundColor: 'var(--ds-surface-container-lowest)',
+                }}
+                type="button"
+              >
+                <LogOut className="h-4 w-4" />
+                <span>Sign out</span>
+              </button>
             </div>
           </div>
         </aside>

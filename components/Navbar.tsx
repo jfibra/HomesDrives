@@ -53,13 +53,33 @@ export default function Navbar() {
           ))}
         </nav>
 
-        <Link
-          href="/"
-          className="hidden sm:inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
-          style={{ backgroundColor: "#b52426" }}
-        >
-          Explore Photos
-        </Link>
+        <div className="flex items-center gap-2 sm:gap-3">
+          <Link
+            href="/login"
+            className="hidden sm:inline-flex items-center text-xs font-semibold tracking-[0.18em] transition-opacity hover:opacity-70"
+            style={{ color: "#43474e" }}
+          >
+            SIGN IN
+          </Link>
+          <Link
+            href="/signup"
+            className="hidden sm:inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-semibold tracking-[0.18em] transition hover:opacity-80"
+            style={{
+              borderColor: "#002045",
+              color: "#002045",
+            }}
+          >
+            SIGN UP
+          </Link>
+          <Link
+            href="/"
+            className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold tracking-[0.18em] text-white transition hover:opacity-90 sm:px-5 sm:py-2.5 sm:text-sm sm:tracking-normal"
+            style={{ backgroundColor: "#b52426" }}
+          >
+            <span className="hidden sm:inline">Explore Photos</span>
+            <span className="sm:hidden">EXPLORE</span>
+          </Link>
+        </div>
       </div>
     </header>
   );

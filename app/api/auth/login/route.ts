@@ -36,14 +36,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: authError.message }, { status: 401 })
     }
 
-    // Verify the email belongs to the user whose code is in the URL
+    // Look up the album_users row by email. If `code` is supplied (e.g. the
+    // user is signing in via /<code>) we also enforce it matches.
     const supabaseAdmin = createSupabaseAdminClient()
-    const { data: albumUser, error: dbError } = await supabaseAdmin
+    let query = supabaseAdmin
       .from('album_users')
-      .select('status')
+      .select('id, full_name, status, role, area_focused, code')
       .eq('email', email)
-      .eq('code', code)
-      .maybeSingle()
+    if (code) query = query.eq('code', code)
+
+    const { data: albumUser, error: dbError } = await query.maybeSingle()
 
     if (dbError) {
       throw new Error(dbError.message)
@@ -51,7 +53,11 @@ export async function POST(request: Request) {
 
     if (!albumUser) {
       return NextResponse.json(
-        { error: 'This email does not match the account for this dashboard.' },
+        {
+          error: code
+            ? 'This email does not match the account for this dashboard.'
+            : 'No account found with that email.',
+        },
         { status: 401 },
       )
     }
@@ -60,7 +66,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Your account is inactive. Contact your manager.' }, { status: 403 })
     }
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({
+      success: true,
+      user: {
+        id: albumUser.id,
+        fullName: albumUser.full_name,
+        role: albumUser.role ?? 'media',
+        areaFocused: albumUser.area_focused,
+        code: albumUser.code,
+      },
+    })
   } catch (error) {
     return NextResponse.json(
       {

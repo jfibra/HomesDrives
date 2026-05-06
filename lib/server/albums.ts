@@ -323,6 +323,18 @@ export async function updateAlbumPhotoTags(params: {
   return data
 }
 
+export type AlbumUserRole = 'admin' | 'media' | 'customer'
+
+export const ALBUM_USER_ROLES: readonly AlbumUserRole[] = [
+  'admin',
+  'media',
+  'customer',
+] as const
+
+export function isAlbumUserRole(value: unknown): value is AlbumUserRole {
+  return typeof value === 'string' && (ALBUM_USER_ROLES as readonly string[]).includes(value)
+}
+
 export type AlbumUser = {
   id: number
   first_name: string
@@ -331,7 +343,11 @@ export type AlbumUser = {
   status: string
   area_focused: string
   email: string
+  phone_number: string
   code: string
+  role: AlbumUserRole
+  created_at?: string
+  updated_at?: string
 }
 
 export type AlbumFolderContext = {
@@ -452,7 +468,7 @@ export async function getUserByCode(code: string): Promise<AlbumUser | null> {
   const supabaseAdmin = createSupabaseAdminClient()
   const { data, error } = await supabaseAdmin
     .from('album_users')
-    .select('id, first_name, last_name, full_name, status, area_focused, email, code')
+    .select('id, first_name, last_name, full_name, status, area_focused, email, phone_number, code, role')
     .eq('code', code)
     .maybeSingle()
 
@@ -460,7 +476,462 @@ export async function getUserByCode(code: string): Promise<AlbumUser | null> {
     throw new Error(error.message)
   }
 
-  return data
+  return (data as AlbumUser | null) ?? null
+}
+
+export async function getUserByEmail(email: string): Promise<AlbumUser | null> {
+  const supabaseAdmin = createSupabaseAdminClient()
+  const { data, error } = await supabaseAdmin
+    .from('album_users')
+    .select('id, first_name, last_name, full_name, status, area_focused, email, phone_number, code, role')
+    .eq('email', email.trim().toLowerCase())
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return (data as AlbumUser | null) ?? null
+}
+
+// ─── Public signup (Customer Drive) ───────────────────────────────────────────
+
+export async function signUpCustomerUser(params: {
+  firstName: string
+  lastName: string
+  email: string
+  phoneNumber: string
+  areaFocused: string
+  password: string
+}): Promise<AlbumUser> {
+  const supabaseAdmin = createSupabaseAdminClient()
+  const fullName = `${params.firstName.trim()} ${params.lastName.trim()}`.trim()
+  const code = generateUserCode(params.firstName, params.lastName)
+  const email = params.email.trim().toLowerCase()
+
+  // Refuse early if there's already an album_users row with this email
+  const existing = await getUserByEmail(email)
+  if (existing) {
+    throw new Error('An account with this email already exists. Try signing in.')
+  }
+
+  // 1. Create Supabase Auth user (auto-confirmed)
+  const { data: authData, error: authErr } = await supabaseAdmin.auth.admin.createUser({
+    email,
+    password: params.password,
+    email_confirm: true,
+    user_metadata: { full_name: fullName, code, role: 'customer' },
+  })
+  if (authErr) {
+    if (/already (registered|exists)/i.test(authErr.message)) {
+      throw new Error('An account with this email already exists. Try signing in.')
+    }
+    throw new Error(`Auth: ${authErr.message}`)
+  }
+
+  // 2. Insert the album_users row
+  const { data, error } = await supabaseAdmin
+    .from('album_users')
+    .insert({
+      first_name: params.firstName.trim(),
+      last_name: params.lastName.trim(),
+      full_name: fullName,
+      status: 'active',
+      area_focused: params.areaFocused.trim() || 'Not specified',
+      email,
+      phone_number: params.phoneNumber.trim(),
+      code,
+      role: 'customer',
+    })
+    .select(
+      'id, first_name, last_name, full_name, status, area_focused, email, phone_number, code, role',
+    )
+    .single()
+
+  if (error) {
+    // Roll back the auth user if the DB insert failed
+    if (authData?.user?.id) {
+      await supabaseAdmin.auth.admin.deleteUser(authData.user.id).catch(() => undefined)
+    }
+    throw new Error(error.message)
+  }
+
+  return data as AlbumUser
+}
+
+// ─── Admin helpers ────────────────────────────────────────────────────────────
+
+export async function requireAdminByCode(code: string): Promise<AlbumUser> {
+  const user = await getUserByCode(code)
+  if (!user) throw new Error('Admin code not found.')
+  if (user.role !== 'admin') throw new Error('Forbidden: admin access required.')
+  if (user.status !== 'active') throw new Error('Admin account is not active.')
+  return user
+}
+
+export type AdminUserRow = {
+  id: number
+  first_name: string
+  last_name: string
+  full_name: string
+  status: string
+  area_focused: string
+  email: string
+  phone_number: string
+  code: string
+  role: AlbumUserRole
+  created_at: string
+  updated_at: string
+  photo_count?: number
+  folder_count?: number
+}
+
+export async function listAllAlbumUsers(): Promise<AdminUserRow[]> {
+  const supabaseAdmin = createSupabaseAdminClient()
+  const { data, error } = await supabaseAdmin
+    .from('album_users')
+    .select(
+      'id, first_name, last_name, full_name, status, area_focused, email, phone_number, code, role, created_at, updated_at',
+    )
+    .order('created_at', { ascending: false })
+
+  if (error) throw new Error(error.message)
+
+  const users = (data ?? []) as AdminUserRow[]
+  if (users.length === 0) return users
+
+  // Augment with per-user photo + folder counts
+  const codes = users.map((u) => u.code)
+  const [{ data: folderRows, error: fErr }, { data: photoRows, error: pErr }] = await Promise.all([
+    supabaseAdmin.from('albums_folders').select('uploader_code').in('uploader_code', codes),
+    supabaseAdmin.from('albums_photos').select('uploader_code').in('uploader_code', codes),
+  ])
+  if (fErr) throw new Error(fErr.message)
+  if (pErr) throw new Error(pErr.message)
+
+  const folderCount = new Map<string, number>()
+  for (const r of folderRows ?? []) {
+    if (!r.uploader_code) continue
+    folderCount.set(r.uploader_code, (folderCount.get(r.uploader_code) ?? 0) + 1)
+  }
+  const photoCount = new Map<string, number>()
+  for (const r of photoRows ?? []) {
+    if (!r.uploader_code) continue
+    photoCount.set(r.uploader_code, (photoCount.get(r.uploader_code) ?? 0) + 1)
+  }
+
+  return users.map((u) => ({
+    ...u,
+    folder_count: folderCount.get(u.code) ?? 0,
+    photo_count: photoCount.get(u.code) ?? 0,
+  }))
+}
+
+function generateUserCode(firstName: string, lastName: string) {
+  const sanitize = (v: string) =>
+    v
+      .normalize('NFKD')
+      .replace(/[^a-zA-Z0-9]+/g, '')
+      .toUpperCase()
+      .slice(0, 12) || 'USER'
+  const random = crypto.randomUUID().replace(/-/g, '').slice(0, 4).toUpperCase()
+  return `ALB-${sanitize(firstName)}-${sanitize(lastName)}-${random}`
+}
+
+export async function createAdminAlbumUser(params: {
+  firstName: string
+  lastName: string
+  email: string
+  phoneNumber: string
+  areaFocused: string
+  password: string
+  role: AlbumUserRole
+  status: 'active' | 'inactive' | 'suspended'
+}) {
+  const supabaseAdmin = createSupabaseAdminClient()
+  const fullName = `${params.firstName.trim()} ${params.lastName.trim()}`.trim()
+  const code = generateUserCode(params.firstName, params.lastName)
+
+  // 1. Create the Supabase Auth user (so they can log in with email + password)
+  const { data: authData, error: authErr } = await supabaseAdmin.auth.admin.createUser({
+    email: params.email,
+    password: params.password,
+    email_confirm: true,
+    user_metadata: { full_name: fullName, code },
+  })
+  if (authErr) throw new Error(`Auth: ${authErr.message}`)
+
+  // 2. Insert the album_users row
+  const { data, error } = await supabaseAdmin
+    .from('album_users')
+    .insert({
+      first_name: params.firstName.trim(),
+      last_name: params.lastName.trim(),
+      full_name: fullName,
+      status: params.status,
+      area_focused: params.areaFocused.trim(),
+      email: params.email.trim().toLowerCase(),
+      phone_number: params.phoneNumber.trim(),
+      code,
+      role: params.role,
+    })
+    .select(
+      'id, first_name, last_name, full_name, status, area_focused, email, phone_number, code, role, created_at, updated_at',
+    )
+    .single()
+
+  if (error) {
+    // Roll back the auth user if the DB insert failed
+    if (authData?.user?.id) {
+      await supabaseAdmin.auth.admin.deleteUser(authData.user.id).catch(() => undefined)
+    }
+    throw new Error(error.message)
+  }
+
+  return data as AdminUserRow
+}
+
+export async function updateAdminAlbumUser(params: {
+  id: number
+  firstName?: string
+  lastName?: string
+  email?: string
+  phoneNumber?: string
+  areaFocused?: string
+  password?: string
+  role?: AlbumUserRole
+  status?: 'active' | 'inactive' | 'suspended'
+}) {
+  const supabaseAdmin = createSupabaseAdminClient()
+
+  // Fetch current row (needed to find the auth user by email)
+  const { data: existing, error: existingErr } = await supabaseAdmin
+    .from('album_users')
+    .select('id, email, first_name, last_name')
+    .eq('id', params.id)
+    .maybeSingle()
+  if (existingErr) throw new Error(existingErr.message)
+  if (!existing) throw new Error('User not found.')
+
+  // Find the matching Supabase Auth user
+  let authUserId: string | null = null
+  try {
+    const { data: list } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 })
+    const match = list?.users?.find(
+      (u) => u.email?.toLowerCase() === String(existing.email).toLowerCase(),
+    )
+    authUserId = match?.id ?? null
+  } catch {
+    authUserId = null
+  }
+
+  // Update auth (password / email) if needed
+  if (authUserId && (params.email || params.password)) {
+    const authUpdate: Record<string, unknown> = {}
+    if (params.email) authUpdate.email = params.email.trim().toLowerCase()
+    if (params.password) authUpdate.password = params.password
+    const { error: authErr } = await supabaseAdmin.auth.admin.updateUserById(authUserId, authUpdate)
+    if (authErr) throw new Error(`Auth: ${authErr.message}`)
+  }
+
+  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
+  if (params.firstName !== undefined) updates.first_name = params.firstName.trim()
+  if (params.lastName !== undefined) updates.last_name = params.lastName.trim()
+  if (params.firstName !== undefined || params.lastName !== undefined) {
+    const fn = (params.firstName ?? existing.first_name).trim()
+    const ln = (params.lastName ?? existing.last_name).trim()
+    updates.full_name = `${fn} ${ln}`.trim()
+  }
+  if (params.email !== undefined) updates.email = params.email.trim().toLowerCase()
+  if (params.phoneNumber !== undefined) updates.phone_number = params.phoneNumber.trim()
+  if (params.areaFocused !== undefined) updates.area_focused = params.areaFocused.trim()
+  if (params.role !== undefined) updates.role = params.role
+  if (params.status !== undefined) updates.status = params.status
+
+  const { data, error } = await supabaseAdmin
+    .from('album_users')
+    .update(updates)
+    .eq('id', params.id)
+    .select(
+      'id, first_name, last_name, full_name, status, area_focused, email, phone_number, code, role, created_at, updated_at',
+    )
+    .single()
+
+  if (error) throw new Error(error.message)
+  return data as AdminUserRow
+}
+
+export async function deleteAdminAlbumUser(params: { id: number }) {
+  const supabaseAdmin = createSupabaseAdminClient()
+
+  const { data: existing, error: exErr } = await supabaseAdmin
+    .from('album_users')
+    .select('id, email, role')
+    .eq('id', params.id)
+    .maybeSingle()
+  if (exErr) throw new Error(exErr.message)
+  if (!existing) throw new Error('User not found.')
+  if (existing.role === 'admin') {
+    throw new Error('Refusing to delete an admin account from the admin UI.')
+  }
+
+  // Delete from Supabase Auth (best-effort)
+  try {
+    const { data: list } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 })
+    const match = list?.users?.find(
+      (u) => u.email?.toLowerCase() === String(existing.email).toLowerCase(),
+    )
+    if (match?.id) {
+      await supabaseAdmin.auth.admin.deleteUser(match.id).catch(() => undefined)
+    }
+  } catch {
+    /* ignore */
+  }
+
+  const { error } = await supabaseAdmin.from('album_users').delete().eq('id', params.id)
+  if (error) throw new Error(error.message)
+}
+
+export type AdminStats = {
+  totals: {
+    users: number
+    activeUsers: number
+    inactiveUsers: number
+    suspendedUsers: number
+    folders: number
+    activeFolders: number
+    archivedFolders: number
+    photos: number
+    totalStorageBytes: number
+  }
+  topUploaders: { code: string; name: string; photos: number }[]
+  recentUploads: {
+    id: string
+    image_url: string
+    original_file_name: string
+    uploader_name: string
+    uploader_code: string | null
+    created_at: string
+    place_name: string | null
+  }[]
+  uploadsByDay: { day: string; count: number }[]
+}
+
+export async function getAdminStats(): Promise<AdminStats> {
+  const supabaseAdmin = createSupabaseAdminClient()
+
+  // 14-day window for the chart (start of UTC day, 13 days ago → now)
+  const now = new Date()
+  const windowStart = new Date(now)
+  windowStart.setUTCHours(0, 0, 0, 0)
+  windowStart.setUTCDate(windowStart.getUTCDate() - 13)
+  const windowStartIso = windowStart.toISOString()
+
+  const [
+    usersRes,
+    foldersRes,
+    photosCountRes,
+    photoSizeSumRes,
+    topUploadersRes,
+    recentRes,
+    chartRes,
+  ] = await Promise.all([
+    // Users
+    supabaseAdmin.from('album_users').select('status, role'),
+    // Folders
+    supabaseAdmin.from('albums_folders').select('status'),
+    // Total photo count (head:true → count only, no row scan)
+    supabaseAdmin.from('albums_photos').select('id', { count: 'exact', head: true }),
+    // Total storage bytes — fetch only the size column, paginated isn't needed for sum
+    // but we still cap at 10k for safety. Adjust if you grow beyond that.
+    supabaseAdmin.from('albums_photos').select('file_size_bytes').limit(10000),
+    // Top uploaders — group server-side via a wide select, capped at 10k rows
+    supabaseAdmin
+      .from('albums_photos')
+      .select('uploader_code, uploader_name')
+      .limit(10000),
+    // Recent uploads
+    supabaseAdmin
+      .from('albums_photos')
+      .select('id, image_url, original_file_name, uploader_name, uploader_code, created_at, place_name')
+      .order('created_at', { ascending: false })
+      .limit(10),
+    // 14-day chart — explicit date filter, no row cap risk
+    supabaseAdmin
+      .from('albums_photos')
+      .select('created_at')
+      .gte('created_at', windowStartIso)
+      .order('created_at', { ascending: true })
+      .limit(50000),
+  ])
+
+  if (usersRes.error) throw new Error(usersRes.error.message)
+  if (foldersRes.error) throw new Error(foldersRes.error.message)
+  if (photosCountRes.error) throw new Error(photosCountRes.error.message)
+  if (photoSizeSumRes.error) throw new Error(photoSizeSumRes.error.message)
+  if (topUploadersRes.error) throw new Error(topUploadersRes.error.message)
+  if (recentRes.error) throw new Error(recentRes.error.message)
+  if (chartRes.error) throw new Error(chartRes.error.message)
+
+  const userRows = usersRes.data ?? []
+  const folderRows = foldersRes.data ?? []
+  const photoSizeRows = photoSizeSumRes.data ?? []
+  const topUploaderRows = topUploadersRes.data ?? []
+  const chartRows = chartRes.data ?? []
+
+  const totals = {
+    users: userRows.length,
+    activeUsers: userRows.filter((u) => u.status === 'active').length,
+    inactiveUsers: userRows.filter((u) => u.status === 'inactive').length,
+    suspendedUsers: userRows.filter((u) => u.status === 'suspended').length,
+    folders: folderRows.length,
+    activeFolders: folderRows.filter((f) => (f.status ?? 'active') !== 'archived').length,
+    archivedFolders: folderRows.filter((f) => f.status === 'archived').length,
+    photos: photosCountRes.count ?? 0,
+    totalStorageBytes: photoSizeRows.reduce(
+      (sum: number, r: { file_size_bytes: number | null }) => sum + (r.file_size_bytes ?? 0),
+      0,
+    ),
+  }
+
+  // Top uploaders by photo count
+  const byUploader = new Map<string, { code: string; name: string; photos: number }>()
+  for (const row of topUploaderRows as {
+    uploader_code: string | null
+    uploader_name: string | null
+  }[]) {
+    const code = row.uploader_code ?? '—'
+    const existing = byUploader.get(code)
+    if (existing) {
+      existing.photos += 1
+    } else {
+      byUploader.set(code, { code, name: row.uploader_name ?? 'Unknown', photos: 1 })
+    }
+  }
+  const topUploaders = Array.from(byUploader.values())
+    .sort((a, b) => b.photos - a.photos)
+    .slice(0, 5)
+
+  // Uploads per day (last 14 days, UTC day buckets)
+  const byDay = new Map<string, number>()
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date(now)
+    d.setUTCDate(d.getUTCDate() - i)
+    byDay.set(d.toISOString().slice(0, 10), 0)
+  }
+  for (const row of chartRows as { created_at: string }[]) {
+    const day = row.created_at?.slice(0, 10)
+    if (!day) continue
+    if (byDay.has(day)) byDay.set(day, (byDay.get(day) ?? 0) + 1)
+  }
+  const uploadsByDay = Array.from(byDay.entries()).map(([day, count]) => ({ day, count }))
+
+  return {
+    totals,
+    topUploaders,
+    recentUploads: (recentRes.data ?? []) as AdminStats['recentUploads'],
+    uploadsByDay,
+  }
 }
 
 export async function listPhotosByUploader(params: {
