@@ -148,8 +148,15 @@
   * {
     @apply border-border outline-ring/50;
   }
+
+  /* Prevent whole-page horizontal panning on mobile when nested sections use
+     wide tables, sticky grids, or edge-bleed patterns (Safari / Chrome). */
+  html {
+    overflow-x: hidden;
+  }
+
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground overflow-x-hidden;
   }
 }
 
