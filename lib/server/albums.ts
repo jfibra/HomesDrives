@@ -971,6 +971,43 @@ export async function listPhotosByFolderId(folderId: string): Promise<AdminFolde
   return (data ?? []) as AdminFolderPhoto[]
 }
 
+/** UTC calendar day (YYYY-MM-DD), matching admin stats heatmap buckets. */
+export async function listPhotosByUploaderUtcDay(params: {
+  uploaderCode: string
+  day: string
+}): Promise<AdminFolderPhoto[]> {
+  const { uploaderCode, day } = params
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+    throw new Error('Invalid day.')
+  }
+  const start = `${day}T00:00:00.000Z`
+  const end = new Date(start)
+  end.setUTCDate(end.getUTCDate() + 1)
+  const endExclusive = end.toISOString()
+
+  const supabaseAdmin = createSupabaseAdminClient()
+  let query = supabaseAdmin
+    .from('albums_photos')
+    .select(
+      'id, image_url, original_file_name, file_size_bytes, capture_date, created_at, device_make, device_model, width, height, place_name, city, province, type_of_place, tags',
+    )
+    .gte('created_at', start)
+    .lt('created_at', endExclusive)
+    .order('created_at', { ascending: false })
+    .limit(2000)
+
+  // Same sentinel as getAdminStats per-user key when uploader_code is null
+  if (uploaderCode === '—') {
+    query = query.is('uploader_code', null)
+  } else {
+    query = query.eq('uploader_code', uploaderCode)
+  }
+
+  const { data, error } = await query
+  if (error) throw new Error(error.message)
+  return (data ?? []) as AdminFolderPhoto[]
+}
+
 export async function deleteAdminAlbumUser(params: { id: number }) {
   const supabaseAdmin = createSupabaseAdminClient()
 

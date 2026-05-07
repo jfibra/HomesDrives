@@ -1,6 +1,13 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type MouseEvent,
+} from 'react'
 import {
   ArrowLeft,
   ArrowRight,
@@ -28,6 +35,14 @@ import {
   Users,
   X,
 } from 'lucide-react'
+
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -229,6 +244,16 @@ export default function AdminClient({ user }: { user: AdminUser }) {
   const [browsePhotosError, setBrowsePhotosError] = useState('')
   const [lightboxPhoto, setLightboxPhoto] = useState<BrowsePhoto | null>(null)
 
+  const [heatmapDayOpen, setHeatmapDayOpen] = useState(false)
+  const [heatmapDayContext, setHeatmapDayContext] = useState<{
+    code: string
+    name: string
+    day: string
+  } | null>(null)
+  const [heatmapDayPhotos, setHeatmapDayPhotos] = useState<BrowsePhoto[]>([])
+  const [heatmapDayLoading, setHeatmapDayLoading] = useState(false)
+  const [heatmapDayError, setHeatmapDayError] = useState('')
+
   // ─── Auth ───────────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -352,6 +377,43 @@ export default function AdminClient({ user }: { user: AdminUser }) {
     void loadUsers()
   }, [isAuthenticated, loadStats, loadUsers])
 
+  useEffect(() => {
+    if (!heatmapDayOpen || !heatmapDayContext) return
+    const ctx = heatmapDayContext
+
+    let cancelled = false
+    async function run() {
+      setHeatmapDayLoading(true)
+      setHeatmapDayError('')
+      setHeatmapDayPhotos([])
+      try {
+        const q = new URLSearchParams({
+          adminCode: user.code,
+          uploaderCode: ctx.code,
+          day: ctx.day,
+        })
+        const r = await fetch(`/api/admin/photos/by-day?${q}`)
+        const data = await r.json().catch(() => null)
+        if (!r.ok) throw new Error(data?.error || 'Unable to load photos.')
+        if (!cancelled) {
+          setHeatmapDayPhotos(Array.isArray(data?.photos) ? data.photos : [])
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setHeatmapDayError(
+            error instanceof Error ? error.message : 'Unable to load photos.',
+          )
+        }
+      } finally {
+        if (!cancelled) setHeatmapDayLoading(false)
+      }
+    }
+    void run()
+    return () => {
+      cancelled = true
+    }
+  }, [heatmapDayOpen, heatmapDayContext, user.code])
+
   // ─── User CRUD ──────────────────────────────────────────────────────────────
 
   function openCreateForm() {
@@ -454,6 +516,11 @@ export default function AdminClient({ user }: { user: AdminUser }) {
   }
 
   // ─── Browse user → folders → photos ─────────────────────────────────────────
+
+  function openHeatmapDayPhotos(row: { code: string; name: string }, day: string) {
+    setHeatmapDayContext({ code: row.code, name: row.name, day })
+    setHeatmapDayOpen(true)
+  }
 
   async function openUserBrowse(target: { id: number; code: string; name: string }) {
     setBrowseUser(target)
@@ -1064,7 +1131,7 @@ export default function AdminClient({ user }: { user: AdminUser }) {
                   {/* Daily Uploads by User */}
                   <Panel
                     icon={<CalendarDays className="h-4 w-4" />}
-                    title="Daily Uploads by User · Last 14 days"
+                    title="Daily Uploads by User · Rolling 14-day window"
                     action={
                       <span
                         className="text-[11px] font-semibold tabular-nums"
@@ -1072,13 +1139,17 @@ export default function AdminClient({ user }: { user: AdminUser }) {
                       >
                         {(stats?.uploadsByUserByDay ?? []).length}{' '}
                         {(stats?.uploadsByUserByDay ?? []).length === 1 ? 'uploader' : 'uploaders'} active
-                        <span className="hidden sm:inline"> · click a row to browse</span>
+                        <span className="hidden sm:inline">
+                          {' '}
+                          · click a count to view photos · click a row to browse
+                        </span>
                       </span>
                     }
                   >
                     <UploadsByUserHeatmap
                       data={stats?.uploadsByUserByDay ?? []}
                       users={users}
+                      onHeatCellClick={(row, day) => openHeatmapDayPhotos(row, day)}
                       onSelectUser={(u) =>
                         openUserBrowse({ id: u.id, code: u.code, name: u.name })
                       }
@@ -1803,6 +1874,109 @@ export default function AdminClient({ user }: { user: AdminUser }) {
         </div>
       ) : null}
 
+      <Dialog
+        open={heatmapDayOpen}
+        onOpenChange={(open) => {
+          setHeatmapDayOpen(open)
+          if (!open) {
+            setHeatmapDayContext(null)
+            setHeatmapDayPhotos([])
+            setHeatmapDayError('')
+          }
+        }}
+      >
+        <DialogContent
+          className="flex max-h-[min(90vh,720px)] max-w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl"
+          showCloseButton
+        >
+          {heatmapDayContext ? (
+            <>
+              <DialogHeader className="shrink-0 border-b px-6 py-4 text-left">
+                <DialogTitle className="text-base">
+                  {heatmapDayContext.name}{' '}
+                  <span
+                    className="font-mono text-sm font-normal"
+                    style={{ color: 'var(--ds-on-surface-variant)' }}
+                  >
+                    ({heatmapDayContext.code})
+                  </span>
+                </DialogTitle>
+                <DialogDescription className="text-sm" style={{ color: 'var(--ds-on-surface-variant)' }}>
+                  Photos uploaded on {formatDay(heatmapDayContext.day)} (UTC), newest first.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+                {heatmapDayError ? (
+                  <div
+                    className="rounded-lg border px-3 py-2 text-sm"
+                    style={{
+                      backgroundColor: 'var(--ds-error-container)',
+                      borderColor: 'rgba(186,26,26,0.2)',
+                      color: 'var(--ds-error)',
+                    }}
+                  >
+                    {heatmapDayError}
+                  </div>
+                ) : heatmapDayLoading ? (
+                  <div
+                    className="flex h-40 items-center justify-center text-sm"
+                    style={{ color: 'var(--ds-on-surface-variant)' }}
+                  >
+                    Loading photos…
+                  </div>
+                ) : heatmapDayPhotos.length === 0 ? (
+                  <div
+                    className="flex h-40 flex-col items-center justify-center gap-2 rounded-lg border border-dashed text-center"
+                    style={{
+                      borderColor: 'var(--ds-outline-variant)',
+                      color: 'var(--ds-on-surface-variant)',
+                    }}
+                  >
+                    <ImageIcon className="h-7 w-7 opacity-50" />
+                    <div className="text-sm font-semibold">No photos for this day.</div>
+                  </div>
+                ) : (
+                  <>
+                    <div
+                      className="mb-3 text-[11px] font-semibold uppercase tracking-wider"
+                      style={{ color: 'var(--ds-on-surface-variant)' }}
+                    >
+                      {heatmapDayPhotos.length} photo{heatmapDayPhotos.length === 1 ? '' : 's'}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {heatmapDayPhotos.map((photo) => (
+                        <button
+                          key={photo.id}
+                          className="group relative overflow-hidden rounded-lg border bg-slate-100 transition-all hover:opacity-90"
+                          onClick={() => setLightboxPhoto(photo)}
+                          style={{ borderColor: 'var(--ds-outline-variant)' }}
+                          type="button"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            alt={photo.original_file_name}
+                            className="aspect-square w-full object-cover"
+                            loading="lazy"
+                            src={photo.image_url}
+                          />
+                          <div
+                            className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100"
+                          >
+                            <div className="truncate text-[10px] font-semibold text-white">
+                              {photo.original_file_name}
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
       {/* Photo lightbox */}
       {lightboxPhoto ? (
         <div
@@ -2056,15 +2230,66 @@ function FormField({
 
 // ─── Per-user-per-day heatmap ─────────────────────────────────────────────────
 
+function heatmapCountForDay(
+  row: AdminStats['uploadsByUserByDay'][number],
+  day: string,
+) {
+  return row.days.find((d) => d.day === day)?.count ?? 0
+}
+
 function UploadsByUserHeatmap({
   data,
   users,
+  onHeatCellClick,
   onSelectUser,
 }: {
   data: AdminStats['uploadsByUserByDay']
   users: AdminUserRow[]
+  onHeatCellClick?: (row: { code: string; name: string }, day: string) => void
   onSelectUser: (user: { id: number; code: string; name: string }) => void
 }) {
+  const allDayKeys = useMemo(() => data[0]?.days.map((d) => d.day) ?? [], [data])
+  const boundsMin = allDayKeys[0] ?? ''
+  const boundsMax = allDayKeys[allDayKeys.length - 1] ?? ''
+
+  const [rangeStart, setRangeStart] = useState('')
+  const [rangeEnd, setRangeEnd] = useState('')
+
+  useEffect(() => {
+    if (!boundsMin || !boundsMax) return
+    setRangeStart(boundsMin)
+    setRangeEnd(boundsMax)
+  }, [boundsMin, boundsMax])
+
+  const start = rangeStart && rangeStart >= boundsMin && rangeStart <= boundsMax ? rangeStart : boundsMin
+  const end =
+    rangeEnd && rangeEnd >= boundsMin && rangeEnd <= boundsMax ? rangeEnd : boundsMax
+  const rangeFrom = start <= end ? start : end
+  const rangeTo = start <= end ? end : start
+
+  const filteredDayKeys = useMemo(
+    () => allDayKeys.filter((d) => d >= rangeFrom && d <= rangeTo),
+    [allDayKeys, rangeFrom, rangeTo],
+  )
+
+  function handleRangeStartInput(next: string) {
+    if (!next || !boundsMin || !boundsMax) return
+    let s = next < boundsMin ? boundsMin : next > boundsMax ? boundsMax : next
+    let e = rangeTo
+    if (s > e) e = s
+    setRangeStart(s)
+    setRangeEnd(e)
+  }
+
+  function handleRangeEndInput(next: string) {
+    if (!next || !boundsMin || !boundsMax) return
+    let e = next < boundsMin ? boundsMin : next > boundsMax ? boundsMax : next
+    let s = rangeFrom
+    if (e < s) s = e
+    setRangeStart(s)
+    setRangeEnd(e)
+  }
+
   if (data.length === 0) {
     return (
       <div
@@ -2086,13 +2311,71 @@ function UploadsByUserHeatmap({
 
   const globalMax = Math.max(
     1,
-    ...data.flatMap((user) => user.days.map((d) => d.count)),
+    ...data.flatMap((user) =>
+      filteredDayKeys.map((day) => heatmapCountForDay(user, day)),
+    ),
   )
-  const dayKeys = data[0]?.days.map((d) => d.day) ?? []
-  const todayKey = dayKeys[dayKeys.length - 1]
+  const todayKey = allDayKeys[allDayKeys.length - 1]
+  const isFullRange = rangeFrom === boundsMin && rangeTo === boundsMax
 
   return (
-    <div className="overflow-x-auto">
+    <div>
+      <div
+        className="mb-3 flex flex-col gap-2 border-b pb-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between"
+        style={{ borderColor: 'var(--ds-outline-variant)' }}
+      >
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1">
+            <span
+              className="text-[11px] font-semibold uppercase tracking-wider"
+              style={{ color: 'var(--ds-on-surface-variant)' }}
+            >
+              From
+            </span>
+            <input
+              className="form-input w-[11.5rem] py-2 text-sm"
+              max={rangeTo}
+              min={boundsMin}
+              onChange={(e) => handleRangeStartInput(e.target.value)}
+              type="date"
+              value={rangeFrom}
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span
+              className="text-[11px] font-semibold uppercase tracking-wider"
+              style={{ color: 'var(--ds-on-surface-variant)' }}
+            >
+              To
+            </span>
+            <input
+              className="form-input w-[11.5rem] py-2 text-sm"
+              max={boundsMax}
+              min={rangeFrom}
+              onChange={(e) => handleRangeEndInput(e.target.value)}
+              type="date"
+              value={rangeTo}
+            />
+          </label>
+        </div>
+        <button
+          className="rounded-lg border px-3 py-2 text-xs font-semibold transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={isFullRange}
+          onClick={() => {
+            setRangeStart(boundsMin)
+            setRangeEnd(boundsMax)
+          }}
+          style={{
+            borderColor: 'var(--ds-outline-variant)',
+            color: 'var(--ds-on-surface)',
+          }}
+          type="button"
+        >
+          Reset range
+        </button>
+      </div>
+
+      <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
           <tr>
@@ -2102,7 +2385,7 @@ function UploadsByUserHeatmap({
             >
               User
             </th>
-            {dayKeys.map((day) => {
+            {filteredDayKeys.map((day) => {
               const isToday = day === todayKey
               return (
                 <th
@@ -2119,12 +2402,14 @@ function UploadsByUserHeatmap({
             <th
               className="px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wider"
               style={{ color: 'var(--ds-on-surface-variant)' }}
+              title={`Uploads on ${formatDayShort(rangeTo)} (UTC)`}
             >
-              Today
+              End
             </th>
             <th
               className="px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wider"
               style={{ color: 'var(--ds-on-surface-variant)' }}
+              title="Sum of uploads in the selected date range (UTC)"
             >
               Total
             </th>
@@ -2135,6 +2420,11 @@ function UploadsByUserHeatmap({
           {data.map((row) => {
             const matchedUser = userByCode.get(row.code)
             const canBrowse = !!matchedUser
+            const endCount = heatmapCountForDay(row, rangeTo)
+            const rangeTotal = filteredDayKeys.reduce(
+              (sum, day) => sum + heatmapCountForDay(row, day),
+              0,
+            )
             return (
               <tr
                 key={row.code}
@@ -2176,26 +2466,41 @@ function UploadsByUserHeatmap({
                     </div>
                   </div>
                 </td>
-                {row.days.map((d) => (
-                  <td key={d.day} className="px-0.5 py-1.5">
-                    <HeatCell
-                      count={d.count}
-                      max={globalMax}
-                      day={d.day}
-                      isToday={d.day === todayKey}
-                    />
-                  </td>
-                ))}
+                {filteredDayKeys.map((day) => {
+                  const d = row.days.find((x) => x.day === day)
+                  const count = d?.count ?? 0
+                  return (
+                    <td key={day} className="px-0.5 py-1.5">
+                      <HeatCell
+                        count={count}
+                        max={globalMax}
+                        day={day}
+                        isToday={day === todayKey}
+                        onOpen={
+                          count > 0 && onHeatCellClick
+                            ? (e) => {
+                                e.stopPropagation()
+                                onHeatCellClick(
+                                  { code: row.code, name: row.name },
+                                  day,
+                                )
+                              }
+                            : undefined
+                        }
+                      />
+                    </td>
+                  )
+                })}
                 <td
                   className="px-2 py-2 text-right text-sm font-bold tabular-nums"
                   style={{
-                    color: row.today > 0 ? 'var(--ds-primary)' : 'var(--ds-on-surface-variant)',
+                    color: endCount > 0 ? 'var(--ds-primary)' : 'var(--ds-on-surface-variant)',
                   }}
                 >
-                  {row.today}
+                  {endCount}
                 </td>
                 <td className="px-2 py-2 text-right text-sm font-bold tabular-nums">
-                  {row.total}
+                  {rangeTotal}
                 </td>
                 <td className="pr-2 text-right">
                   {canBrowse ? (
@@ -2210,6 +2515,7 @@ function UploadsByUserHeatmap({
           })}
         </tbody>
       </table>
+      </div>
 
       <div
         className="mt-3 flex items-center gap-2 text-[10px] uppercase tracking-wider"
@@ -2234,23 +2540,44 @@ function HeatCell({
   day,
   isToday,
   max,
+  onOpen,
 }: {
   count: number
   day: string
   isToday: boolean
   max: number
+  onOpen?: (e: MouseEvent) => void
 }) {
   const intensity = max > 0 ? count / max : 0
+  const style: CSSProperties = {
+    backgroundColor: heatColor(intensity),
+    color: intensity > 0.5 ? 'var(--ds-on-primary)' : 'var(--ds-on-surface)',
+    outline: isToday ? `2px solid var(--ds-primary)` : 'none',
+    outlineOffset: '-1px',
+  }
+  const title = `${formatDayShort(day)}: ${count} upload${count === 1 ? '' : 's'}${
+    onOpen ? ' · click to view' : ''
+  }`
+
+  if (onOpen) {
+    return (
+      <button
+        className="mx-auto flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-[10px] font-bold tabular-nums transition-opacity hover:opacity-90"
+        onClick={onOpen}
+        style={style}
+        title={title}
+        type="button"
+      >
+        {count > 0 ? count : ''}
+      </button>
+    )
+  }
+
   return (
     <div
       className="mx-auto flex h-7 w-7 items-center justify-center rounded-md text-[10px] font-bold tabular-nums"
-      style={{
-        backgroundColor: heatColor(intensity),
-        color: intensity > 0.5 ? 'var(--ds-on-primary)' : 'var(--ds-on-surface)',
-        outline: isToday ? `2px solid var(--ds-primary)` : 'none',
-        outlineOffset: '-1px',
-      }}
-      title={`${formatDayShort(day)}: ${count} upload${count === 1 ? '' : 's'}`}
+      style={style}
+      title={title}
     >
       {count > 0 ? count : ''}
     </div>
