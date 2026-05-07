@@ -306,9 +306,15 @@ async function analyzeImage(file: File): Promise<UploadedImage> {
   const previewUrl = URL.createObjectURL(file)
   const dimensions = await getImageDimensions(file)
   const exifr = await import('exifr')
-  const metadata = await exifr.parse(file, {
-    gps: true, exif: true, iptc: true, tiff: true, xmp: true, sanitize: true,
-  })
+  let metadata: Record<string, unknown> | null = null
+  try {
+    metadata = (await exifr.parse(file, {
+      gps: true, exif: true, iptc: true, tiff: true, xmp: true, sanitize: true,
+    })) as Record<string, unknown> | null
+  } catch {
+    // Some images contain malformed EXIF/XMP blocks; keep upload working without metadata.
+    metadata = null
+  }
   const latitude = metadata?.latitude ?? metadata?.lat ?? null
   const longitude = metadata?.longitude ?? metadata?.lon ?? null
   const keywords = Array.isArray(metadata?.Keywords)
