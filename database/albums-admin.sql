@@ -147,3 +147,4 @@ set
 -- from auth.users
 -- where email = 'admin@homesalbums.local';
 -- ─────────────────────────────────────────────────────────────────────────────
+

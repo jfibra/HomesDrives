@@ -2270,3 +2270,4 @@ function formatDayShort(iso: string) {
     new Date(iso),
   )
 }
+

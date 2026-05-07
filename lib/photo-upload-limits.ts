@@ -6,3 +6,4 @@ export const TARGET_STORED_PHOTO_BYTES = 10 * 1024
 
 /** Max avatar image upload before server resize (5 MB). */
 export const MAX_AVATAR_UPLOAD_BYTES = 5 * 1024 * 1024
+

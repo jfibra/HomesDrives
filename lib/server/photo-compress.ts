@@ -103,3 +103,4 @@ export function storageJpegFileName(originalFileName: string): string {
   const safeStem = stem.replace(/[^\w\- ().[\]]+/g, '_').slice(0, 120) || 'photo'
   return `${safeStem}.jpg`
 }
+
