@@ -1,5 +1,5 @@
-/** Max size of each file accepted from the client before compression (10 MB). */
-export const MAX_PHOTO_UPLOAD_BYTES = 10 * 1024 * 1024
+/** Max size of each photo accepted by the upload API before server compression (25 MB). */
+export const MAX_PHOTO_UPLOAD_BYTES = 25 * 1024 * 1024
 
 /** Target stored payload size after server compression (~10 KB JPEG). */
 export const TARGET_STORED_PHOTO_BYTES = 10 * 1024
