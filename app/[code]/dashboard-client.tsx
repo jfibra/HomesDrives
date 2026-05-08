@@ -298,72 +298,16 @@ async function getImageDimensions(file: File) {
   }
 }
 
-/** Reject raw files larger than the API accepts (no extra client shrink for normal sizes). */
+/** Reject raw files larger than the API accepts. */
 const CLIENT_HARD_INPUT_BYTES = MAX_PHOTO_UPLOAD_BYTES
 
-function replaceFileExtension(fileName: string, extension: string) {
-  const lastDot = fileName.lastIndexOf('.')
-  if (lastDot <= 0) return `${fileName}${extension}`
-  return `${fileName.slice(0, lastDot)}${extension}`
-}
-
-async function readImageElement(file: File) {
-  const objectUrl = URL.createObjectURL(file)
-  try {
-    const image = new Image()
-    await new Promise<void>((resolve, reject) => {
-      image.onload = () => resolve()
-      image.onerror = () => reject(new Error(`Unable to read image data for ${file.name}`))
-      image.src = objectUrl
-    })
-    return image
-  } finally {
-    URL.revokeObjectURL(objectUrl)
-  }
-}
-
 async function maybeCompressLargeUpload(file: File): Promise<File> {
-  if (file.size <= MAX_PHOTO_UPLOAD_BYTES) {
-    return file
-  }
-
-  const image = await readImageElement(file)
-  const maxEdge = 8192
-  const scale = Math.min(1, maxEdge / Math.max(image.naturalWidth || 1, image.naturalHeight || 1))
-  const width = Math.max(1, Math.round((image.naturalWidth || 1) * scale))
-  const height = Math.max(1, Math.round((image.naturalHeight || 1) * scale))
-
-  const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
-  const ctx = canvas.getContext('2d')
-  if (!ctx) {
-    throw new Error('Unable to process large image in this browser.')
-  }
-  ctx.drawImage(image, 0, 0, width, height)
-
-  let quality = 0.92
-  let blob: Blob | null = null
-  for (let i = 0; i < 14; i++) {
-    // eslint-disable-next-line no-await-in-loop
-    blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality))
-    if (!blob) break
-    if (blob.size <= MAX_PHOTO_UPLOAD_BYTES || quality <= 0.72) break
-    quality -= 0.03
-  }
-
-  if (!blob) {
-    throw new Error('Unable to compress this image for upload.')
-  }
-
-  if (blob.size > MAX_PHOTO_UPLOAD_BYTES) {
+  if (file.size > MAX_PHOTO_UPLOAD_BYTES) {
     throw new Error(
-      `Photo is still too large after compression (${formatBytes(blob.size)}). Maximum allowed is ${MAX_PHOTO_UPLOAD_BYTES / (1024 * 1024)} MB.`,
+      `Photo is too large (${formatBytes(file.size)}). Maximum allowed is ${MAX_PHOTO_UPLOAD_BYTES / (1024 * 1024)} MB.`,
     )
   }
-
-  const compressedName = replaceFileExtension(file.name, '.jpg')
-  return new File([blob], compressedName, { type: 'image/jpeg', lastModified: file.lastModified })
+  return file
 }
 
 async function analyzeImage(file: File): Promise<UploadedImage> {
