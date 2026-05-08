@@ -1,6 +1,6 @@
 import sharp from 'sharp'
 
-import { TARGET_STORED_PHOTO_BYTES } from '@/lib/photo-upload-limits'
+import { ALBUM_MAX_STORED_EDGE_PX, MAX_PHOTO_UPLOAD_BYTES } from '@/lib/photo-upload-limits'
 
 export type CompressedPhotoResult = {
   buffer: Buffer
@@ -8,76 +8,77 @@ export type CompressedPhotoResult = {
   height: number
 }
 
+const ALBUM_JPEG_QUALITY_INITIAL = 92
+const ALBUM_JPEG_QUALITY_MIN = 78
+
 /**
- * Rewrites the image as a JPEG tuned toward TARGET_STORED_PHOTO_BYTES (~10 KB).
- * Applies resize + quality steps so large uploads (up to 10 MB before this runs)
- * shrink drastically for storage while staying recognizable at thumbnail sizes.
+ * Normalizes album photos for storage: EXIF orientation, optional downscale beyond
+ * ALBUM_MAX_STORED_EDGE_PX, then high-quality JPEG. Output is capped by MAX_PHOTO_UPLOAD_BYTES.
  */
 export async function compressPhotoForAlbumStorage(input: Buffer): Promise<CompressedPhotoResult> {
-  const target = TARGET_STORED_PHOTO_BYTES
-
   const meta = await sharp(input).metadata()
   const origW = meta.width ?? 1
   const origH = meta.height ?? 1
   const origMax = Math.max(origW, origH)
 
-  async function encode(maxEdge: number, quality: number) {
-    return sharp(input)
-      .rotate()
-      .resize({
-        width: maxEdge,
-        height: maxEdge,
+  async function encodeAtQuality(quality: number, maxEdge: number) {
+    let p = sharp(input).rotate()
+    if (maxEdge < origMax) {
+      p = p.resize(maxEdge, maxEdge, {
         fit: 'inside',
         withoutEnlargement: true,
       })
+    }
+    return p
       .jpeg({
         quality,
         mozjpeg: true,
-        chromaSubsampling: '4:2:0',
+        chromaSubsampling: '4:4:4',
       })
       .toBuffer()
   }
 
-  let maxEdge = Math.min(1600, Math.max(origMax, 320))
-  let quality = 78
+  const initialMaxEdge =
+    origMax > ALBUM_MAX_STORED_EDGE_PX ? ALBUM_MAX_STORED_EDGE_PX : origMax
 
-  for (let attempt = 0; attempt < 30; attempt++) {
-    const buf = await encode(maxEdge, quality)
+  let quality = ALBUM_JPEG_QUALITY_INITIAL
+  let buf: Buffer
 
-    if (buf.length <= target) {
-      const outMeta = await sharp(buf).metadata()
-      return {
-        buffer: buf,
-        width: outMeta.width ?? origW,
-        height: outMeta.height ?? origH,
-      }
+  for (;;) {
+    buf = await encodeAtQuality(quality, initialMaxEdge)
+
+    if (buf.length <= MAX_PHOTO_UPLOAD_BYTES || quality <= ALBUM_JPEG_QUALITY_MIN) {
+      break
+    }
+    quality -= 2
+  }
+
+  if (buf.length > MAX_PHOTO_UPLOAD_BYTES) {
+    let maxEdge = Math.min(ALBUM_MAX_STORED_EDGE_PX, Math.max(origMax, 640))
+
+    for (let step = 0; step < 20 && buf.length > MAX_PHOTO_UPLOAD_BYTES; step++) {
+      maxEdge = Math.floor(maxEdge * 0.88)
+      buf = await sharp(input)
+        .rotate()
+        .resize(maxEdge, maxEdge, { fit: 'inside', withoutEnlargement: true })
+        .jpeg({
+          quality: ALBUM_JPEG_QUALITY_MIN,
+          mozjpeg: true,
+          chromaSubsampling: '4:2:0',
+        })
+        .toBuffer()
     }
 
-    if (quality > 34) {
-      quality -= 5
-    } else if (maxEdge > 160) {
-      maxEdge = Math.floor(maxEdge * 0.72)
-      quality = Math.min(quality + 3, 72)
-    } else {
-      break
+    if (buf.length > MAX_PHOTO_UPLOAD_BYTES) {
+      throw new Error('This image is too large to store after processing. Try a smaller file.')
     }
   }
 
-  const tiny = await sharp(input)
-    .rotate()
-    .resize({ width: 260, height: 260, fit: 'inside', withoutEnlargement: true })
-    .jpeg({
-      quality: 28,
-      mozjpeg: true,
-      chromaSubsampling: '4:2:0',
-    })
-    .toBuffer()
-
-  const tinyMeta = await sharp(tiny).metadata()
+  const outMeta = await sharp(buf).metadata()
   return {
-    buffer: tiny,
-    width: tinyMeta.width ?? origW,
-    height: tinyMeta.height ?? origH,
+    buffer: buf,
+    width: outMeta.width ?? origW,
+    height: outMeta.height ?? origH,
   }
 }
 

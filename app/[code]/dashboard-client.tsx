@@ -34,11 +34,7 @@ import {
 } from 'lucide-react'
 
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
-import {
-  MAX_AVATAR_UPLOAD_BYTES,
-  MAX_PHOTO_UPLOAD_BYTES,
-  TARGET_STORED_PHOTO_BYTES,
-} from '@/lib/photo-upload-limits'
+import { MAX_AVATAR_UPLOAD_BYTES, MAX_PHOTO_UPLOAD_BYTES } from '@/lib/photo-upload-limits'
 import { cn } from '@/lib/utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -302,8 +298,8 @@ async function getImageDimensions(file: File) {
   }
 }
 
-const CLIENT_MAX_UPLOAD_BYTES = 4 * 1024 * 1024
-const CLIENT_HARD_INPUT_BYTES = 40 * 1024 * 1024
+/** Reject raw files larger than the API accepts (no extra client shrink for normal sizes). */
+const CLIENT_HARD_INPUT_BYTES = MAX_PHOTO_UPLOAD_BYTES
 
 function replaceFileExtension(fileName: string, extension: string) {
   const lastDot = fileName.lastIndexOf('.')
@@ -327,12 +323,12 @@ async function readImageElement(file: File) {
 }
 
 async function maybeCompressLargeUpload(file: File): Promise<File> {
-  if (file.size <= CLIENT_MAX_UPLOAD_BYTES) {
+  if (file.size <= MAX_PHOTO_UPLOAD_BYTES) {
     return file
   }
 
   const image = await readImageElement(file)
-  const maxEdge = 2200
+  const maxEdge = 8192
   const scale = Math.min(1, maxEdge / Math.max(image.naturalWidth || 1, image.naturalHeight || 1))
   const width = Math.max(1, Math.round((image.naturalWidth || 1) * scale))
   const height = Math.max(1, Math.round((image.naturalHeight || 1) * scale))
@@ -346,14 +342,14 @@ async function maybeCompressLargeUpload(file: File): Promise<File> {
   }
   ctx.drawImage(image, 0, 0, width, height)
 
-  let quality = 0.86
+  let quality = 0.92
   let blob: Blob | null = null
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 14; i++) {
     // eslint-disable-next-line no-await-in-loop
     blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality))
     if (!blob) break
-    if (blob.size <= CLIENT_MAX_UPLOAD_BYTES || quality <= 0.45) break
-    quality -= 0.07
+    if (blob.size <= MAX_PHOTO_UPLOAD_BYTES || quality <= 0.72) break
+    quality -= 0.03
   }
 
   if (!blob) {
@@ -1444,7 +1440,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
     if (oversize.length > 0) {
       const mb = CLIENT_HARD_INPUT_BYTES / (1024 * 1024)
       const detail = oversize.map((f) => `${f.name} (${formatBytes(f.size)})`).join(', ')
-      setAnalysisError(`Raw photo must be at most ${mb} MB before compression. Too large: ${detail}`)
+      setAnalysisError(`Each photo must be at most ${mb} MB. Too large: ${detail}`)
       return
     }
 
@@ -2420,8 +2416,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                 <span>New Upload</span>
               </button>
               <p className="mt-2 text-[10px] leading-snug" style={{ color: 'var(--ds-on-surface-variant)' }}>
-                Max {MAX_PHOTO_UPLOAD_BYTES / (1024 * 1024)} MB per photo · Compressed to ~{TARGET_STORED_PHOTO_BYTES / 1024}{' '}
-                KB when saved
+                Max {MAX_PHOTO_UPLOAD_BYTES / (1024 * 1024)} MB per photo · Saved in high-quality JPEG
               </p>
             </div>
 
@@ -3010,8 +3005,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                           </button>
                         </div>
                         <p className="mt-2 basis-full text-[11px] leading-snug text-gray-500">
-                          Up to {MAX_PHOTO_UPLOAD_BYTES / (1024 * 1024)} MB per photo. After upload, each file is stored at about{' '}
-                          {TARGET_STORED_PHOTO_BYTES / 1024} KB (compressed JPEG).
+                          Up to {MAX_PHOTO_UPLOAD_BYTES / (1024 * 1024)} MB per photo. Images keep full resolution (up to 8192 px on the longest side) and high JPEG quality.
                         </p>
                       </div>
 
