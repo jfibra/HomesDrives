@@ -300,6 +300,26 @@ async function getImageDimensions(file: File) {
 
 /** Reject raw files larger than the API accepts. */
 const CLIENT_HARD_INPUT_BYTES = MAX_PHOTO_UPLOAD_BYTES
+/**
+ * Many platforms cap multipart request size around 4 MB before API code runs.
+ * Keep payload just under that when needed.
+ */
+const CLIENT_TRANSPORT_MAX_BYTES = Math.floor(3.8 * 1024 * 1024)
+
+async function readImageElement(file: File) {
+  const objectUrl = URL.createObjectURL(file)
+  try {
+    const image = new Image()
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve()
+      image.onerror = () => reject(new Error(`Unable to read image data for ${file.name}`))
+      image.src = objectUrl
+    })
+    return image
+  } finally {
+    URL.revokeObjectURL(objectUrl)
+  }
+}
 
 async function maybeCompressLargeUpload(file: File): Promise<File> {
   if (file.size > MAX_PHOTO_UPLOAD_BYTES) {
@@ -307,6 +327,54 @@ async function maybeCompressLargeUpload(file: File): Promise<File> {
       `Photo is too large (${formatBytes(file.size)}). Maximum allowed is ${MAX_PHOTO_UPLOAD_BYTES / (1024 * 1024)} MB.`,
     )
   }
+
+  if (file.size <= CLIENT_TRANSPORT_MAX_BYTES) {
+    return file
+  }
+
+  // Only re-encode when transport cap would otherwise block upload.
+  const image = await readImageElement(file)
+  let width = Math.max(1, image.naturalWidth || 1)
+  let height = Math.max(1, image.naturalHeight || 1)
+  const canvas = document.createElement('canvas')
+  const ctx = canvas.getContext('2d')
+  if (!ctx) {
+    throw new Error('Unable to process this image in your browser.')
+  }
+
+  let bestBlob: Blob | null = null
+  let quality = 0.96
+
+  for (let resizeStep = 0; resizeStep < 8; resizeStep++) {
+    canvas.width = width
+    canvas.height = height
+    ctx.drawImage(image, 0, 0, width, height)
+
+    quality = 0.96
+    for (let qualityStep = 0; qualityStep < 9; qualityStep++) {
+      // eslint-disable-next-line no-await-in-loop
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality))
+      if (!blob) break
+      bestBlob = blob
+      if (blob.size <= CLIENT_TRANSPORT_MAX_BYTES) {
+        return new File([blob], `${file.name.replace(/\.[^.]+$/, '') || 'photo'}.jpg`, {
+          type: 'image/jpeg',
+          lastModified: file.lastModified,
+        })
+      }
+      quality -= 0.02
+    }
+
+    width = Math.max(1, Math.floor(width * 0.95))
+    height = Math.max(1, Math.floor(height * 0.95))
+  }
+
+  if (bestBlob) {
+    throw new Error(
+      `Upload is blocked by request size limit. Best result is ${formatBytes(bestBlob.size)}; please reduce camera size and try again.`,
+    )
+  }
+
   return file
 }
 
@@ -1296,8 +1364,20 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
         formData.append('folderId', activeFolderId)
       }
       const r = await fetch('/api/photos', { method: 'POST', body: formData })
-      const data = await r.json()
-      if (!r.ok) throw new Error(data.error || 'Unable to upload photo.')
+      const rawText = await r.text()
+      let data: { error?: string } | null = null
+      try {
+        data = rawText ? (JSON.parse(rawText) as { error?: string }) : null
+      } catch {
+        data = null
+      }
+      if (!r.ok) {
+        const fallback =
+          r.status === 413
+            ? 'Upload is too large for server request limit. The app will try to optimize large photos automatically.'
+            : `Unable to upload photo (HTTP ${r.status}).`
+        throw new Error(data?.error || fallback)
+      }
 
       // Remove completed uploads from the queue immediately.
       URL.revokeObjectURL(image.previewUrl)
