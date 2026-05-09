@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   Archive,
@@ -30,6 +30,7 @@ import {
   StickyNote,
   Trash2,
   Upload,
+  Users,
   X,
 } from 'lucide-react'
 
@@ -40,7 +41,26 @@ import { cn } from '@/lib/utils'
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type UploadStatus = 'uploading' | 'uploaded' | 'error' | 'deleting'
-type DashboardView = 'upload' | 'my-photos'
+type DashboardView = 'upload' | 'my-photos' | 'all-folders'
+
+/** System-wide folder row for media directory (read-only). */
+type MediaDirectoryFolderRow = {
+  id: string
+  folder_name: string
+  full_address: string | null
+  city: string | null
+  province: string | null
+  type_of_place: string[]
+  tags: string[]
+  notes: string | null
+  status: string
+  created_at: string
+  photo_count: number
+  cover_image_url: string | null
+  owner_user_id: number | null
+  owner_code: string
+  owner_name: string
+}
 
 type GoogleMapsWindow = Window & { google?: any }
 
@@ -657,6 +677,10 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [activeView, setActiveView] = useState<DashboardView>('upload')
   const [searchQuery, setSearchQuery] = useState('')
+  const [mediaDirectoryFolders, setMediaDirectoryFolders] = useState<MediaDirectoryFolderRow[]>([])
+  const [isLoadingMediaDirectory, setIsLoadingMediaDirectory] = useState(false)
+  const [mediaDirectoryError, setMediaDirectoryError] = useState('')
+  const [mediaDirectorySearch, setMediaDirectorySearch] = useState('')
 
   // Upload state
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -992,6 +1016,38 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
     if (!isAuthenticated) return
     void loadFolders()
   }, [isAuthenticated, liveUser.fullName, user.code])
+
+  useEffect(() => {
+    if (!isAuthenticated) return
+    if (liveUser.role !== 'media') return
+    if (activeView !== 'all-folders') return
+    let cancelled = false
+    setIsLoadingMediaDirectory(true)
+    setMediaDirectoryError('')
+    void (async () => {
+      try {
+        const r = await fetch(
+          `/api/media/folders?uploaderCode=${encodeURIComponent(user.code)}`,
+        )
+        const data = await r.json()
+        if (!r.ok) throw new Error(data?.error || 'Unable to load folder directory.')
+        const list = Array.isArray(data.folders) ? (data.folders as MediaDirectoryFolderRow[]) : []
+        if (!cancelled) setMediaDirectoryFolders(list)
+      } catch (e) {
+        if (!cancelled) {
+          setMediaDirectoryError(
+            e instanceof Error ? e.message : 'Unable to load folder directory.',
+          )
+          setMediaDirectoryFolders([])
+        }
+      } finally {
+        if (!cancelled) setIsLoadingMediaDirectory(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [isAuthenticated, liveUser.role, activeView, user.code])
 
   useEffect(() => {
     if (!isTagModalOpen) return
@@ -1961,6 +2017,28 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
   const displayedFolders = showArchivedFolders ? archivedFolders : activeFolders
   const hasPhotosFilters = !!(photosFilterFolderId || photosFilterGpsOnly || photosFilterUntagged)
 
+  const filteredMediaDirectoryFolders = useMemo(() => {
+    const q = mediaDirectorySearch.trim().toLowerCase()
+    if (!q) return mediaDirectoryFolders
+    return mediaDirectoryFolders.filter((f) => {
+      const hay = [
+        f.folder_name,
+        f.full_address ?? '',
+        f.city ?? '',
+        f.province ?? '',
+        f.owner_name,
+        f.owner_code,
+        f.status,
+        f.notes ?? '',
+        ...(f.type_of_place ?? []),
+        ...(f.tags ?? []),
+      ]
+        .join(' ')
+        .toLowerCase()
+      return hay.includes(q)
+    })
+  }, [mediaDirectoryFolders, mediaDirectorySearch])
+
   const openedFolderPhotos = activeFolderId
     ? dbPhotos.filter((photo) => photo.folder_id === activeFolderId)
     : []
@@ -2447,12 +2525,50 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
             {/* Nav */}
             <nav>
               <SidebarNavItem
-                active={activeView === 'upload'}
+                active={
+                  activeView === 'upload' &&
+                  (liveUser.role !== 'media' || activeFolderId !== null)
+                }
                 badge={uploadedImages.length > 0 ? uploadedImages.length : undefined}
                 icon={<Upload className="h-5 w-5" />}
                 label="Upload"
-                onClick={() => { setActiveView('upload'); setIsSidebarOpen(false) }}
+                onClick={() => {
+                  setActiveView('upload')
+                  setIsSidebarOpen(false)
+                }}
               />
+              {liveUser.role === 'media' ? (
+                <>
+                  <SidebarNavItem
+                    active={activeView === 'all-folders'}
+                    badge={
+                      mediaDirectoryFolders.length > 0 ? mediaDirectoryFolders.length : undefined
+                    }
+                    icon={<Folder className="h-5 w-5" />}
+                    label="All folders"
+                    onClick={() => {
+                      setActiveView('all-folders')
+                      setIsSidebarOpen(false)
+                    }}
+                  />
+                  <SidebarNavItem
+                    active={activeView === 'upload' && activeFolderId === null}
+                    badge={activeFolders.length > 0 ? activeFolders.length : undefined}
+                    icon={<FolderOpen className="h-5 w-5" />}
+                    label="My folders"
+                    onClick={() => {
+                      setActiveView('upload')
+                      setActiveFolderId(null)
+                      setIsSidebarOpen(false)
+                      window.requestAnimationFrame(() => {
+                        document
+                          .getElementById('media-folders')
+                          ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                      })
+                    }}
+                  />
+                </>
+              ) : null}
               <SidebarNavItem
                 active={activeView === 'my-photos'}
                 badge={dbPhotos.length > 0 ? dbPhotos.length : undefined}
@@ -2556,6 +2672,11 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
 
               {!activeFolder ? (
                   <>
+                    <section
+                      id="media-folders"
+                      className="scroll-mt-28 space-y-6"
+                      aria-label="Your folders"
+                    >
                     {/* Archive toggle */}
                     {archivedFolders.length > 0 ? (
                       <div className="mb-6">
@@ -2786,6 +2907,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                         </button>
                       </div>
                     )}
+                    </section>
 
                     {/* ── Activity + Storage bento ───────────────────── */}
                     {(activeFolders.length > 0 || dbPhotos.length > 0) ? (
@@ -3524,6 +3646,215 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
             </div>
           ) : null}
 
+          {/* Media: system-wide folder directory (read-only) */}
+          {liveUser.role === 'media' && activeView === 'all-folders' ? (
+            <section className="mx-auto flex max-w-6xl flex-col gap-6 px-8 py-12 lg:px-16">
+              <div>
+                <h1
+                  className="text-display-xl font-headline mb-3"
+                  style={{ color: 'var(--ds-primary)' }}
+                >
+                  All folders
+                </h1>
+                <p className="max-w-2xl text-sm" style={{ color: 'var(--ds-on-surface-variant)' }}>
+                  Every place folder in the system—use this to see whether a location is already
+                  captured before you create a new one. Open{' '}
+                  <span className="font-semibold" style={{ color: 'var(--ds-on-surface)' }}>
+                    My folders
+                  </span>{' '}
+                  in the sidebar to work in your own workspace.
+                </p>
+              </div>
+
+              <div
+                className="flex items-center gap-2 rounded-lg border px-3 py-2"
+                style={{
+                  borderColor: 'var(--ds-outline-variant)',
+                  backgroundColor: 'var(--ds-surface-container-lowest)',
+                }}
+              >
+                <Search className="h-4 w-4 shrink-0" style={{ color: 'var(--ds-outline)' }} />
+                <input
+                  className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+                  onChange={(e) => setMediaDirectorySearch(e.target.value)}
+                  placeholder="Search by folder name, owner, code, address, tags, status..."
+                  style={{ color: 'var(--ds-on-surface)' }}
+                  type="search"
+                  value={mediaDirectorySearch}
+                />
+              </div>
+
+              {mediaDirectoryError ? (
+                <div
+                  className="rounded-lg border px-4 py-3 text-sm"
+                  style={{
+                    backgroundColor: 'var(--ds-error-container)',
+                    borderColor: 'rgba(186,26,26,0.2)',
+                    color: 'var(--ds-error)',
+                  }}
+                >
+                  {mediaDirectoryError}
+                </div>
+              ) : null}
+
+              {isLoadingMediaDirectory && mediaDirectoryFolders.length === 0 ? (
+                <div
+                  className="flex h-48 items-center justify-center rounded-2xl border text-sm"
+                  style={{
+                    borderColor: 'var(--ds-outline-variant)',
+                    backgroundColor: 'var(--ds-surface-container-lowest)',
+                    color: 'var(--ds-on-surface-variant)',
+                  }}
+                >
+                  Loading folders...
+                </div>
+              ) : filteredMediaDirectoryFolders.length === 0 ? (
+                <div
+                  className="flex h-48 flex-col items-center justify-center gap-2 rounded-2xl border border-dashed text-center"
+                  style={{
+                    borderColor: 'var(--ds-outline-variant)',
+                    color: 'var(--ds-on-surface-variant)',
+                  }}
+                >
+                  <Folder className="h-8 w-8 opacity-50" />
+                  <div className="text-sm font-semibold">
+                    {mediaDirectoryFolders.length === 0
+                      ? 'No folders yet.'
+                      : 'No folders match your search.'}
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div
+                    className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-semibold uppercase tracking-wider"
+                    style={{ color: 'var(--ds-on-surface-variant)' }}
+                  >
+                    <span>
+                      Showing {filteredMediaDirectoryFolders.length} of {mediaDirectoryFolders.length}{' '}
+                      folder
+                      {mediaDirectoryFolders.length === 1 ? '' : 's'}
+                    </span>
+                    <span>
+                      Total photos:{' '}
+                      {filteredMediaDirectoryFolders.reduce((s, f) => s + f.photo_count, 0)}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {filteredMediaDirectoryFolders.map((folder) => {
+                      const isArchived = (folder.status ?? 'active') === 'archived'
+                      const isMine =
+                        folder.owner_code.trim().toLowerCase() === user.code.trim().toLowerCase()
+                      return (
+                        <div
+                          key={folder.id}
+                          className="group flex flex-col gap-2 overflow-hidden rounded-2xl border text-left transition-all hover:shadow-md"
+                          style={{
+                            borderColor: 'var(--ds-outline-variant)',
+                            backgroundColor: 'var(--ds-surface-container-lowest)',
+                          }}
+                        >
+                          {folder.cover_image_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              alt={folder.folder_name}
+                              className="h-32 w-full object-cover"
+                              src={folder.cover_image_url}
+                            />
+                          ) : (
+                            <div
+                              className="flex h-32 w-full items-center justify-center"
+                              style={{ backgroundColor: 'var(--ds-surface-container)' }}
+                            >
+                              <FolderOpen
+                                className="h-8 w-8"
+                                style={{ color: 'var(--ds-on-surface-variant)' }}
+                              />
+                            </div>
+                          )}
+                          <div className="flex flex-col gap-1.5 px-3 pb-3">
+                            <div className="flex items-start justify-between gap-2">
+                              <div
+                                className="min-w-0 flex-1 truncate font-semibold"
+                                style={{ color: 'var(--ds-on-surface)' }}
+                              >
+                                {folder.folder_name}
+                              </div>
+                              <span
+                                className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold tabular-nums"
+                                style={{
+                                  backgroundColor:
+                                    folder.photo_count > 0
+                                      ? 'var(--ds-primary)'
+                                      : 'var(--ds-surface-container-high)',
+                                  color:
+                                    folder.photo_count > 0
+                                      ? 'var(--ds-on-primary)'
+                                      : 'var(--ds-on-surface-variant)',
+                                }}
+                              >
+                                {folder.photo_count}{' '}
+                                {folder.photo_count === 1 ? 'photo' : 'photos'}
+                              </span>
+                            </div>
+                            {isMine ? (
+                              <div
+                                className="w-fit rounded-full px-2 py-0.5 text-[10px] font-bold"
+                                style={{
+                                  backgroundColor: 'var(--ds-secondary-container)',
+                                  color: 'var(--ds-on-secondary-container)',
+                                }}
+                              >
+                                Your folder
+                              </div>
+                            ) : null}
+                            <div
+                              className="flex items-center gap-2 text-[11px]"
+                              style={{ color: 'var(--ds-on-surface-variant)' }}
+                            >
+                              <Users className="h-3.5 w-3.5 shrink-0" />
+                              <span className="min-w-0 truncate">
+                                <span className="font-medium" style={{ color: 'var(--ds-on-surface)' }}>
+                                  {folder.owner_name}
+                                </span>
+                                <span className="ml-1 font-mono text-[10px]">{folder.owner_code}</span>
+                              </span>
+                            </div>
+                            {folder.full_address ? (
+                              <div
+                                className="flex items-start gap-1 text-[11px]"
+                                style={{ color: 'var(--ds-on-surface-variant)' }}
+                              >
+                                <MapPin className="mt-0.5 h-3 w-3 shrink-0" />
+                                <span className="line-clamp-2">{folder.full_address}</span>
+                              </div>
+                            ) : null}
+                            <div
+                              className="flex items-center justify-between text-[10px]"
+                              style={{ color: 'var(--ds-on-surface-variant)' }}
+                            >
+                              <span>{formatCaptureDate(folder.created_at)}</span>
+                              {isArchived ? (
+                                <span
+                                  className="rounded-full px-2 py-0.5 font-semibold"
+                                  style={{
+                                    backgroundColor: 'var(--ds-surface-container-high)',
+                                    color: 'var(--ds-on-surface-variant)',
+                                  }}
+                                >
+                                  Archived
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
+            </section>
+          ) : null}
+
           {/* My Photos view */}
           {activeView === 'my-photos' ? (
             <div className="mx-auto max-w-5xl space-y-6 px-4 py-8">
@@ -3536,7 +3867,19 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                     All photos uploaded by {liveUser.fullName}
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <button
+                    className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 shadow-sm transition-colors hover:bg-gray-50"
+                    onClick={() => {
+                      setActiveView('upload')
+                      setActiveFolderId(null)
+                      setIsSidebarOpen(false)
+                    }}
+                    type="button"
+                  >
+                    <Folder className="h-4 w-4 shrink-0" />
+                    Folders
+                  </button>
                   {/* Bulk mode toggle */}
                   <button
                     className={cn(

@@ -104,7 +104,7 @@ type AdminStats = {
     place_name: string | null
   }[]
   uploadsByDay: { day: string; count: number }[]
-  uploadsByUserByDay: {
+  foldersByUserByDay: {
     code: string
     name: string
     total: number
@@ -113,7 +113,7 @@ type AdminStats = {
   }[]
 }
 
-type AdminView = 'overview' | 'users'
+type AdminView = 'overview' | 'users' | 'folders'
 
 type UserFormState = {
   id: number | null
@@ -186,6 +186,7 @@ export default function AdminClient({ user }: { user: AdminUser }) {
   const [isLoadingUsers, setIsLoadingUsers] = useState(false)
   const [usersError, setUsersError] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
+  const [folderSearchQuery, setFolderSearchQuery] = useState('')
 
   // User form modal
   const [isFormOpen, setIsFormOpen] = useState(false)
@@ -218,6 +219,14 @@ export default function AdminClient({ user }: { user: AdminUser }) {
     photo_count: number
     cover_image_url: string | null
   }
+  type DirectoryFolderRow = BrowseFolder & {
+    owner_user_id: number | null
+    owner_code: string
+    owner_name: string
+  }
+  const [allFolders, setAllFolders] = useState<DirectoryFolderRow[]>([])
+  const [isLoadingAllFolders, setIsLoadingAllFolders] = useState(false)
+  const [allFoldersError, setAllFoldersError] = useState('')
   type BrowsePhoto = {
     id: string
     image_url: string
@@ -250,8 +259,11 @@ export default function AdminClient({ user }: { user: AdminUser }) {
     code: string
     name: string
     day: string
+    userId: number | null
   } | null>(null)
-  const [heatmapDayPhotos, setHeatmapDayPhotos] = useState<BrowsePhoto[]>([])
+  const [heatmapDayFolders, setHeatmapDayFolders] = useState<
+    { id: string; folder_name: string; full_address: string | null; created_at: string; status: string }[]
+  >([])
   const [heatmapDayLoading, setHeatmapDayLoading] = useState(false)
   const [heatmapDayError, setHeatmapDayError] = useState('')
 
@@ -372,11 +384,32 @@ export default function AdminClient({ user }: { user: AdminUser }) {
     }
   }, [user.code])
 
+  const loadAllFolders = useCallback(async () => {
+    setIsLoadingAllFolders(true)
+    setAllFoldersError('')
+    try {
+      const r = await fetch(`/api/admin/folders?adminCode=${encodeURIComponent(user.code)}`)
+      const data = await r.json().catch(() => null)
+      if (!r.ok) throw new Error(data?.error || 'Unable to load folders.')
+      const rows = Array.isArray(data?.folders) ? data.folders : []
+      setAllFolders(rows as DirectoryFolderRow[])
+    } catch (error) {
+      setAllFoldersError(error instanceof Error ? error.message : 'Unable to load folders.')
+    } finally {
+      setIsLoadingAllFolders(false)
+    }
+  }, [user.code])
+
   useEffect(() => {
     if (!isAuthenticated) return
     void loadStats()
     void loadUsers()
   }, [isAuthenticated, loadStats, loadUsers])
+
+  useEffect(() => {
+    if (!isAuthenticated || activeView !== 'folders') return
+    void loadAllFolders()
+  }, [isAuthenticated, activeView, loadAllFolders])
 
   useEffect(() => {
     if (!heatmapDayOpen || !heatmapDayContext) return
@@ -386,23 +419,26 @@ export default function AdminClient({ user }: { user: AdminUser }) {
     async function run() {
       setHeatmapDayLoading(true)
       setHeatmapDayError('')
-      setHeatmapDayPhotos([])
+      setHeatmapDayFolders([])
       try {
         const q = new URLSearchParams({
           adminCode: user.code,
           uploaderCode: ctx.code,
           day: ctx.day,
         })
-        const r = await fetch(`/api/admin/photos/by-day?${q}`)
+        if (ctx.userId != null) {
+          q.set('albumUserId', String(ctx.userId))
+        }
+        const r = await fetch(`/api/admin/folders/by-day?${q}`)
         const data = await r.json().catch(() => null)
-        if (!r.ok) throw new Error(data?.error || 'Unable to load photos.')
+        if (!r.ok) throw new Error(data?.error || 'Unable to load folders.')
         if (!cancelled) {
-          setHeatmapDayPhotos(Array.isArray(data?.photos) ? data.photos : [])
+          setHeatmapDayFolders(Array.isArray(data?.folders) ? data.folders : [])
         }
       } catch (error) {
         if (!cancelled) {
           setHeatmapDayError(
-            error instanceof Error ? error.message : 'Unable to load photos.',
+            error instanceof Error ? error.message : 'Unable to load folders.',
           )
         }
       } finally {
@@ -518,12 +554,20 @@ export default function AdminClient({ user }: { user: AdminUser }) {
 
   // ─── Browse user → folders → photos ─────────────────────────────────────────
 
-  function openHeatmapDayPhotos(row: { code: string; name: string }, day: string) {
-    setHeatmapDayContext({ code: row.code, name: row.name, day })
+  function openHeatmapDayFolders(row: { code: string; name: string; userId: number | null }, day: string) {
+    setHeatmapDayContext({
+      code: row.code,
+      name: row.name,
+      day,
+      userId: row.userId,
+    })
     setHeatmapDayOpen(true)
   }
 
-  async function openUserBrowse(target: { id: number; code: string; name: string }) {
+  async function openUserBrowse(
+    target: { id: number; code: string; name: string },
+    options?: { openFolderId?: string },
+  ) {
     setBrowseUser(target)
     setBrowseFolder(null)
     setBrowsePhotos([])
@@ -536,7 +580,14 @@ export default function AdminClient({ user }: { user: AdminUser }) {
       )
       const data = await r.json().catch(() => null)
       if (!r.ok) throw new Error(data?.error || 'Unable to load folders.')
-      setBrowseFolders(Array.isArray(data?.folders) ? data.folders : [])
+      const folders: BrowseFolder[] = Array.isArray(data?.folders) ? data.folders : []
+      setBrowseFolders(folders)
+      if (options?.openFolderId) {
+        const match = folders.find((f) => f.id === options.openFolderId)
+        if (match) {
+          await openFolderPhotos(match)
+        }
+      }
     } catch (error) {
       setBrowseFoldersError(
         error instanceof Error ? error.message : 'Unable to load folders.',
@@ -544,6 +595,45 @@ export default function AdminClient({ user }: { user: AdminUser }) {
     } finally {
       setIsLoadingBrowseFolders(false)
     }
+  }
+
+  async function openFolderFromDirectory(row: DirectoryFolderRow) {
+    const asFolder: BrowseFolder = {
+      id: row.id,
+      folder_name: row.folder_name,
+      full_address: row.full_address,
+      city: row.city,
+      province: row.province,
+      type_of_place: row.type_of_place,
+      tags: row.tags,
+      notes: row.notes,
+      status: row.status,
+      created_at: row.created_at,
+      photo_count: row.photo_count,
+      cover_image_url: row.cover_image_url,
+    }
+    if (row.owner_user_id != null && row.owner_user_id > 0) {
+      await openUserBrowse(
+        {
+          id: row.owner_user_id,
+          code: row.owner_code,
+          name: row.owner_name,
+        },
+        { openFolderId: row.id },
+      )
+      return
+    }
+    setBrowseUser({
+      id: 0,
+      code: row.owner_code,
+      name: row.owner_name,
+    })
+    setBrowseFolder(null)
+    setBrowsePhotos([])
+    setBrowseFolders([asFolder])
+    setBrowseFoldersError('')
+    setIsLoadingBrowseFolders(false)
+    await openFolderPhotos(asFolder)
   }
 
   async function openFolderPhotos(folder: BrowseFolder) {
@@ -591,6 +681,27 @@ export default function AdminClient({ user }: { user: AdminUser }) {
       )
     })
   }, [users, searchQuery])
+
+  const filteredAllFolders = useMemo(() => {
+    const q = folderSearchQuery.trim().toLowerCase()
+    if (!q) return allFolders
+    return allFolders.filter((f) => {
+      const hay = [
+        f.folder_name,
+        f.full_address ?? '',
+        f.city ?? '',
+        f.province ?? '',
+        f.owner_name,
+        f.owner_code,
+        f.status,
+        ...(f.type_of_place ?? []),
+        ...(f.tags ?? []),
+      ]
+        .join(' ')
+        .toLowerCase()
+      return hay.includes(q)
+    })
+  }, [allFolders, folderSearchQuery])
 
   const initials = (user.firstName?.[0] ?? 'A').toUpperCase()
 
@@ -847,6 +958,16 @@ export default function AdminClient({ user }: { user: AdminUser }) {
               }}
             />
             <NavItem
+              active={activeView === 'folders'}
+              badge={stats?.totals.folders}
+              icon={<FolderOpen className="h-4 w-4" />}
+              label="Folders"
+              onClick={() => {
+                setActiveView('folders')
+                setIsSidebarOpen(false)
+              }}
+            />
+            <NavItem
               active={activeView === 'users'}
               icon={<Users className="h-4 w-4" />}
               label="User Management"
@@ -971,6 +1092,11 @@ export default function AdminClient({ user }: { user: AdminUser }) {
                       label="Folders"
                       value={t.folders}
                       hint={`${t.activeFolders} active · ${t.archivedFolders} archived`}
+                      ariaLabel="View all folders"
+                      onClick={() => {
+                        setActiveView('folders')
+                        setIsSidebarOpen(false)
+                      }}
                     />
                     <StatCard
                       icon={<ImageIcon className="h-5 w-5" />}
@@ -991,7 +1117,7 @@ export default function AdminClient({ user }: { user: AdminUser }) {
                     <Panel
                       className="lg:col-span-2"
                       icon={<Calendar className="h-4 w-4" />}
-                      title="Uploads · Last 14 days"
+                      title="Uploads · Last 14 days (PHT)"
                       action={
                         <span
                           className="text-[11px] font-semibold tabular-nums"
@@ -1141,25 +1267,30 @@ export default function AdminClient({ user }: { user: AdminUser }) {
                   {/* Daily Uploads by User */}
                   <Panel
                     icon={<CalendarDays className="h-4 w-4" />}
-                    title="Daily Uploads by User · Rolling 14-day window"
+                    title="Daily Folders by User · Rolling 14-day window (Philippines time)"
                     action={
                       <span
                         className="text-[11px] font-semibold tabular-nums"
                         style={{ color: 'var(--ds-on-surface-variant)' }}
                       >
-                        {(stats?.uploadsByUserByDay ?? []).length}{' '}
-                        {(stats?.uploadsByUserByDay ?? []).length === 1 ? 'uploader' : 'uploaders'} active
+                        {(stats?.foldersByUserByDay ?? []).length}{' '}
+                        {(stats?.foldersByUserByDay ?? []).length === 1 ? 'user' : 'users'}
                         <span className="hidden sm:inline">
                           {' '}
-                          · click a count to view photos · click a row to browse
+                          · click a count to list folders · click a row to browse
                         </span>
                       </span>
                     }
                   >
+                    <p className="-mt-1 mb-3 text-[11px] leading-snug" style={{ color: 'var(--ds-on-surface-variant)' }}>
+                      Each cell is <span className="font-semibold">new folders created</span> on that calendar day in{' '}
+                      <span className="font-semibold">Philippines time (PHT)</span>. The bar chart above still shows{' '}
+                      <span className="font-semibold">photo uploads</span> per day.
+                    </p>
                     <UploadsByUserHeatmap
-                      data={stats?.uploadsByUserByDay ?? []}
+                      data={stats?.foldersByUserByDay ?? []}
                       users={users}
-                      onHeatCellClick={(row, day) => openHeatmapDayPhotos(row, day)}
+                      onHeatCellClick={(row, day) => openHeatmapDayFolders(row, day)}
                       onSelectUser={(u) =>
                         openUserBrowse({ id: u.id, code: u.code, name: u.name })
                       }
@@ -1199,6 +1330,186 @@ export default function AdminClient({ user }: { user: AdminUser }) {
                   </Panel>
                 </>
               ) : null}
+            </section>
+          ) : activeView === 'folders' ? (
+            <section className="mx-auto flex max-w-6xl flex-col gap-6">
+              <div>
+                <h1
+                  className="text-2xl font-bold sm:text-3xl"
+                  style={{ fontFamily: 'var(--font-noto-serif)' }}
+                >
+                  All Folders
+                </h1>
+                <p className="mt-1 text-sm" style={{ color: 'var(--ds-on-surface-variant)' }}>
+                  Search and open any folder across all users. Click a card to browse photos.
+                </p>
+              </div>
+
+              <div
+                className="flex items-center gap-2 rounded-lg border bg-white px-3 py-2"
+                style={{ borderColor: 'var(--ds-outline-variant)' }}
+              >
+                <Search className="h-4 w-4" style={{ color: 'var(--ds-outline)' }} />
+                <input
+                  className="flex-1 bg-transparent text-sm outline-none"
+                  onChange={(e) => setFolderSearchQuery(e.target.value)}
+                  placeholder="Search by folder name, owner, code, address, tags, status..."
+                  style={{ color: 'var(--ds-on-surface)' }}
+                  type="search"
+                  value={folderSearchQuery}
+                />
+              </div>
+
+              {allFoldersError ? (
+                <div
+                  className="rounded-lg border px-4 py-3 text-sm"
+                  style={{
+                    backgroundColor: 'var(--ds-error-container)',
+                    borderColor: 'rgba(186,26,26,0.2)',
+                    color: 'var(--ds-error)',
+                  }}
+                >
+                  {allFoldersError}
+                </div>
+              ) : null}
+
+              {isLoadingAllFolders && allFolders.length === 0 ? (
+                <div
+                  className="flex h-48 items-center justify-center rounded-2xl border bg-white text-sm"
+                  style={{
+                    borderColor: 'var(--ds-outline-variant)',
+                    color: 'var(--ds-on-surface-variant)',
+                  }}
+                >
+                  Loading folders...
+                </div>
+              ) : filteredAllFolders.length === 0 ? (
+                <div
+                  className="flex h-48 flex-col items-center justify-center gap-2 rounded-2xl border border-dashed text-center"
+                  style={{
+                    borderColor: 'var(--ds-outline-variant)',
+                    color: 'var(--ds-on-surface-variant)',
+                  }}
+                >
+                  <Folder className="h-8 w-8 opacity-50" />
+                  <div className="text-sm font-semibold">
+                    {allFolders.length === 0 ? 'No folders yet.' : 'No folders match your search.'}
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div
+                    className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-semibold uppercase tracking-wider"
+                    style={{ color: 'var(--ds-on-surface-variant)' }}
+                  >
+                    <span>
+                      Showing {filteredAllFolders.length} of {allFolders.length} folder
+                      {allFolders.length === 1 ? '' : 's'}
+                    </span>
+                    <span>
+                      Total photos:{' '}
+                      {filteredAllFolders.reduce((s, f) => s + f.photo_count, 0)}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {filteredAllFolders.map((folder) => {
+                      const isArchived = (folder.status ?? 'active') === 'archived'
+                      return (
+                        <button
+                          key={folder.id}
+                          className="group flex flex-col gap-2 overflow-hidden rounded-2xl border bg-white text-left transition-all hover:-translate-y-0.5 hover:shadow-md"
+                          onClick={() => void openFolderFromDirectory(folder)}
+                          style={{ borderColor: 'var(--ds-outline-variant)' }}
+                          type="button"
+                        >
+                          {folder.cover_image_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              alt={folder.folder_name}
+                              className="h-32 w-full object-cover"
+                              src={folder.cover_image_url}
+                            />
+                          ) : (
+                            <div
+                              className="flex h-32 w-full items-center justify-center"
+                              style={{ backgroundColor: 'var(--ds-surface-container)' }}
+                            >
+                              <FolderOpen
+                                className="h-8 w-8"
+                                style={{ color: 'var(--ds-on-surface-variant)' }}
+                              />
+                            </div>
+                          )}
+                          <div className="flex flex-col gap-1.5 px-3 pb-3">
+                            <div className="flex items-start justify-between gap-2">
+                              <div
+                                className="min-w-0 flex-1 truncate font-semibold"
+                                style={{ color: 'var(--ds-on-surface)' }}
+                              >
+                                {folder.folder_name}
+                              </div>
+                              <span
+                                className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold tabular-nums"
+                                style={{
+                                  backgroundColor:
+                                    folder.photo_count > 0
+                                      ? 'var(--ds-primary)'
+                                      : 'var(--ds-surface-container-high)',
+                                  color:
+                                    folder.photo_count > 0
+                                      ? 'var(--ds-on-primary)'
+                                      : 'var(--ds-on-surface-variant)',
+                                }}
+                              >
+                                {folder.photo_count}{' '}
+                                {folder.photo_count === 1 ? 'photo' : 'photos'}
+                              </span>
+                            </div>
+                            <div
+                              className="flex items-center gap-2 text-[11px]"
+                              style={{ color: 'var(--ds-on-surface-variant)' }}
+                            >
+                              <Users className="h-3.5 w-3.5 shrink-0" />
+                              <span className="min-w-0 truncate">
+                                <span className="font-medium" style={{ color: 'var(--ds-on-surface)' }}>
+                                  {folder.owner_name}
+                                </span>
+                                <span className="ml-1 font-mono text-[10px]">{folder.owner_code}</span>
+                              </span>
+                            </div>
+                            {folder.full_address ? (
+                              <div
+                                className="flex items-start gap-1 text-[11px]"
+                                style={{ color: 'var(--ds-on-surface-variant)' }}
+                              >
+                                <MapPin className="mt-0.5 h-3 w-3 shrink-0" />
+                                <span className="line-clamp-2">{folder.full_address}</span>
+                              </div>
+                            ) : null}
+                            <div
+                              className="flex items-center justify-between text-[10px]"
+                              style={{ color: 'var(--ds-on-surface-variant)' }}
+                            >
+                              <span>{formatDate(folder.created_at)}</span>
+                              {isArchived ? (
+                                <span
+                                  className="rounded-full px-2 py-0.5 font-semibold"
+                                  style={{
+                                    backgroundColor: 'var(--ds-surface-container-high)',
+                                    color: 'var(--ds-on-surface-variant)',
+                                  }}
+                                >
+                                  Archived
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
             </section>
           ) : (
             <section className="mx-auto flex max-w-6xl flex-col gap-6">
@@ -1330,8 +1641,42 @@ export default function AdminClient({ user }: { user: AdminUser }) {
                               <StatusBadge status={u.status} />
                             </td>
                             <td className="px-4 py-3">{u.area_focused}</td>
-                            <td className="px-4 py-3 text-right tabular-nums">{u.folder_count ?? 0}</td>
-                            <td className="px-4 py-3 text-right tabular-nums">{u.photo_count ?? 0}</td>
+                            <td className="px-4 py-3 text-right tabular-nums">
+                              <button
+                                aria-label={`Browse folders for ${u.full_name}`}
+                                className="w-full rounded-md px-2 py-1 text-right tabular-nums font-medium transition-colors hover:bg-slate-100"
+                                onClick={() =>
+                                  openUserBrowse({
+                                    id: u.id,
+                                    code: u.code,
+                                    name: u.full_name,
+                                  })
+                                }
+                                style={{ color: 'var(--ds-primary)' }}
+                                title="Open folder browser"
+                                type="button"
+                              >
+                                {u.folder_count ?? 0}
+                              </button>
+                            </td>
+                            <td className="px-4 py-3 text-right tabular-nums">
+                              <button
+                                aria-label={`Browse photos for ${u.full_name}`}
+                                className="w-full rounded-md px-2 py-1 text-right tabular-nums font-medium transition-colors hover:bg-slate-100"
+                                onClick={() =>
+                                  openUserBrowse({
+                                    id: u.id,
+                                    code: u.code,
+                                    name: u.full_name,
+                                  })
+                                }
+                                style={{ color: 'var(--ds-primary)' }}
+                                title="Open folders and photos"
+                                type="button"
+                              >
+                                {u.photo_count ?? 0}
+                              </button>
+                            </td>
                             <td className="px-4 py-3">
                               <div className="flex justify-end gap-1.5">
                                 <button
@@ -1890,7 +2235,7 @@ export default function AdminClient({ user }: { user: AdminUser }) {
           setHeatmapDayOpen(open)
           if (!open) {
             setHeatmapDayContext(null)
-            setHeatmapDayPhotos([])
+            setHeatmapDayFolders([])
             setHeatmapDayError('')
           }
         }}
@@ -1912,7 +2257,8 @@ export default function AdminClient({ user }: { user: AdminUser }) {
                   </span>
                 </DialogTitle>
                 <DialogDescription className="text-sm" style={{ color: 'var(--ds-on-surface-variant)' }}>
-                  Photos uploaded on {formatDay(heatmapDayContext.day)} (UTC), newest first.
+                  Folders created on {formatDay(heatmapDayContext.day)} (PHT), newest first. Click a folder to open it in
+                  the browser.
                 </DialogDescription>
               </DialogHeader>
               <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
@@ -1932,9 +2278,9 @@ export default function AdminClient({ user }: { user: AdminUser }) {
                     className="flex h-40 items-center justify-center text-sm"
                     style={{ color: 'var(--ds-on-surface-variant)' }}
                   >
-                    Loading photos…
+                    Loading folders…
                   </div>
-                ) : heatmapDayPhotos.length === 0 ? (
+                ) : heatmapDayFolders.length === 0 ? (
                   <div
                     className="flex h-40 flex-col items-center justify-center gap-2 rounded-lg border border-dashed text-center"
                     style={{
@@ -1942,8 +2288,8 @@ export default function AdminClient({ user }: { user: AdminUser }) {
                       color: 'var(--ds-on-surface-variant)',
                     }}
                   >
-                    <ImageIcon className="h-7 w-7 opacity-50" />
-                    <div className="text-sm font-semibold">No photos for this day.</div>
+                    <Folder className="h-7 w-7 opacity-50" />
+                    <div className="text-sm font-semibold">No folders for this day.</div>
                   </div>
                 ) : (
                   <>
@@ -1951,34 +2297,50 @@ export default function AdminClient({ user }: { user: AdminUser }) {
                       className="mb-3 text-[11px] font-semibold uppercase tracking-wider"
                       style={{ color: 'var(--ds-on-surface-variant)' }}
                     >
-                      {heatmapDayPhotos.length} photo{heatmapDayPhotos.length === 1 ? '' : 's'}
+                      {heatmapDayFolders.length} folder{heatmapDayFolders.length === 1 ? '' : 's'}
                     </div>
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                      {heatmapDayPhotos.map((photo) => (
-                        <button
-                          key={photo.id}
-                          className="group relative overflow-hidden rounded-lg border bg-slate-100 transition-all hover:opacity-90"
-                          onClick={() => setLightboxPhoto(photo)}
-                          style={{ borderColor: 'var(--ds-outline-variant)' }}
-                          type="button"
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            alt={photo.original_file_name}
-                            className="aspect-square w-full object-cover"
-                            loading="lazy"
-                            src={photo.image_url}
-                          />
-                          <div
-                            className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100"
+                    <ul className="flex flex-col gap-2">
+                      {heatmapDayFolders.map((folder) => (
+                        <li key={folder.id}>
+                          <button
+                            className="w-full rounded-xl border bg-white px-3 py-2.5 text-left text-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                            disabled={heatmapDayContext.userId == null}
+                            onClick={() => {
+                              if (heatmapDayContext.userId == null) return
+                              void openUserBrowse(
+                                {
+                                  id: heatmapDayContext.userId,
+                                  code: heatmapDayContext.code,
+                                  name: heatmapDayContext.name,
+                                },
+                                { openFolderId: folder.id },
+                              )
+                              setHeatmapDayOpen(false)
+                            }}
+                            style={{ borderColor: 'var(--ds-outline-variant)' }}
+                            type="button"
                           >
-                            <div className="truncate text-[10px] font-semibold text-white">
-                              {photo.original_file_name}
+                            <div className="font-semibold">{folder.folder_name}</div>
+                            {folder.full_address ? (
+                              <div
+                                className="mt-1 flex items-start gap-1 text-xs"
+                                style={{ color: 'var(--ds-on-surface-variant)' }}
+                              >
+                                <MapPin className="mt-0.5 h-3 w-3 shrink-0" />
+                                <span>{folder.full_address}</span>
+                              </div>
+                            ) : null}
+                            <div
+                              className="mt-1 text-[10px] tabular-nums"
+                              style={{ color: 'var(--ds-on-surface-variant)' }}
+                            >
+                              {formatDate(folder.created_at)}
+                              {(folder.status ?? 'active') === 'archived' ? ' · Archived' : ''}
                             </div>
-                          </div>
-                        </button>
+                          </button>
+                        </li>
                       ))}
-                    </div>
+                    </ul>
                   </>
                 )}
               </div>
@@ -2097,21 +2459,23 @@ function NavItem({
 }
 
 function StatCard({
+  ariaLabel,
   hint,
   icon,
   label,
+  onClick,
   value,
 }: {
+  ariaLabel?: string
   hint?: string
   icon: React.ReactNode
   label: string
+  onClick?: () => void
   value: number | string
 }) {
-  return (
-    <div
-      className="rounded-2xl border bg-white p-4"
-      style={{ borderColor: 'var(--ds-outline-variant)' }}
-    >
+  const cardStyle = { borderColor: 'var(--ds-outline-variant)' } as const
+  const content = (
+    <>
       <div className="flex items-center justify-between">
         <span
           className="text-[10px] font-semibold uppercase tracking-wider"
@@ -2143,6 +2507,29 @@ function StatCard({
           {hint}
         </div>
       ) : null}
+    </>
+  )
+
+  if (onClick) {
+    return (
+      <button
+        aria-label={ariaLabel ?? label}
+        className="w-full rounded-2xl border bg-white p-4 text-left transition-colors hover:bg-slate-50/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+        style={{
+          ...cardStyle,
+          outlineColor: 'var(--ds-primary)',
+        }}
+        type="button"
+        onClick={onClick}
+      >
+        {content}
+      </button>
+    )
+  }
+
+  return (
+    <div className="rounded-2xl border bg-white p-4" style={cardStyle}>
+      {content}
     </div>
   )
 }
@@ -2241,7 +2628,7 @@ function FormField({
 // ─── Per-user-per-day heatmap ─────────────────────────────────────────────────
 
 function heatmapCountForDay(
-  row: AdminStats['uploadsByUserByDay'][number],
+  row: AdminStats['foldersByUserByDay'][number],
   day: string,
 ) {
   return row.days.find((d) => d.day === day)?.count ?? 0
@@ -2253,9 +2640,9 @@ function UploadsByUserHeatmap({
   onHeatCellClick,
   onSelectUser,
 }: {
-  data: AdminStats['uploadsByUserByDay']
+  data: AdminStats['foldersByUserByDay']
   users: AdminUserRow[]
-  onHeatCellClick?: (row: { code: string; name: string }, day: string) => void
+  onHeatCellClick?: (row: { code: string; name: string; userId: number | null }, day: string) => void
   onSelectUser: (user: { id: number; code: string; name: string }) => void
 }) {
   const allDayKeys = useMemo(() => data[0]?.days.map((d) => d.day) ?? [], [data])
@@ -2311,7 +2698,7 @@ function UploadsByUserHeatmap({
       >
         <CalendarDays className="h-6 w-6 opacity-50" />
         <div className="text-sm font-semibold">
-          No user uploads in the last 14 days
+          No folder activity in the last 14 days
         </div>
       </div>
     )
@@ -2385,12 +2772,18 @@ function UploadsByUserHeatmap({
         </button>
       </div>
 
-      <div className="overflow-x-auto">
+      <div
+        className="max-h-[min(420px,55vh)] overflow-auto rounded-lg border"
+        style={{ borderColor: 'var(--ds-outline-variant)' }}
+      >
       <table className="w-full text-sm">
-        <thead>
+        <thead
+          className="sticky top-0 z-10 bg-white"
+          style={{ boxShadow: '0 1px 0 var(--ds-outline-variant)' }}
+        >
           <tr>
             <th
-              className="sticky left-0 z-[1] bg-white px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider"
+              className="sticky left-0 top-0 z-20 bg-white px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider shadow-[1px_0_0_var(--ds-outline-variant)]"
               style={{ color: 'var(--ds-on-surface-variant)' }}
             >
               User
@@ -2412,14 +2805,14 @@ function UploadsByUserHeatmap({
             <th
               className="px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wider"
               style={{ color: 'var(--ds-on-surface-variant)' }}
-              title={`Uploads on ${formatDayShort(rangeTo)} (UTC)`}
+              title={`Uploads on ${formatDayShort(rangeTo)} (PHT)`}
             >
               End
             </th>
             <th
               className="px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wider"
               style={{ color: 'var(--ds-on-surface-variant)' }}
-              title="Sum of uploads in the selected date range (UTC)"
+              title="Sum of uploads in the selected date range (PHT)"
             >
               Total
             </th>
@@ -2454,7 +2847,9 @@ function UploadsByUserHeatmap({
                 }}
                 title={canBrowse ? 'Click to browse this user\'s folders and photos' : undefined}
               >
-                <td className="sticky left-0 z-[1] bg-white py-2 pr-3 transition-colors group-hover:bg-slate-50">
+                <td
+                  className="sticky left-0 z-[1] bg-white py-2 pr-3 shadow-[1px_0_0_var(--ds-outline-variant)] transition-colors group-hover:bg-slate-50"
+                >
                   <div className="flex items-center gap-2">
                     <div
                       className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold"
@@ -2491,7 +2886,11 @@ function UploadsByUserHeatmap({
                             ? (e) => {
                                 e.stopPropagation()
                                 onHeatCellClick(
-                                  { code: row.code, name: row.name },
+                                  {
+                                    code: row.code,
+                                    name: row.name,
+                                    userId: matchedUser?.id ?? null,
+                                  },
                                   day,
                                 )
                               }
@@ -2565,8 +2964,8 @@ function HeatCell({
     outline: isToday ? `2px solid var(--ds-primary)` : 'none',
     outlineOffset: '-1px',
   }
-  const title = `${formatDayShort(day)}: ${count} upload${count === 1 ? '' : 's'}${
-    onOpen ? ' · click to view' : ''
+  const title = `${formatDayShort(day)}: ${count} folder${count === 1 ? '' : 's'}${
+    onOpen ? ' · click to list' : ''
   }`
 
   if (onOpen) {
