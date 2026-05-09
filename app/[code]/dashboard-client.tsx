@@ -34,11 +34,7 @@ import {
 } from 'lucide-react'
 
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
-import {
-  MAX_AVATAR_UPLOAD_BYTES,
-  MAX_PHOTO_UPLOAD_BYTES,
-  TARGET_STORED_PHOTO_BYTES,
-} from '@/lib/photo-upload-limits'
+import { MAX_AVATAR_UPLOAD_BYTES, MAX_PHOTO_UPLOAD_BYTES } from '@/lib/photo-upload-limits'
 import { cn } from '@/lib/utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -302,13 +298,99 @@ async function getImageDimensions(file: File) {
   }
 }
 
+/** Reject raw files larger than the API accepts. */
+const CLIENT_HARD_INPUT_BYTES = MAX_PHOTO_UPLOAD_BYTES
+/**
+ * Many platforms cap multipart request size around 4 MB before API code runs.
+ * Keep payload just under that when needed.
+ */
+const CLIENT_TRANSPORT_MAX_BYTES = Math.floor(3.8 * 1024 * 1024)
+
+async function readImageElement(file: File) {
+  const objectUrl = URL.createObjectURL(file)
+  try {
+    const image = new Image()
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve()
+      image.onerror = () => reject(new Error(`Unable to read image data for ${file.name}`))
+      image.src = objectUrl
+    })
+    return image
+  } finally {
+    URL.revokeObjectURL(objectUrl)
+  }
+}
+
+async function maybeCompressLargeUpload(file: File): Promise<File> {
+  if (file.size > MAX_PHOTO_UPLOAD_BYTES) {
+    throw new Error(
+      `Photo is too large (${formatBytes(file.size)}). Maximum allowed is ${MAX_PHOTO_UPLOAD_BYTES / (1024 * 1024)} MB.`,
+    )
+  }
+
+  if (file.size <= CLIENT_TRANSPORT_MAX_BYTES) {
+    return file
+  }
+
+  // Only re-encode when transport cap would otherwise block upload.
+  const image = await readImageElement(file)
+  let width = Math.max(1, image.naturalWidth || 1)
+  let height = Math.max(1, image.naturalHeight || 1)
+  const canvas = document.createElement('canvas')
+  const ctx = canvas.getContext('2d')
+  if (!ctx) {
+    throw new Error('Unable to process this image in your browser.')
+  }
+
+  let bestBlob: Blob | null = null
+  let quality = 0.96
+
+  for (let resizeStep = 0; resizeStep < 8; resizeStep++) {
+    canvas.width = width
+    canvas.height = height
+    ctx.drawImage(image, 0, 0, width, height)
+
+    quality = 0.96
+    for (let qualityStep = 0; qualityStep < 9; qualityStep++) {
+      // eslint-disable-next-line no-await-in-loop
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality))
+      if (!blob) break
+      bestBlob = blob
+      if (blob.size <= CLIENT_TRANSPORT_MAX_BYTES) {
+        return new File([blob], `${file.name.replace(/\.[^.]+$/, '') || 'photo'}.jpg`, {
+          type: 'image/jpeg',
+          lastModified: file.lastModified,
+        })
+      }
+      quality -= 0.02
+    }
+
+    width = Math.max(1, Math.floor(width * 0.95))
+    height = Math.max(1, Math.floor(height * 0.95))
+  }
+
+  if (bestBlob) {
+    throw new Error(
+      `Upload is blocked by request size limit. Best result is ${formatBytes(bestBlob.size)}; please reduce camera size and try again.`,
+    )
+  }
+
+  return file
+}
+
 async function analyzeImage(file: File): Promise<UploadedImage> {
   const previewUrl = URL.createObjectURL(file)
   const dimensions = await getImageDimensions(file)
   const exifr = await import('exifr')
-  const metadata = await exifr.parse(file, {
-    gps: true, exif: true, iptc: true, tiff: true, xmp: true, sanitize: true,
-  })
+  let metadata: Record<string, unknown> | null = null
+  try {
+    metadata = (await exifr.parse(file, {
+      gps: true, exif: true, iptc: true, tiff: true, xmp: true, sanitize: true,
+    })) as Record<string, unknown> | null
+  } catch {
+    // Some images contain malformed EXIF/XMP blocks; keep upload working without metadata.
+    metadata = null
+  }
   const latitude = metadata?.latitude ?? metadata?.lat ?? null
   const longitude = metadata?.longitude ?? metadata?.lon ?? null
   const keywords = Array.isArray(metadata?.Keywords)
@@ -1282,8 +1364,20 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
         formData.append('folderId', activeFolderId)
       }
       const r = await fetch('/api/photos', { method: 'POST', body: formData })
-      const data = await r.json()
-      if (!r.ok) throw new Error(data.error || 'Unable to upload photo.')
+      const rawText = await r.text()
+      let data: { error?: string } | null = null
+      try {
+        data = rawText ? (JSON.parse(rawText) as { error?: string }) : null
+      } catch {
+        data = null
+      }
+      if (!r.ok) {
+        const fallback =
+          r.status === 413
+            ? 'Upload is too large for server request limit. The app will try to optimize large photos automatically.'
+            : `Unable to upload photo (HTTP ${r.status}).`
+        throw new Error(data?.error || fallback)
+      }
 
       // Remove completed uploads from the queue immediately.
       URL.revokeObjectURL(image.previewUrl)
@@ -1366,9 +1460,9 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
     const files = Array.from(fileList).filter((f) => f.type.startsWith('image/'))
     if (!files.length) { setAnalysisError('Please upload image files only.'); return }
 
-    const oversize = files.filter((f) => f.size > MAX_PHOTO_UPLOAD_BYTES)
+    const oversize = files.filter((f) => f.size > CLIENT_HARD_INPUT_BYTES)
     if (oversize.length > 0) {
-      const mb = MAX_PHOTO_UPLOAD_BYTES / (1024 * 1024)
+      const mb = CLIENT_HARD_INPUT_BYTES / (1024 * 1024)
       const detail = oversize.map((f) => `${f.name} (${formatBytes(f.size)})`).join(', ')
       setAnalysisError(`Each photo must be at most ${mb} MB. Too large: ${detail}`)
       return
@@ -1378,7 +1472,10 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
     setIsAnalyzing(true)
     try {
       const prepared = await Promise.all(
-        files.map(async (f) => ({ file: f, image: await analyzeImage(f) })),
+        files.map(async (f) => {
+          const uploadFile = await maybeCompressLargeUpload(f)
+          return { file: uploadFile, image: await analyzeImage(uploadFile) }
+        }),
       )
       const existingIds = new Set(uploadedImages.map((img) => img.id))
       const next = prepared.filter(({ image }) => !existingIds.has(image.id))
@@ -2343,8 +2440,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                 <span>New Upload</span>
               </button>
               <p className="mt-2 text-[10px] leading-snug" style={{ color: 'var(--ds-on-surface-variant)' }}>
-                Max {MAX_PHOTO_UPLOAD_BYTES / (1024 * 1024)} MB per photo · Compressed to ~{TARGET_STORED_PHOTO_BYTES / 1024}{' '}
-                KB when saved
+                Max {MAX_PHOTO_UPLOAD_BYTES / (1024 * 1024)} MB per photo · Saved in high-quality JPEG
               </p>
             </div>
 
@@ -2933,8 +3029,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                           </button>
                         </div>
                         <p className="mt-2 basis-full text-[11px] leading-snug text-gray-500">
-                          Up to {MAX_PHOTO_UPLOAD_BYTES / (1024 * 1024)} MB per photo. After upload, each file is stored at about{' '}
-                          {TARGET_STORED_PHOTO_BYTES / 1024} KB (compressed JPEG).
+                          Up to {MAX_PHOTO_UPLOAD_BYTES / (1024 * 1024)} MB per photo. Images keep full resolution (up to 8192 px on the longest side) and high JPEG quality.
                         </p>
                       </div>
 

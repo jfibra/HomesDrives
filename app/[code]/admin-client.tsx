@@ -33,6 +33,7 @@ import {
   Shield,
   Trash2,
   Users,
+  Wand2,
   X,
 } from 'lucide-react'
 
@@ -883,6 +884,15 @@ export default function AdminClient({ user }: { user: AdminUser }) {
               onClick={() => {
                 setIsSidebarOpen(false)
                 window.location.href = '/questionnaires/new'
+              }}
+            />
+            <NavItem
+              active={false}
+              icon={<Wand2 className="h-4 w-4" />}
+              label="AI Poster Generator"
+              onClick={() => {
+                setIsSidebarOpen(false)
+                window.location.href = '/poster-generator'
               }}
             />
           </nav>

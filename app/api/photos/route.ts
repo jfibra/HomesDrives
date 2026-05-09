@@ -11,7 +11,6 @@ import {
   listPhotosByUploader,
   uploadImageObject,
 } from '@/lib/server/albums'
-import { compressPhotoForAlbumStorage, storageJpegFileName } from '@/lib/server/photo-compress'
 
 export const runtime = 'nodejs'
 
@@ -122,32 +121,13 @@ export async function POST(request: Request) {
       : (request.headers.get('x-real-ip') ?? null)
     const uploaderUserAgent = request.headers.get('user-agent') ?? null
 
-    let processedBuffer = fileBuffer
-    let storageFileName = file.name
-    let contentType = file.type || 'application/octet-stream'
-
-    try {
-      const compressed = await compressPhotoForAlbumStorage(fileBuffer)
-      processedBuffer = Buffer.from(compressed.buffer)
-      storageFileName = storageJpegFileName(file.name)
-      contentType = 'image/jpeg'
-      metadata = {
-        ...metadata,
-        fileSize: compressed.buffer.length,
-        fileType: 'image/jpeg',
-        width: compressed.width,
-        height: compressed.height,
-      }
-    } catch (compressErr) {
-      return NextResponse.json(
-        {
-          error:
-            compressErr instanceof Error
-              ? compressErr.message
-              : 'Unable to process this image. Try JPEG or PNG.',
-        },
-        { status: 400 },
-      )
+    const processedBuffer = fileBuffer
+    const storageFileName = file.name
+    const contentType = file.type || 'application/octet-stream'
+    metadata = {
+      ...metadata,
+      fileSize: processedBuffer.length,
+      fileType: contentType,
     }
 
     uploadedObject = await uploadImageObject({
