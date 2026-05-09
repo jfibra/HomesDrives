@@ -5,12 +5,16 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import {
   BarChart3,
+  ChevronDown,
+  ChevronRight,
   ClipboardList,
   FilePlus2,
   LogOut,
   Menu,
+  Settings2,
   Shield,
   Users,
+  Wand2,
 } from 'lucide-react'
 
 type AdminContext = {
@@ -42,6 +46,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
   const [checkState, setCheckState] = useState<CheckState>('pending')
   const [admin, setAdmin] = useState<AdminContext | null>(null)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+  const [isSettingsOpen, setIsSettingsOpen] = useState(pathname.startsWith('/settings'))
 
   useEffect(() => {
     const ctx = readAdminContext()
@@ -52,6 +57,12 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
       setCheckState('unauthorized')
     }
   }, [])
+
+  useEffect(() => {
+    if (pathname.startsWith('/settings')) {
+      setIsSettingsOpen(true)
+    }
+  }, [pathname])
 
   function handleLogout() {
     if (admin?.code) {
@@ -157,6 +168,27 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
       icon: <FilePlus2 className="h-4 w-4" />,
       matcher: (p) => p === '/questionnaires/new',
       section: 'questionnaires',
+    },
+    {
+      label: 'AI Poster Generator',
+      href: '/poster-generator',
+      icon: <Wand2 className="h-4 w-4" />,
+      matcher: (p) => p === '/poster-generator',
+      section: 'questionnaires',
+    },
+  ]
+
+  const settingsItems: Array<{
+    label: string
+    href: string
+    icon: React.ReactNode
+    matcher: (path: string) => boolean
+  }> = [
+    {
+      label: 'AI Poster Format Settings',
+      href: '/settings/ai-poster-format-settings',
+      icon: <Wand2 className="h-4 w-4" />,
+      matcher: (path) => path === '/settings/ai-poster-format-settings',
     },
   ]
 
@@ -294,6 +326,44 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                   onNavigate={() => setIsSidebarOpen(false)}
                 />
               ))}
+
+            <div
+              className="my-2 border-t"
+              style={{ borderColor: 'var(--ds-outline-variant)' }}
+            />
+            <button
+              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors hover:bg-slate-50"
+              onClick={() => setIsSettingsOpen((current) => !current)}
+              style={{ color: 'var(--ds-on-surface-variant)' }}
+              type="button"
+            >
+              <span className="shrink-0">
+                <Settings2 className="h-4 w-4" />
+              </span>
+              <span className="flex-1 truncate">Settings</span>
+              <span className="shrink-0">
+                {isSettingsOpen ? (
+                  <ChevronDown className="h-4 w-4" />
+                ) : (
+                  <ChevronRight className="h-4 w-4" />
+                )}
+              </span>
+            </button>
+
+            {isSettingsOpen ? (
+              <div className="ml-3 grid gap-1 border-l pl-3" style={{ borderColor: 'var(--ds-outline-variant)' }}>
+                {settingsItems.map((item) => (
+                  <ShellNavItem
+                    key={item.href}
+                    active={item.matcher(pathname)}
+                    href={item.href}
+                    icon={item.icon}
+                    label={item.label}
+                    onNavigate={() => setIsSidebarOpen(false)}
+                  />
+                ))}
+              </div>
+            ) : null}
           </nav>
 
           {/* Logout button — pinned to the bottom of the sidebar */}
