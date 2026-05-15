@@ -27,6 +27,7 @@ import {
   Pencil,
   Search,
   Share2,
+  Star,
   StickyNote,
   Trash2,
   Upload,
@@ -169,7 +170,10 @@ type DbPhoto = {
   tags: string[]
   latitude: number | null
   longitude: number | null
+  article_star_rank: number | null
 }
+
+const MAX_ARTICLE_STAR_PICKS = 3
 
 type AlbumFolder = {
   id: string
@@ -768,6 +772,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
   const [photosViewMode, setPhotosViewMode] = useState<'grid' | 'list'>('grid')
   const [folderPhotosViewMode, setFolderPhotosViewMode] = useState<'grid' | 'list'>('grid')
   const [deletingPhotoIds, setDeletingPhotoIds] = useState<Set<string>>(new Set())
+  const [starringPhotoIds, setStarringPhotoIds] = useState<Set<string>>(new Set())
   const [lightboxImages, setLightboxImages] = useState<LightboxImage[]>([])
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
 
@@ -992,7 +997,14 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
       )
       const data = await r.json()
       if (!r.ok) throw new Error(data?.error || 'Unable to load photos.')
-      setDbPhotos(Array.isArray(data.photos) ? data.photos : [])
+      setDbPhotos(
+        Array.isArray(data.photos)
+          ? data.photos.map((photo: DbPhoto) => ({
+              ...photo,
+              article_star_rank: photo.article_star_rank ?? null,
+            }))
+          : [],
+      )
       if (!silent) setPhotosError('')
     } catch (error) {
       setPhotosError(error instanceof Error ? error.message : 'Unable to load photos.')
@@ -1421,9 +1433,11 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
       }
       const r = await fetch('/api/photos', { method: 'POST', body: formData })
       const rawText = await r.text()
-      let data: { error?: string } | null = null
+      let data: { error?: string; photo?: { id: string; image_url: string } } | null = null
       try {
-        data = rawText ? (JSON.parse(rawText) as { error?: string }) : null
+        data = rawText
+          ? (JSON.parse(rawText) as { error?: string; photo?: { id: string; image_url: string } })
+          : null
       } catch {
         data = null
       }
@@ -1435,15 +1449,13 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
         throw new Error(data?.error || fallback)
       }
 
-      // Remove completed uploads from the queue immediately.
-      URL.revokeObjectURL(image.previewUrl)
-      previewUrlsRef.current = previewUrlsRef.current.filter((url) => url !== image.previewUrl)
-      setSelectedIds((prev) => {
-        const next = new Set(prev)
-        next.delete(image.id)
-        return next
-      })
-      setUploadedImages((imgs) => imgs.filter((img) => img.id !== image.id))
+      updateUploadedImage(image.id, (img) => ({
+        ...img,
+        dbId: data?.photo?.id ?? img.dbId,
+        imageUrl: data?.photo?.image_url ?? img.imageUrl,
+        uploadError: null,
+        uploadStatus: 'uploaded',
+      }))
     } catch (error) {
       updateUploadedImage(image.id, (img) => ({
         ...img,
@@ -1473,6 +1485,46 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
         uploadError: error instanceof Error ? error.message : 'Unable to delete photo.',
         uploadStatus: image.dbId ? 'uploaded' : 'error',
       }))
+    }
+  }
+
+  async function handleToggleArticleStar(photoId: string) {
+    if (starringPhotoIds.has(photoId)) return
+
+    setStarringPhotoIds((prev) => {
+      const next = new Set(prev)
+      next.add(photoId)
+      return next
+    })
+    setAnalysisError('')
+
+    try {
+      const r = await fetch(`/api/photos/${photoId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'star', uploaderCode: user.code }),
+      })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data?.error || 'Unable to update article star.')
+
+      const rank =
+        typeof data?.photo?.article_star_rank === 'number' ? data.photo.article_star_rank : null
+
+      setDbPhotos((current) =>
+        current.map((photo) =>
+          photo.id === photoId ? { ...photo, article_star_rank: rank } : photo,
+        ),
+      )
+    } catch (error) {
+      setAnalysisError(
+        error instanceof Error ? error.message : 'Unable to update article star.',
+      )
+    } finally {
+      setStarringPhotoIds((prev) => {
+        const next = new Set(prev)
+        next.delete(photoId)
+        return next
+      })
     }
   }
 
@@ -2039,9 +2091,27 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
     })
   }, [mediaDirectoryFolders, mediaDirectorySearch])
 
-  const openedFolderPhotos = activeFolderId
-    ? dbPhotos.filter((photo) => photo.folder_id === activeFolderId)
-    : []
+  const openedFolderPhotos = useMemo(() => {
+    if (!activeFolderId) return []
+    return dbPhotos
+      .filter((photo) => photo.folder_id === activeFolderId)
+      .sort((a, b) => {
+        const aRank = a.article_star_rank ?? 99
+        const bRank = b.article_star_rank ?? 99
+        if (aRank !== bRank) return aRank - bRank
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      })
+  }, [activeFolderId, dbPhotos])
+
+  const articleStarPhotos = useMemo(
+    () =>
+      openedFolderPhotos
+        .filter((photo) => photo.article_star_rank != null)
+        .sort((a, b) => (a.article_star_rank ?? 0) - (b.article_star_rank ?? 0)),
+    [openedFolderPhotos],
+  )
+
+  const articleStarCount = articleStarPhotos.length
 
   const uploadedLightboxItems: LightboxImage[] = uploadedImages.map((image) => ({
     id: image.id,
@@ -3156,7 +3226,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                       </div>
 
                       {/* Stats strip */}
-                      <div className="grid grid-cols-2 border-t border-gray-100 sm:grid-cols-4">
+                      <div className="grid grid-cols-2 border-t border-gray-100 sm:grid-cols-5">
                         {[
                           { label: 'Photos', value: String(openedFolderPhotos.length) },
                           {
@@ -3166,6 +3236,10 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                           {
                             label: 'GPS tagged',
                             value: `${openedFolderPhotos.filter((p) => p.latitude != null).length} / ${openedFolderPhotos.length}`,
+                          },
+                          {
+                            label: 'Article picks',
+                            value: `${articleStarCount} / ${MAX_ARTICLE_STAR_PICKS}`,
                           },
                           {
                             label: 'Tagged',
@@ -3223,6 +3297,21 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                     ) : null}
 
                     <div className="p-6">
+                      <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                        <div className="flex items-start gap-2">
+                          <Star className="mt-0.5 h-4 w-4 shrink-0 fill-amber-500 text-amber-500" />
+                          <div>
+                            <p className="text-sm font-semibold text-amber-900">Article picks (up to 3)</p>
+                            <p className="mt-0.5 text-xs text-amber-800/90">
+                              Star photos the article writer should use. Tap the star on any photo below.
+                              {articleStarCount > 0
+                                ? ` ${articleStarCount} of ${MAX_ARTICLE_STAR_PICKS} selected.`
+                                : ' None selected yet.'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
                       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                         <p className="text-sm font-semibold text-gray-700">
                           {openedFolderPhotos.length} photo{openedFolderPhotos.length !== 1 ? 's' : ''} in this folder
@@ -3294,12 +3383,17 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
                           {openedFolderPhotos.map((photo, index) => {
                             const isSelected = selectedFolderPhotoIds.has(photo.id)
+                            const isArticlePick = photo.article_star_rank != null
                             return (
                               <div
                                 key={photo.id}
                                 className={cn(
                                   'relative overflow-hidden rounded-xl border bg-white transition-all',
-                                  isFolderBulkMode && isSelected ? 'border-slate-900 ring-2 ring-slate-900' : 'border-gray-100',
+                                  isFolderBulkMode && isSelected
+                                    ? 'border-slate-900 ring-2 ring-slate-900'
+                                    : isArticlePick
+                                      ? 'border-amber-400 ring-1 ring-amber-300'
+                                      : 'border-gray-100',
                                 )}
                               >
                                 {isFolderBulkMode ? (
@@ -3317,25 +3411,59 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                                     </svg>
                                   </button>
                                 ) : (
-                                  <div className="absolute right-2 top-2 z-10 flex items-center gap-1">
+                                  <>
                                     <button
-                                      aria-label="Move photo to another folder"
-                                      className="flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white transition-colors hover:bg-black/75"
-                                      onClick={() => openMoveModal([photo.id])}
+                                      aria-label={
+                                        photo.article_star_rank
+                                          ? `Remove article pick ${photo.article_star_rank}`
+                                          : 'Mark for article'
+                                      }
+                                      className={cn(
+                                        'absolute left-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full transition-colors',
+                                        photo.article_star_rank
+                                          ? 'bg-amber-500 text-white hover:bg-amber-600'
+                                          : 'bg-black/55 text-white hover:bg-black/75',
+                                      )}
+                                      disabled={starringPhotoIds.has(photo.id)}
+                                      onClick={() => void handleToggleArticleStar(photo.id)}
                                       type="button"
                                     >
-                                      <ArrowRight className="h-3.5 w-3.5" />
+                                      {starringPhotoIds.has(photo.id) ? (
+                                        <Spinner className="h-3.5 w-3.5" />
+                                      ) : (
+                                        <Star
+                                          className={cn(
+                                            'h-3.5 w-3.5',
+                                            photo.article_star_rank ? 'fill-current' : '',
+                                          )}
+                                        />
+                                      )}
                                     </button>
-                                    <button
-                                      aria-label={`Delete ${photo.original_file_name}`}
-                                      className="flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white transition-colors hover:bg-black/75"
-                                      disabled={deletingPhotoIds.has(photo.id)}
-                                      onClick={() => void handleDeleteDbPhoto(photo.id)}
-                                      type="button"
-                                    >
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                    </button>
-                                  </div>
+                                    {photo.article_star_rank ? (
+                                      <span className="absolute left-2 top-9 z-10 rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-bold text-white">
+                                        #{photo.article_star_rank}
+                                      </span>
+                                    ) : null}
+                                    <div className="absolute right-2 top-2 z-10 flex items-center gap-1">
+                                      <button
+                                        aria-label="Move photo to another folder"
+                                        className="flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white transition-colors hover:bg-black/75"
+                                        onClick={() => openMoveModal([photo.id])}
+                                        type="button"
+                                      >
+                                        <ArrowRight className="h-3.5 w-3.5" />
+                                      </button>
+                                      <button
+                                        aria-label={`Delete ${photo.original_file_name}`}
+                                        className="flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white transition-colors hover:bg-black/75"
+                                        disabled={deletingPhotoIds.has(photo.id)}
+                                        onClick={() => void handleDeleteDbPhoto(photo.id)}
+                                        type="button"
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </button>
+                                    </div>
+                                  </>
                                 )}
                                 <button
                                   className="w-full transition-all hover:opacity-95"
@@ -3437,6 +3565,35 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                                 <div className="flex items-center gap-1">
                                   {!isFolderBulkMode ? (
                                     <button
+                                      aria-label={
+                                        photo.article_star_rank
+                                          ? `Remove article pick ${photo.article_star_rank}`
+                                          : 'Mark for article'
+                                      }
+                                      className={cn(
+                                        'flex h-8 w-8 items-center justify-center rounded-full transition-colors',
+                                        photo.article_star_rank
+                                          ? 'bg-amber-100 text-amber-600 hover:bg-amber-200'
+                                          : 'text-gray-500 hover:bg-gray-100',
+                                      )}
+                                      disabled={starringPhotoIds.has(photo.id)}
+                                      onClick={() => void handleToggleArticleStar(photo.id)}
+                                      type="button"
+                                    >
+                                      {starringPhotoIds.has(photo.id) ? (
+                                        <Spinner className="h-4 w-4" />
+                                      ) : (
+                                        <Star
+                                          className={cn(
+                                            'h-4 w-4',
+                                            photo.article_star_rank ? 'fill-current' : '',
+                                          )}
+                                        />
+                                      )}
+                                    </button>
+                                  ) : null}
+                                  {!isFolderBulkMode ? (
+                                    <button
                                       aria-label="Move to another folder"
                                       className="flex h-8 w-8 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-gray-100"
                                       onClick={() => openMoveModal([photo.id])}
@@ -3507,10 +3664,12 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                     style={{ borderColor: 'var(--ds-outline-variant)' }}
                   >
                     <div>
-                      <h2 className="font-headline text-base font-semibold" style={{ color: 'var(--ds-on-surface)' }}>Upload queue</h2>
+                      <h2 className="font-headline text-base font-semibold" style={{ color: 'var(--ds-on-surface)' }}>Your uploads</h2>
                       <p className="mt-0.5 text-xs" style={{ color: 'var(--ds-on-surface-variant)' }}>
-                        {uploadedImages.length} file{uploadedImages.length !== 1 ? 's' : ''}
-                        {uploadingCount > 0 ? ` · ${uploadingCount} uploading` : ''}
+                        {uploadedImages.length} photo{uploadedImages.length !== 1 ? 's' : ''} picked
+                        {uploadingCount > 0
+                          ? ` · ${uploadingCount} still uploading`
+                          : ` · ${uploadedImages.filter((img) => img.uploadStatus === 'uploaded').length} done`}
                       </p>
                     </div>
                     <button
@@ -3530,6 +3689,10 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                         image.metadata.latitude != null && image.metadata.longitude != null
                       const isBusy =
                         image.uploadStatus === 'uploading' || image.uploadStatus === 'deleting'
+                      const queuedDbPhoto = image.dbId
+                        ? dbPhotos.find((photo) => photo.id === image.dbId)
+                        : null
+                      const queuedStarRank = queuedDbPhoto?.article_star_rank ?? null
 
                       return (
                         <div
@@ -3622,14 +3785,45 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                                   </span>
                                 ) : null}
                               </div>
-                              <button
-                                className="text-[11px] font-medium text-red-400 transition-colors hover:text-red-600 disabled:cursor-not-allowed disabled:text-gray-300"
-                                disabled={isBusy}
-                                onClick={() => void handleDeleteImage(image.id)}
-                                type="button"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </button>
+                              <div className="flex items-center gap-1">
+                                {image.dbId && image.uploadStatus === 'uploaded' ? (
+                                  <button
+                                    aria-label={
+                                      queuedStarRank
+                                        ? `Remove article pick ${queuedStarRank}`
+                                        : 'Mark for article'
+                                    }
+                                    className={cn(
+                                      'flex h-6 w-6 items-center justify-center rounded-full transition-colors',
+                                      queuedStarRank
+                                        ? 'bg-amber-100 text-amber-600'
+                                        : 'text-gray-400 hover:bg-gray-100 hover:text-amber-600',
+                                    )}
+                                    disabled={starringPhotoIds.has(image.dbId)}
+                                    onClick={() => void handleToggleArticleStar(image.dbId!)}
+                                    type="button"
+                                  >
+                                    {starringPhotoIds.has(image.dbId) ? (
+                                      <Spinner className="h-3 w-3" />
+                                    ) : (
+                                      <Star
+                                        className={cn(
+                                          'h-3 w-3',
+                                          queuedStarRank ? 'fill-current' : '',
+                                        )}
+                                      />
+                                    )}
+                                  </button>
+                                ) : null}
+                                <button
+                                  className="text-[11px] font-medium text-red-400 transition-colors hover:text-red-600 disabled:cursor-not-allowed disabled:text-gray-300"
+                                  disabled={isBusy}
+                                  onClick={() => void handleDeleteImage(image.id)}
+                                  type="button"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              </div>
                             </div>
                             {image.uploadError ? (
                               <p className="mt-1 text-[10px] leading-tight text-red-500">

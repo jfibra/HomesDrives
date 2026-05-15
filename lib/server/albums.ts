@@ -1047,6 +1047,15 @@ export type AdminFolderPhoto = {
   province: string | null
   type_of_place: string[]
   tags: string[]
+  article_star_rank: number | null
+}
+
+export const MAX_ARTICLE_STAR_PICKS = 3
+
+export type ArticleStarPhotoRow = {
+  id: string
+  folder_id: string | null
+  article_star_rank: number | null
 }
 
 /** Admin charts: bucket uploads by Philippines local date (no DST). */
@@ -1083,9 +1092,10 @@ export async function listPhotosByFolderId(folderId: string): Promise<AdminFolde
   const { data, error } = await supabaseAdmin
     .from('albums_photos')
     .select(
-      'id, image_url, original_file_name, file_size_bytes, capture_date, created_at, device_make, device_model, width, height, place_name, city, province, type_of_place, tags',
+      'id, image_url, original_file_name, file_size_bytes, capture_date, created_at, device_make, device_model, width, height, place_name, city, province, type_of_place, tags, article_star_rank',
     )
     .eq('folder_id', folderId)
+    .order('article_star_rank', { ascending: true, nullsFirst: false })
     .order('created_at', { ascending: false })
     .limit(1000)
 
@@ -1108,7 +1118,7 @@ export async function listPhotosByUploaderUtcDay(params: {
   let query = supabaseAdmin
     .from('albums_photos')
     .select(
-      'id, image_url, original_file_name, file_size_bytes, capture_date, created_at, device_make, device_model, width, height, place_name, city, province, type_of_place, tags',
+      'id, image_url, original_file_name, file_size_bytes, capture_date, created_at, device_make, device_model, width, height, place_name, city, province, type_of_place, tags, article_star_rank',
     )
     .gte('created_at', startIso)
     .lt('created_at', endExclusiveIso)
@@ -1474,7 +1484,7 @@ export async function listPhotosByUploader(params: {
 
   let query = supabaseAdmin
     .from('albums_photos')
-    .select('id, album_user_id, uploader_code, folder_id, image_url, original_file_name, file_size_bytes, created_at, capture_date, device_make, device_model, place_name, city, province, type_of_place, tags, latitude, longitude')
+    .select('id, album_user_id, uploader_code, folder_id, image_url, original_file_name, file_size_bytes, created_at, capture_date, device_make, device_model, place_name, city, province, type_of_place, tags, latitude, longitude, article_star_rank')
     .order('created_at', { ascending: false })
     .limit(maxRows)
 
@@ -1698,7 +1708,10 @@ export async function movePhotoToFolder(params: {
     if (!folderCtx) throw new Error('Target folder not found.')
   }
 
-  const update: Record<string, unknown> = { folder_id: params.targetFolderId }
+  const update: Record<string, unknown> = {
+    folder_id: params.targetFolderId,
+    article_star_rank: null,
+  }
 
   if (folderCtx) {
     update.place_name = folderCtx.folder_name
@@ -1723,5 +1736,103 @@ export async function movePhotoToFolder(params: {
     .single()
 
   if (error) throw new Error(error.message)
+  return data
+}
+
+async function getPhotoForArticleStar(params: {
+  photoId: string
+  uploaderCode: string
+}): Promise<ArticleStarPhotoRow> {
+  const supabaseAdmin = createSupabaseAdminClient()
+  const { data, error } = await supabaseAdmin
+    .from('albums_photos')
+    .select('id, folder_id, article_star_rank')
+    .eq('id', params.photoId)
+    .eq('uploader_code', params.uploaderCode)
+    .single()
+
+  if (error || !data) {
+    throw new Error('Photo not found.')
+  }
+
+  return data as ArticleStarPhotoRow
+}
+
+export async function setPhotoArticleStar(params: { photoId: string; uploaderCode: string }) {
+  const photo = await getPhotoForArticleStar(params)
+  if (!photo.folder_id) {
+    throw new Error('Assign this photo to a folder before marking it for the article.')
+  }
+
+  if (photo.article_star_rank != null) {
+    return clearPhotoArticleStar(params)
+  }
+
+  const supabaseAdmin = createSupabaseAdminClient()
+  const { data: starred, error: starredError } = await supabaseAdmin
+    .from('albums_photos')
+    .select('article_star_rank')
+    .eq('folder_id', photo.folder_id)
+    .not('article_star_rank', 'is', null)
+
+  if (starredError) {
+    throw new Error(starredError.message)
+  }
+
+  const usedRanks = new Set(
+    (starred ?? [])
+      .map((row) => row.article_star_rank)
+      .filter((rank): rank is number => typeof rank === 'number'),
+  )
+
+  if (usedRanks.size >= MAX_ARTICLE_STAR_PICKS) {
+    throw new Error(`You can only mark ${MAX_ARTICLE_STAR_PICKS} photos per folder for the article.`)
+  }
+
+  let nextRank: number | null = null
+  for (let rank = 1; rank <= MAX_ARTICLE_STAR_PICKS; rank += 1) {
+    if (!usedRanks.has(rank)) {
+      nextRank = rank
+      break
+    }
+  }
+
+  if (nextRank == null) {
+    throw new Error(`You can only mark ${MAX_ARTICLE_STAR_PICKS} photos per folder for the article.`)
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('albums_photos')
+    .update({ article_star_rank: nextRank })
+    .eq('id', params.photoId)
+    .eq('uploader_code', params.uploaderCode)
+    .select('id, folder_id, image_url, article_star_rank')
+    .single()
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return data
+}
+
+export async function clearPhotoArticleStar(params: { photoId: string; uploaderCode: string }) {
+  const supabaseAdmin = createSupabaseAdminClient()
+  const { data, error } = await supabaseAdmin
+    .from('albums_photos')
+    .update({ article_star_rank: null })
+    .eq('id', params.photoId)
+    .eq('uploader_code', params.uploaderCode)
+    .select('id, folder_id, image_url, article_star_rank')
+    .single()
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  if (!data) {
+    throw new Error('Photo not found.')
+  }
+
   return data
 }

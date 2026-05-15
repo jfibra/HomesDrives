@@ -31,6 +31,7 @@ import {
   Plus,
   Search,
   Shield,
+  Star,
   Trash2,
   Users,
   Wand2,
@@ -243,6 +244,7 @@ export default function AdminClient({ user }: { user: AdminUser }) {
     province: string | null
     type_of_place: string[]
     tags: string[]
+    article_star_rank: number | null
   }
   const [browseUser, setBrowseUser] = useState<BrowseUser | null>(null)
   const [browseFolders, setBrowseFolders] = useState<BrowseFolder[]>([])
@@ -647,7 +649,14 @@ export default function AdminClient({ user }: { user: AdminUser }) {
       )
       const data = await r.json().catch(() => null)
       if (!r.ok) throw new Error(data?.error || 'Unable to load photos.')
-      setBrowsePhotos(Array.isArray(data?.photos) ? data.photos : [])
+      setBrowsePhotos(
+        Array.isArray(data?.photos)
+          ? data.photos.map((photo: BrowsePhoto) => ({
+              ...photo,
+              article_star_rank: photo.article_star_rank ?? null,
+            }))
+          : [],
+      )
     } catch (error) {
       setBrowsePhotosError(
         error instanceof Error ? error.message : 'Unable to load photos.',
@@ -681,6 +690,25 @@ export default function AdminClient({ user }: { user: AdminUser }) {
       )
     })
   }, [users, searchQuery])
+
+  const browseArticleStarPhotos = useMemo(
+    () =>
+      browsePhotos
+        .filter((photo) => photo.article_star_rank != null)
+        .sort((a, b) => (a.article_star_rank ?? 0) - (b.article_star_rank ?? 0)),
+    [browsePhotos],
+  )
+
+  const sortedBrowsePhotos = useMemo(
+    () =>
+      [...browsePhotos].sort((a, b) => {
+        const aRank = a.article_star_rank ?? 99
+        const bRank = b.article_star_rank ?? 99
+        if (aRank !== bRank) return aRank - bRank
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      }),
+    [browsePhotos],
+  )
 
   const filteredAllFolders = useMemo(() => {
     const q = folderSearchQuery.trim().toLowerCase()
@@ -2188,6 +2216,19 @@ export default function AdminClient({ user }: { user: AdminUser }) {
                     </div>
                   ) : (
                     <>
+                      <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
+                        <div className="flex items-start gap-2">
+                          <Star className="mt-0.5 h-4 w-4 shrink-0 fill-amber-500 text-amber-500" />
+                          <p className="text-xs text-amber-900">
+                            <span className="font-semibold">Article picks</span>
+                            {' — '}
+                            {browseArticleStarPhotos.length > 0
+                              ? `Media marked ${browseArticleStarPhotos.length} photo${browseArticleStarPhotos.length === 1 ? '' : 's'} for the article.`
+                              : 'No photos starred yet. Media can mark up to 3 per folder.'}
+                          </p>
+                        </div>
+                      </div>
+
                       <div
                         className="mb-3 text-[11px] font-semibold uppercase tracking-wider"
                         style={{ color: 'var(--ds-on-surface-variant)' }}
@@ -2195,14 +2236,23 @@ export default function AdminClient({ user }: { user: AdminUser }) {
                         {browsePhotos.length} photo{browsePhotos.length === 1 ? '' : 's'}
                       </div>
                       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                        {browsePhotos.map((photo) => (
+                        {sortedBrowsePhotos.map((photo) => (
                           <button
                             key={photo.id}
                             className="group relative overflow-hidden rounded-lg border bg-slate-100 transition-all hover:opacity-90"
                             onClick={() => setLightboxPhoto(photo)}
-                            style={{ borderColor: 'var(--ds-outline-variant)' }}
+                            style={{
+                              borderColor: photo.article_star_rank
+                                ? '#fbbf24'
+                                : 'var(--ds-outline-variant)',
+                            }}
                             type="button"
                           >
+                            {photo.article_star_rank ? (
+                              <span className="absolute left-1.5 top-1.5 z-10 flex items-center justify-center rounded-full bg-amber-500 p-1 text-[9px] font-bold text-white">
+                                <Star className="h-2.5 w-2.5 fill-current" />
+                              </span>
+                            ) : null}
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
                               alt={photo.original_file_name}

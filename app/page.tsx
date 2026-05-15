@@ -43,7 +43,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   const sort: AlbumsMarketplaceSort =
     rawSort === 'oldest' || rawSort === 'captured' ? rawSort : 'newest'
 
-  const [placeTypes, tags, { photos, totalCount }] = await Promise.all([
+  const [placeTypes, tags, marketplace] = await Promise.all([
     listAllowedPlaceTypes().catch(() => []),
     listAllowedTags().catch(() => []),
     listMarketplacePhotos({
@@ -53,8 +53,13 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       placeType,
       tag,
       sort,
+    }).catch((error) => {
+      console.error('[HomePage] listMarketplacePhotos failed:', error)
+      return { photos: [], totalCount: 0 }
     }),
   ])
+
+  const { photos, totalCount } = marketplace
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
   const safePage = Math.min(page, totalPages)
