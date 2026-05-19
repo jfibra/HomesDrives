@@ -2675,6 +2675,19 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
               </div>
               <button
                 className="flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors hover:bg-white"
+                onClick={() => router.push(`/media/${encodeURIComponent(liveUser.code)}`)}
+                style={{
+                  borderColor: 'var(--ds-outline-variant)',
+                  color: 'var(--ds-primary)',
+                  backgroundColor: 'var(--ds-surface-container-lowest)',
+                }}
+                type="button"
+              >
+                <Share2 className="h-3.5 w-3.5" />
+                Public profile
+              </button>
+              <button
+                className="flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors hover:bg-white"
                 onClick={openProfileModal}
                 style={{
                   borderColor: 'var(--ds-outline-variant)',
