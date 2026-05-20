@@ -8,6 +8,7 @@ export default function Navbar() {
 
   const navItems = [
     { href: "/", label: "MARKETPLACE" },
+    { href: "/map", label: "MAP" },
     { href: "/about", label: "ABOUT" },
     { href: "/contact", label: "CONTACT" },
   ];

@@ -20,6 +20,7 @@ import {
   ImageIcon,
   List,
   LogOut,
+  Map as MapIcon,
   MapPin,
   Maximize2,
   Menu,
@@ -36,13 +37,15 @@ import {
 } from 'lucide-react'
 
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import AdminMapView from '@/components/admin/AdminMapView'
+import type { MapFolder } from '@/components/admin/AdminMapView'
 import { MAX_AVATAR_UPLOAD_BYTES, MAX_PHOTO_UPLOAD_BYTES } from '@/lib/photo-upload-limits'
 import { cn } from '@/lib/utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type UploadStatus = 'uploading' | 'uploaded' | 'error' | 'deleting'
-type DashboardView = 'upload' | 'my-photos' | 'all-folders'
+type DashboardView = 'upload' | 'my-photos' | 'all-folders' | 'map'
 
 /** System-wide folder row for media directory (read-only). */
 type MediaDirectoryFolderRow = {
@@ -51,6 +54,8 @@ type MediaDirectoryFolderRow = {
   full_address: string | null
   city: string | null
   province: string | null
+  latitude: number | null
+  longitude: number | null
   type_of_place: string[]
   tags: string[]
   notes: string | null
@@ -1032,7 +1037,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
   useEffect(() => {
     if (!isAuthenticated) return
     if (liveUser.role !== 'media') return
-    if (activeView !== 'all-folders') return
+    if (activeView !== 'all-folders' && activeView !== 'map') return
     let cancelled = false
     setIsLoadingMediaDirectory(true)
     setMediaDirectoryError('')
@@ -2622,6 +2627,15 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                     }}
                   />
                   <SidebarNavItem
+                    active={activeView === 'map'}
+                    icon={<MapIcon className="h-5 w-5" />}
+                    label="Map view"
+                    onClick={() => {
+                      setActiveView('map')
+                      setIsSidebarOpen(false)
+                    }}
+                  />
+                  <SidebarNavItem
                     active={activeView === 'upload' && activeFolderId === null}
                     badge={activeFolders.length > 0 ? activeFolders.length : undefined}
                     icon={<FolderOpen className="h-5 w-5" />}
@@ -2721,7 +2735,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
         </aside>
 
         {/* ─── Main content ────────────────────────────────────────────────────── */}
-        <main className="flex-1 min-w-0 overflow-y-auto">
+        <main className={`flex-1 min-w-0 ${activeView === 'map' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
 
           {/* Upload view */}
           {activeView === 'upload' ? (
@@ -3851,6 +3865,19 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                 </div>
               ) : null}
             </div>
+          ) : null}
+
+          {/* Media: map view */}
+          {liveUser.role === 'media' && activeView === 'map' ? (
+            <section className="h-full">
+              <AdminMapView
+                folders={mediaDirectoryFolders as unknown as MapFolder[]}
+                onOpenFolder={() => {
+                  setActiveView('all-folders')
+                  setIsSidebarOpen(false)
+                }}
+              />
+            </section>
           ) : null}
 
           {/* Media: system-wide folder directory (read-only) */}

@@ -548,7 +548,7 @@ export default function AdminMapView({
   onOpenFolder,
 }: {
   folders: MapFolder[]
-  adminCode: string
+  adminCode?: string
   onOpenFolder: (folder: MapFolder) => void
 }) {
   const mapRef = useRef<HTMLDivElement>(null)
@@ -640,9 +640,10 @@ export default function AdminMapView({
       setIsLoadingPhotos(true)
       setFolderPhotos([])
       try {
-        const r = await fetch(
-          `/api/admin/folders/${folderId}/photos?adminCode=${encodeURIComponent(adminCode)}`,
-        )
+        const url = adminCode
+          ? `/api/admin/folders/${folderId}/photos?adminCode=${encodeURIComponent(adminCode)}`
+          : `/api/folders/${folderId}/photos`
+        const r = await fetch(url)
         const data = await r.json().catch(() => null)
         if (!r.ok) throw new Error(data?.error ?? 'Unable to load photos.')
         setFolderPhotos(Array.isArray(data?.photos) ? data.photos : [])
