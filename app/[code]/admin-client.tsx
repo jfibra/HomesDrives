@@ -25,6 +25,7 @@ import {
   Image as ImageIcon,
   LogOut,
   Mail,
+  Map as MapIcon,
   MapPin,
   Menu,
   Phone,
@@ -37,6 +38,9 @@ import {
   Wand2,
   X,
 } from 'lucide-react'
+
+import AdminMapView from '@/components/admin/AdminMapView'
+import type { MapFolder } from '@/components/admin/AdminMapView'
 
 import {
   Dialog,
@@ -114,7 +118,7 @@ type AdminStats = {
   }[]
 }
 
-type AdminView = 'overview' | 'users' | 'folders'
+type AdminView = 'overview' | 'users' | 'folders' | 'map'
 
 type UserFormState = {
   id: number | null
@@ -224,6 +228,8 @@ export default function AdminClient({ user }: { user: AdminUser }) {
     owner_user_id: number | null
     owner_code: string
     owner_name: string
+    latitude: number | null
+    longitude: number | null
   }
   const [allFolders, setAllFolders] = useState<DirectoryFolderRow[]>([])
   const [isLoadingAllFolders, setIsLoadingAllFolders] = useState(false)
@@ -409,7 +415,7 @@ export default function AdminClient({ user }: { user: AdminUser }) {
   }, [isAuthenticated, loadStats, loadUsers])
 
   useEffect(() => {
-    if (!isAuthenticated || activeView !== 'folders') return
+    if (!isAuthenticated || (activeView !== 'folders' && activeView !== 'map')) return
     void loadAllFolders()
   }, [isAuthenticated, activeView, loadAllFolders])
 
@@ -996,6 +1002,15 @@ export default function AdminClient({ user }: { user: AdminUser }) {
               }}
             />
             <NavItem
+              active={activeView === 'map'}
+              icon={<MapIcon className="h-4 w-4" />}
+              label="Map View"
+              onClick={() => {
+                setActiveView('map')
+                setIsSidebarOpen(false)
+              }}
+            />
+            <NavItem
               active={activeView === 'users'}
               icon={<Users className="h-4 w-4" />}
               label="User Management"
@@ -1067,8 +1082,18 @@ export default function AdminClient({ user }: { user: AdminUser }) {
         </aside>
 
         {/* ─── Main ────────────────────────────────────────────────────── */}
-        <main className="flex-1 min-w-0 p-4 sm:p-6 lg:p-8">
-          {activeView === 'overview' ? (
+        <main className={`flex-1 min-w-0 ${activeView === 'map' ? 'overflow-hidden' : 'p-4 sm:p-6 lg:p-8'}`}>
+          {activeView === 'map' ? (
+            <section className="h-full">
+              <AdminMapView
+                folders={allFolders as unknown as MapFolder[]}
+                adminCode={user.code}
+                onOpenFolder={(folder) => {
+                  void openFolderFromDirectory(folder as unknown as DirectoryFolderRow)
+                }}
+              />
+            </section>
+          ) : activeView === 'overview' ? (
             <section className="mx-auto flex max-w-6xl flex-col gap-6">
               <div>
                 <h1
