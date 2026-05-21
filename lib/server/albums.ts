@@ -1238,7 +1238,7 @@ export type AdminStats = {
     photos: number
     totalStorageBytes: number
   }
-  topUploaders: { code: string; name: string; photos: number }[]
+  topUploaders: { code: string; name: string; folders: number }[]
   recentUploads: {
     id: string
     image_url: string
@@ -1264,7 +1264,7 @@ export async function getAdminStats(): Promise<AdminStats> {
 
   const now = new Date()
 
-  // 14 local calendar days in Philippines (PHT), oldest → newest
+  // 14 local calendar days in Philippines (PHT), oldest → newest (bar chart)
   const dayKeys: string[] = []
   for (let i = 13; i >= 0; i--) {
     const t = new Date(now.getTime() - i * 86400000)
@@ -1272,6 +1272,15 @@ export async function getAdminStats(): Promise<AdminStats> {
     if (key) dayKeys.push(key)
   }
   const windowStartIso = manilaCalendarDayUtcRange(dayKeys[0]).startIso
+
+  // 14 local calendar days for the heatmap initial load (user can fetch any range via /api/admin/heatmap)
+  const folderDayKeys: string[] = []
+  for (let i = 13; i >= 0; i--) {
+    const t = new Date(now.getTime() - i * 86400000)
+    const key = formatDateKeyInTimeZone(t.toISOString(), ADMIN_STATS_TIMEZONE)
+    if (key) folderDayKeys.push(key)
+  }
+  const folderWindowStartIso = manilaCalendarDayUtcRange(folderDayKeys[0]).startIso
 
   const [
     usersRes,
@@ -1292,9 +1301,9 @@ export async function getAdminStats(): Promise<AdminStats> {
     // Total storage bytes — fetch only the size column, paginated isn't needed for sum
     // but we still cap at 10k for safety. Adjust if you grow beyond that.
     supabaseAdmin.from('albums_photos').select('file_size_bytes').limit(10000),
-    // Top uploaders — group server-side via a wide select, capped at 10k rows
+    // Top uploaders — count per folder, not per photo
     supabaseAdmin
-      .from('albums_photos')
+      .from('albums_folders')
       .select('uploader_code, uploader_name')
       .limit(10000),
     // Recent uploads
@@ -1310,11 +1319,11 @@ export async function getAdminStats(): Promise<AdminStats> {
       .gte('created_at', windowStartIso)
       .order('created_at', { ascending: true })
       .limit(50000),
-    // 14-day heatmap: folders created per user per day
+    // 30-day heatmap: folders created per user per day (wider window so users can filter any 14-day slice)
     supabaseAdmin
       .from('albums_folders')
       .select('created_at, uploader_code, uploader_name, album_user_id')
-      .gte('created_at', windowStartIso)
+      .gte('created_at', folderWindowStartIso)
       .order('created_at', { ascending: true })
       .limit(50000),
   ])
@@ -1350,8 +1359,8 @@ export async function getAdminStats(): Promise<AdminStats> {
     ),
   }
 
-  // Top uploaders by photo count
-  const byUploader = new Map<string, { code: string; name: string; photos: number }>()
+  // Top uploaders by folder count
+  const byUploader = new Map<string, { code: string; name: string; folders: number }>()
   for (const row of topUploaderRows as {
     uploader_code: string | null
     uploader_name: string | null
@@ -1359,13 +1368,13 @@ export async function getAdminStats(): Promise<AdminStats> {
     const code = row.uploader_code ?? '—'
     const existing = byUploader.get(code)
     if (existing) {
-      existing.photos += 1
+      existing.folders += 1
     } else {
-      byUploader.set(code, { code, name: row.uploader_name ?? 'Unknown', photos: 1 })
+      byUploader.set(code, { code, name: row.uploader_name ?? 'Unknown', folders: 1 })
     }
   }
   const topUploaders = Array.from(byUploader.values())
-    .sort((a, b) => b.photos - a.photos)
+    .sort((a, b) => b.folders - a.folders)
     .slice(0, 5)
 
   const todayKey = dayKeys[dayKeys.length - 1]
@@ -1391,6 +1400,8 @@ export async function getAdminStats(): Promise<AdminStats> {
     byDay.set(day, (byDay.get(day) ?? 0) + 1)
   }
 
+  const folderDaySet = new Set(folderDayKeys)
+
   const perUserFolderByDay = new Map<
     string,
     { code: string; name: string; days: Map<string, number> }
@@ -1405,7 +1416,7 @@ export async function getAdminStats(): Promise<AdminStats> {
     const day = row.created_at
       ? formatDateKeyInTimeZone(row.created_at, ADMIN_STATS_TIMEZONE)
       : null
-    if (!day || !byDay.has(day)) continue
+    if (!day || !folderDaySet.has(day)) continue
 
     const trimmedCode = row.uploader_code?.trim()
     const canonical =
@@ -1421,7 +1432,7 @@ export async function getAdminStats(): Promise<AdminStats> {
       entry = {
         code,
         name: row.uploader_name ?? 'Unknown',
-        days: new Map(dayKeys.map((k) => [k, 0])),
+        days: new Map(folderDayKeys.map((k) => [k, 0])),
       }
       perUserFolderByDay.set(code, entry)
     }
@@ -1442,7 +1453,7 @@ export async function getAdminStats(): Promise<AdminStats> {
       entry = {
         code,
         name,
-        days: new Map(dayKeys.map((k) => [k, 0])),
+        days: new Map(folderDayKeys.map((k) => [k, 0])),
       }
       perUserFolderByDay.set(code, entry)
     } else if (u.full_name?.trim()) {
@@ -1454,7 +1465,7 @@ export async function getAdminStats(): Promise<AdminStats> {
 
   const foldersByUserByDay = Array.from(perUserFolderByDay.values())
     .map((entry) => {
-      const days = dayKeys.map((day) => ({ day, count: entry.days.get(day) ?? 0 }))
+      const days = folderDayKeys.map((day) => ({ day, count: entry.days.get(day) ?? 0 }))
       const total = days.reduce((s, d) => s + d.count, 0)
       const today = entry.days.get(todayKey) ?? 0
       return { code: entry.code, name: entry.name, total, today, days }
@@ -1471,6 +1482,109 @@ export async function getAdminStats(): Promise<AdminStats> {
     uploadsByDay,
     foldersByUserByDay,
   }
+}
+
+export async function getHeatmapData(
+  fromYmd: string,
+  toYmd: string,
+): Promise<AdminStats['foldersByUserByDay']> {
+  const supabaseAdmin = createSupabaseAdminClient()
+
+  // Build day keys between from and to (inclusive), capped at 90 days
+  const fromDate = new Date(`${fromYmd}T00:00:00+08:00`)
+  const toDate = new Date(`${toYmd}T00:00:00+08:00`)
+  if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
+    throw new Error('Invalid date range.')
+  }
+  const msPerDay = 86400000
+  const totalDays = Math.min(90, Math.round((toDate.getTime() - fromDate.getTime()) / msPerDay) + 1)
+  if (totalDays < 1) throw new Error('From date must be before or equal to to date.')
+
+  const heatDayKeys: string[] = []
+  for (let i = 0; i < totalDays; i++) {
+    const t = new Date(fromDate.getTime() + i * msPerDay)
+    const key = formatDateKeyInTimeZone(t.toISOString(), ADMIN_STATS_TIMEZONE)
+    if (key) heatDayKeys.push(key)
+  }
+
+  const windowStart = manilaCalendarDayUtcRange(heatDayKeys[0]).startIso
+  const windowEnd = manilaCalendarDayUtcRange(heatDayKeys[heatDayKeys.length - 1]).endExclusiveIso
+  const heatDaySet = new Set(heatDayKeys)
+  const todayKey = heatDayKeys[heatDayKeys.length - 1]
+
+  const [usersRes, folderRes] = await Promise.all([
+    supabaseAdmin.from('album_users').select('id, code, full_name'),
+    supabaseAdmin
+      .from('albums_folders')
+      .select('created_at, uploader_code, uploader_name, album_user_id')
+      .gte('created_at', windowStart)
+      .lt('created_at', windowEnd)
+      .order('created_at', { ascending: true })
+      .limit(50000),
+  ])
+
+  if (usersRes.error) throw new Error(usersRes.error.message)
+  if (folderRes.error) throw new Error(folderRes.error.message)
+
+  const userRows = usersRes.data ?? []
+  const folderRows = folderRes.data ?? []
+
+  const albumUserIdToCode = new Map<number, string>()
+  for (const u of userRows as { id: number; code: string | null }[]) {
+    const c = u.code?.trim()
+    if (c) albumUserIdToCode.set(u.id, c)
+  }
+
+  const perUser = new Map<string, { code: string; name: string; days: Map<string, number> }>()
+
+  for (const row of folderRows as {
+    created_at: string
+    uploader_code: string | null
+    uploader_name: string | null
+    album_user_id: number | null
+  }[]) {
+    const day = row.created_at ? formatDateKeyInTimeZone(row.created_at, ADMIN_STATS_TIMEZONE) : null
+    if (!day || !heatDaySet.has(day)) continue
+    const trimmedCode = row.uploader_code?.trim()
+    const canonical = row.album_user_id != null ? albumUserIdToCode.get(row.album_user_id) : undefined
+    const code =
+      canonical && canonical.length > 0
+        ? canonical
+        : trimmedCode && trimmedCode.length > 0
+          ? trimmedCode
+          : '—'
+    let entry = perUser.get(code)
+    if (!entry) {
+      entry = { code, name: row.uploader_name ?? 'Unknown', days: new Map(heatDayKeys.map((k) => [k, 0])) }
+      perUser.set(code, entry)
+    }
+    entry.days.set(day, (entry.days.get(day) ?? 0) + 1)
+  }
+
+  for (const u of userRows as { id: number; code: string | null; full_name: string | null }[]) {
+    const code = u.code?.trim()
+    if (!code) continue
+    const name = (u.full_name ?? '').trim() || 'Unknown'
+    let entry = perUser.get(code)
+    if (!entry) {
+      entry = { code, name, days: new Map(heatDayKeys.map((k) => [k, 0])) }
+      perUser.set(code, entry)
+    } else if (u.full_name?.trim()) {
+      entry.name = u.full_name.trim()
+    }
+  }
+
+  return Array.from(perUser.values())
+    .map((entry) => {
+      const days = heatDayKeys.map((day) => ({ day, count: entry.days.get(day) ?? 0 }))
+      const total = days.reduce((s, d) => s + d.count, 0)
+      const today = entry.days.get(todayKey) ?? 0
+      return { code: entry.code, name: entry.name, total, today, days }
+    })
+    .sort((a, b) => {
+      if (b.total !== a.total) return b.total - a.total
+      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+    })
 }
 
 export async function listPhotosByUploader(params: {

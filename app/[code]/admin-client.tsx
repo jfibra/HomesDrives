@@ -98,7 +98,7 @@ type AdminStats = {
     photos: number
     totalStorageBytes: number
   }
-  topUploaders: { code: string; name: string; photos: number }[]
+  topUploaders: { code: string; name: string; folders: number }[]
   recentUploads: {
     id: string
     image_url: string
@@ -1205,55 +1205,78 @@ export default function AdminClient({ user }: { user: AdminUser }) {
                           )
                         }
 
+                        const chartH = 220
+                        const yTicks = [0.25, 0.5, 0.75, 1]
+                        const todayIso = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' })
                         return (
                           <>
-                            <div className="relative">
-                              {/* Y-axis max label */}
-                              <span
-                                className="absolute -left-1 -top-1 text-[10px] tabular-nums"
-                                style={{ color: 'var(--ds-on-surface-variant)' }}
-                              >
-                                {maxDayCount}
-                              </span>
-                              {/* Baseline grid */}
+                            {/* Chart area */}
+                            <div className="relative" style={{ height: chartH }}>
+                              {/* Y-axis gridlines + labels */}
+                              {yTicks.map((t) => (
+                                <div
+                                  key={t}
+                                  className="absolute inset-x-0 flex items-center"
+                                  style={{ bottom: `${t * 100}%` }}
+                                >
+                                  <span
+                                    className="w-9 shrink-0 pr-1.5 text-right text-[9px] tabular-nums leading-none"
+                                    style={{ color: 'var(--ds-on-surface-variant)' }}
+                                  >
+                                    {Math.round(maxDayCount * t)}
+                                  </span>
+                                  <div
+                                    className="flex-1 border-t"
+                                    style={{
+                                      borderColor: 'var(--ds-outline-variant)',
+                                      borderStyle: t === 1 ? 'solid' : 'dashed',
+                                      opacity: t === 1 ? 1 : 0.5,
+                                    }}
+                                  />
+                                </div>
+                              ))}
+                              {/* Baseline */}
                               <div
-                                className="absolute inset-x-0 bottom-0 border-b"
+                                className="absolute inset-x-9 bottom-0 border-b"
                                 style={{ borderColor: 'var(--ds-outline-variant)' }}
                               />
-                              <div
-                                className="absolute inset-x-0 top-1/2 border-b border-dashed"
-                                style={{ borderColor: 'var(--ds-outline-variant)', opacity: 0.5 }}
-                              />
 
-                              <div className="relative flex h-40 items-end gap-1.5 pl-5">
+                              {/* Bars */}
+                              <div className="absolute inset-x-9 bottom-0 top-0 flex items-end gap-1">
                                 {days.map((d) => {
-                                  const heightPct =
-                                    d.count > 0
-                                      ? Math.max(6, (d.count / maxDayCount) * 100)
-                                      : 0
+                                  const isToday = d.day === todayIso
+                                  const pct = d.count > 0
+                                    ? Math.max(4, (d.count / maxDayCount) * 100)
+                                    : 0
                                   return (
                                     <div
                                       key={d.day}
                                       className="group relative flex flex-1 flex-col items-center justify-end"
+                                      style={{ height: '100%' }}
                                     >
-                                      {d.count > 0 ? (
+                                      {d.count > 0 && (
                                         <span
-                                          className="mb-1 text-[10px] font-bold tabular-nums"
-                                          style={{ color: 'var(--ds-primary)' }}
+                                          className="mb-0.5 text-[9px] font-bold tabular-nums leading-none"
+                                          style={{
+                                            color: isToday ? 'var(--ds-secondary)' : 'var(--ds-primary)',
+                                          }}
                                         >
                                           {d.count}
                                         </span>
-                                      ) : null}
+                                      )}
                                       <div
-                                        className="w-full rounded-t-md transition-all"
+                                        className="w-full rounded-t transition-all"
                                         style={{
-                                          backgroundColor:
-                                            d.count > 0
-                                              ? 'var(--ds-primary)'
-                                              : 'var(--ds-surface-container-high)',
-                                          height: d.count > 0 ? `${heightPct}%` : '4px',
+                                          height: d.count > 0 ? `${pct}%` : '3px',
+                                          minHeight: d.count > 0 ? '14px' : undefined,
+                                          backgroundColor: d.count === 0
+                                            ? 'var(--ds-surface-container-high)'
+                                            : isToday
+                                              ? 'var(--ds-secondary)'
+                                              : 'var(--ds-primary)',
+                                          opacity: d.count === 0 ? 0.4 : 1,
                                         }}
-                                        title={`${formatDay(d.day)}: ${d.count} uploads`}
+                                        title={`${formatDay(d.day)}: ${d.count} upload${d.count !== 1 ? 's' : ''}`}
                                       />
                                     </div>
                                   )
@@ -1261,14 +1284,18 @@ export default function AdminClient({ user }: { user: AdminUser }) {
                               </div>
                             </div>
 
-                            {/* X-axis day labels (show every other day) */}
+                            {/* X-axis labels — every day */}
                             <div
-                              className="mt-1 flex gap-1.5 pl-5 text-[10px] tabular-nums"
+                              className="mt-1 flex gap-1 pl-9 text-[9px] tabular-nums"
                               style={{ color: 'var(--ds-on-surface-variant)' }}
                             >
-                              {days.map((d, i) => (
-                                <div key={d.day} className="flex-1 text-center">
-                                  {i % 2 === 0 ? formatDay(d.day) : ''}
+                              {days.map((d) => (
+                                <div
+                                  key={d.day}
+                                  className="flex-1 text-center"
+                                  style={{ fontWeight: d.day === todayIso ? 700 : undefined }}
+                                >
+                                  {formatDay(d.day).replace(' ', ' ')}
                                 </div>
                               ))}
                             </div>
@@ -1305,7 +1332,7 @@ export default function AdminClient({ user }: { user: AdminUser }) {
                                   {u.code}
                                 </div>
                               </div>
-                              <div className="text-sm font-bold">{u.photos}</div>
+                              <div className="text-sm font-bold">{u.folders}</div>
                             </li>
                           ))}
                         </ul>
@@ -1320,7 +1347,7 @@ export default function AdminClient({ user }: { user: AdminUser }) {
                   {/* Daily Uploads by User */}
                   <Panel
                     icon={<CalendarDays className="h-4 w-4" />}
-                    title="Daily Folders by User · Rolling 14-day window (Philippines time)"
+                    title="Daily Folders by User (Philippines time)"
                     action={
                       <span
                         className="text-[11px] font-semibold tabular-nums"
@@ -1341,7 +1368,8 @@ export default function AdminClient({ user }: { user: AdminUser }) {
                       <span className="font-semibold">photo uploads</span> per day.
                     </p>
                     <UploadsByUserHeatmap
-                      data={stats?.foldersByUserByDay ?? []}
+                      adminCode={user.code}
+                      initialData={stats?.foldersByUserByDay ?? []}
                       users={users}
                       onHeatCellClick={(row, day) => openHeatmapDayFolders(row, day)}
                       onSelectUser={(u) =>
@@ -2710,59 +2738,84 @@ function heatmapCountForDay(
 }
 
 function UploadsByUserHeatmap({
-  data,
+  adminCode,
+  initialData,
   users,
   onHeatCellClick,
   onSelectUser,
 }: {
-  data: AdminStats['foldersByUserByDay']
+  adminCode: string
+  initialData: AdminStats['foldersByUserByDay']
   users: AdminUserRow[]
   onHeatCellClick?: (row: { code: string; name: string; userId: number | null }, day: string) => void
   onSelectUser: (user: { id: number; code: string; name: string }) => void
 }) {
-  const allDayKeys = useMemo(() => data[0]?.days.map((d) => d.day) ?? [], [data])
-  const boundsMin = allDayKeys[0] ?? ''
-  const boundsMax = allDayKeys[allDayKeys.length - 1] ?? ''
+  // Derive today and a default 14-day window
+  const todayIso = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' })
+  const defaultFromDate = new Date(Date.now() - 13 * 86400000)
+  const defaultFromIso = defaultFromDate.toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' })
 
-  const [rangeStart, setRangeStart] = useState('')
-  const [rangeEnd, setRangeEnd] = useState('')
+  const [rangeFrom, setRangeFrom] = useState(defaultFromIso)
+  const [rangeTo, setRangeTo] = useState(todayIso)
+  const [data, setData] = useState<AdminStats['foldersByUserByDay']>(initialData)
+  const [isFetching, setIsFetching] = useState(false)
+  const [fetchError, setFetchError] = useState('')
 
+  // When the initial server-side data arrives, seed the state
   useEffect(() => {
-    if (!boundsMin || !boundsMax) return
-    setRangeStart(boundsMin)
-    setRangeEnd(boundsMax)
-  }, [boundsMin, boundsMax])
+    if (initialData.length > 0) setData(initialData)
+  }, [initialData])
 
-  const start = rangeStart && rangeStart >= boundsMin && rangeStart <= boundsMax ? rangeStart : boundsMin
-  const end =
-    rangeEnd && rangeEnd >= boundsMin && rangeEnd <= boundsMax ? rangeEnd : boundsMax
-  const rangeFrom = start <= end ? start : end
-  const rangeTo = start <= end ? end : start
-
-  const filteredDayKeys = useMemo(
-    () => allDayKeys.filter((d) => d >= rangeFrom && d <= rangeTo),
-    [allDayKeys, rangeFrom, rangeTo],
-  )
-
-  function handleRangeStartInput(next: string) {
-    if (!next || !boundsMin || !boundsMax) return
-    let s = next < boundsMin ? boundsMin : next > boundsMax ? boundsMax : next
-    let e = rangeTo
-    if (s > e) e = s
-    setRangeStart(s)
-    setRangeEnd(e)
+  async function fetchRange(from: string, to: string) {
+    if (!from || !to || from > to) return
+    setIsFetching(true)
+    setFetchError('')
+    try {
+      const q = new URLSearchParams({ adminCode, from, to })
+      const r = await fetch(`/api/admin/heatmap?${q}`)
+      const json = await r.json()
+      if (!r.ok) throw new Error(json.error ?? 'Failed to load heatmap.')
+      setData(json.data)
+    } catch (e) {
+      setFetchError(e instanceof Error ? e.message : 'Failed to load heatmap.')
+    } finally {
+      setIsFetching(false)
+    }
   }
 
-  function handleRangeEndInput(next: string) {
-    if (!next || !boundsMin || !boundsMax) return
-    let e = next < boundsMin ? boundsMin : next > boundsMax ? boundsMax : next
-    let s = rangeFrom
-    if (e < s) s = e
-    setRangeStart(s)
-    setRangeEnd(e)
+  function handleFromChange(next: string) {
+    if (!next) return
+    setRangeFrom(next)
+    const effectiveTo = next > rangeTo ? next : rangeTo
+    if (next > rangeTo) setRangeTo(next)
+    void fetchRange(next, effectiveTo)
   }
 
-  if (data.length === 0) {
+  function handleToChange(next: string) {
+    if (!next) return
+    setRangeTo(next)
+    const effectiveFrom = next < rangeFrom ? next : rangeFrom
+    if (next < rangeFrom) setRangeFrom(next)
+    void fetchRange(effectiveFrom, next)
+  }
+
+  const presets: { label: string; days: number }[] = [
+    { label: 'Last 7 days', days: 7 },
+    { label: 'Last 14 days', days: 14 },
+    { label: 'Last 30 days', days: 30 },
+  ]
+
+  function applyPreset(days: number) {
+    const from = new Date(Date.now() - (days - 1) * 86400000)
+      .toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' })
+    setRangeFrom(from)
+    setRangeTo(todayIso)
+    void fetchRange(from, todayIso)
+  }
+
+  const allDayKeys = useMemo(() => data[0]?.days.map((d) => d.day) ?? [], [data])
+
+  if (!isFetching && data.length === 0 && !fetchError) {
     return (
       <div
         className="flex h-32 flex-col items-center justify-center gap-2 rounded-lg border border-dashed text-center"
@@ -2772,79 +2825,107 @@ function UploadsByUserHeatmap({
         }}
       >
         <CalendarDays className="h-6 w-6 opacity-50" />
-        <div className="text-sm font-semibold">
-          No folder activity in the last 14 days
-        </div>
+        <div className="text-sm font-semibold">No folder activity in this period</div>
       </div>
     )
   }
 
-  const userByCode = new Map(users.map((u) => [u.code, u]))
+  const dayCount = Math.round(
+    (new Date(rangeTo).getTime() - new Date(rangeFrom).getTime()) / 86400000,
+  ) + 1
 
-  const globalMax = Math.max(
-    1,
-    ...data.flatMap((user) =>
-      filteredDayKeys.map((day) => heatmapCountForDay(user, day)),
-    ),
-  )
+  const userByCode = new Map(users.map((u) => [u.code, u]))
+  const globalMax = Math.max(1, ...data.flatMap((u) => allDayKeys.map((day) => heatmapCountForDay(u, day))))
   const todayKey = allDayKeys[allDayKeys.length - 1]
-  const isFullRange = rangeFrom === boundsMin && rangeTo === boundsMax
+  const isDefault = rangeFrom === defaultFromIso && rangeTo === todayIso
 
   return (
     <div>
       <div
-        className="mb-3 flex flex-col gap-2 border-b pb-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between"
+        className="mb-3 flex flex-col gap-2 border-b pb-3"
         style={{ borderColor: 'var(--ds-outline-variant)' }}
       >
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="flex flex-col gap-1">
-            <span
-              className="text-[11px] font-semibold uppercase tracking-wider"
-              style={{ color: 'var(--ds-on-surface-variant)' }}
-            >
-              From
-            </span>
-            <input
-              className="form-input w-[11.5rem] py-2 text-sm"
-              max={rangeTo}
-              min={boundsMin}
-              onChange={(e) => handleRangeStartInput(e.target.value)}
-              type="date"
-              value={rangeFrom}
-            />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span
-              className="text-[11px] font-semibold uppercase tracking-wider"
-              style={{ color: 'var(--ds-on-surface-variant)' }}
-            >
-              To
-            </span>
-            <input
-              className="form-input w-[11.5rem] py-2 text-sm"
-              max={boundsMax}
-              min={rangeFrom}
-              onChange={(e) => handleRangeEndInput(e.target.value)}
-              type="date"
-              value={rangeTo}
-            />
-          </label>
+        {/* Quick presets */}
+        <div className="flex flex-wrap gap-1.5">
+          {presets.map((p) => {
+            const presetFrom = new Date(Date.now() - (p.days - 1) * 86400000)
+              .toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' })
+            const active = rangeFrom === presetFrom && rangeTo === todayIso
+            return (
+              <button
+                key={p.days}
+                className="rounded-md border px-2.5 py-1 text-xs font-semibold transition-colors"
+                disabled={isFetching}
+                onClick={() => applyPreset(p.days)}
+                style={{
+                  borderColor: active ? 'var(--ds-primary)' : 'var(--ds-outline-variant)',
+                  backgroundColor: active ? 'var(--ds-primary-container)' : 'transparent',
+                  color: active ? 'var(--ds-on-primary-container)' : 'var(--ds-on-surface)',
+                }}
+                type="button"
+              >
+                {p.label}
+              </button>
+            )
+          })}
         </div>
-        <button
-          className="rounded-lg border px-3 py-2 text-xs font-semibold transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-          disabled={isFullRange}
-          onClick={() => {
-            setRangeStart(boundsMin)
-            setRangeEnd(boundsMax)
-          }}
-          style={{
-            borderColor: 'var(--ds-outline-variant)',
-            color: 'var(--ds-on-surface)',
-          }}
-          type="button"
-        >
-          Reset range
-        </button>
+
+        {/* Custom range inputs — no min/max so you can navigate to any month */}
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1">
+              <span
+                className="text-[11px] font-semibold uppercase tracking-wider"
+                style={{ color: 'var(--ds-on-surface-variant)' }}
+              >
+                From
+              </span>
+              <input
+                className="form-input w-[11.5rem] py-2 text-sm"
+                max={rangeTo}
+                onChange={(e) => handleFromChange(e.target.value)}
+                type="date"
+                value={rangeFrom}
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span
+                className="text-[11px] font-semibold uppercase tracking-wider"
+                style={{ color: 'var(--ds-on-surface-variant)' }}
+              >
+                To
+              </span>
+              <input
+                className="form-input w-[11.5rem] py-2 text-sm"
+                min={rangeFrom}
+                max={todayIso}
+                onChange={(e) => handleToChange(e.target.value)}
+                type="date"
+                value={rangeTo}
+              />
+            </label>
+            <span className="pb-2 text-xs" style={{ color: 'var(--ds-on-surface-variant)' }}>
+              {isFetching ? 'Loading…' : `${dayCount} day${dayCount !== 1 ? 's' : ''} selected`}
+            </span>
+          </div>
+          <button
+            className="rounded-lg border px-3 py-2 text-xs font-semibold transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={isDefault || isFetching}
+            onClick={() => {
+              setRangeFrom(defaultFromIso)
+              setRangeTo(todayIso)
+              void fetchRange(defaultFromIso, todayIso)
+            }}
+            style={{ borderColor: 'var(--ds-outline-variant)', color: 'var(--ds-on-surface)' }}
+            type="button"
+          >
+            Reset to last 14 days
+          </button>
+        </div>
+
+        {fetchError && (
+          <p className="text-xs" style={{ color: 'var(--ds-error)' }}>{fetchError}</p>
+        )}
       </div>
 
       <div
@@ -2863,7 +2944,7 @@ function UploadsByUserHeatmap({
             >
               User
             </th>
-            {filteredDayKeys.map((day) => {
+            {allDayKeys.map((day) => {
               const isToday = day === todayKey
               return (
                 <th
@@ -2899,7 +2980,7 @@ function UploadsByUserHeatmap({
             const matchedUser = userByCode.get(row.code)
             const canBrowse = !!matchedUser
             const endCount = heatmapCountForDay(row, rangeTo)
-            const rangeTotal = filteredDayKeys.reduce(
+            const rangeTotal = allDayKeys.reduce(
               (sum, day) => sum + heatmapCountForDay(row, day),
               0,
             )
@@ -2946,7 +3027,7 @@ function UploadsByUserHeatmap({
                     </div>
                   </div>
                 </td>
-                {filteredDayKeys.map((day) => {
+                {allDayKeys.map((day) => {
                   const d = row.days.find((x) => x.day === day)
                   const count = d?.count ?? 0
                   return (
