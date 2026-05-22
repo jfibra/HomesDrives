@@ -29,36 +29,105 @@ type MediaProfileClientProps = {
   }
 }
 
+function buildCategoryBackground(svg: string) {
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`
+}
+
 const DESTINATIONS = [
   {
     href: (code: string) => `https://homes.ph/form/share-your-news/${encodeURIComponent(code)}`,
     icon: Newspaper,
     label: 'News',
     previewClassName: 'bg-[linear-gradient(135deg,#08243d_0%,#2a5d82_100%)] text-white',
+    previewImage: buildCategoryBackground(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 360">
+        <rect width="600" height="360" fill="#0b2a45"/>
+        <rect x="32" y="42" width="230" height="276" rx="24" fill="#f8fafc" fill-opacity=".12"/>
+        <rect x="62" y="82" width="170" height="18" rx="9" fill="#fff" fill-opacity=".8"/>
+        <rect x="62" y="120" width="170" height="12" rx="6" fill="#fff" fill-opacity=".45"/>
+        <rect x="62" y="146" width="140" height="12" rx="6" fill="#fff" fill-opacity=".45"/>
+        <rect x="62" y="180" width="74" height="92" rx="12" fill="#fff" fill-opacity=".2"/>
+        <rect x="148" y="180" width="84" height="12" rx="6" fill="#fff" fill-opacity=".45"/>
+        <rect x="148" y="206" width="84" height="12" rx="6" fill="#fff" fill-opacity=".45"/>
+        <rect x="148" y="232" width="84" height="12" rx="6" fill="#fff" fill-opacity=".45"/>
+        <circle cx="470" cy="102" r="74" fill="#fff" fill-opacity=".09"/>
+        <circle cx="490" cy="238" r="118" fill="#fff" fill-opacity=".08"/>
+      </svg>`,
+    ),
   },
   {
     href: (code: string) => `https://homes.ph/form/feature-your-restaurant/${encodeURIComponent(code)}`,
     icon: UtensilsCrossed,
     label: 'Restaurant',
     previewClassName: 'bg-[linear-gradient(135deg,#86411d_0%,#d68d4d_100%)] text-white',
+    previewImage: buildCategoryBackground(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 360">
+        <rect width="600" height="360" fill="#7a3718"/>
+        <circle cx="144" cy="180" r="84" fill="#fff" fill-opacity=".14"/>
+        <circle cx="144" cy="180" r="58" fill="none" stroke="#fff" stroke-opacity=".45" stroke-width="18"/>
+        <rect x="288" y="68" width="20" height="170" rx="10" fill="#fff" fill-opacity=".72"/>
+        <rect x="332" y="68" width="20" height="170" rx="10" fill="#fff" fill-opacity=".72"/>
+        <rect x="376" y="68" width="20" height="170" rx="10" fill="#fff" fill-opacity=".72"/>
+        <rect x="288" y="238" width="108" height="22" rx="11" fill="#fff" fill-opacity=".72"/>
+        <path d="M484 82c28 0 50 22 50 50v126h-28V182h-44c-15 0-28-13-28-28v-22c0-28 22-50 50-50z" fill="#fff" fill-opacity=".72"/>
+      </svg>`,
+    ),
   },
   {
     href: (code: string) => `https://homes.ph/form/feature-your-event/${encodeURIComponent(code)}`,
     icon: CalendarDays,
     label: 'Event',
     previewClassName: 'bg-[linear-gradient(135deg,#6f1321_0%,#c55a5d_100%)] text-white',
+    previewImage: buildCategoryBackground(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 360">
+        <rect width="600" height="360" fill="#701827"/>
+        <rect x="78" y="56" width="444" height="248" rx="26" fill="#fff" fill-opacity=".14"/>
+        <rect x="78" y="56" width="444" height="62" rx="26" fill="#fff" fill-opacity=".22"/>
+        <rect x="136" y="38" width="22" height="54" rx="11" fill="#fff" fill-opacity=".8"/>
+        <rect x="442" y="38" width="22" height="54" rx="11" fill="#fff" fill-opacity=".8"/>
+        <rect x="128" y="148" width="86" height="56" rx="14" fill="#fff" fill-opacity=".22"/>
+        <rect x="236" y="148" width="86" height="56" rx="14" fill="#fff" fill-opacity=".22"/>
+        <rect x="344" y="148" width="86" height="56" rx="14" fill="#fff" fill-opacity=".22"/>
+        <rect x="182" y="222" width="86" height="56" rx="14" fill="#fff" fill-opacity=".22"/>
+        <rect x="290" y="222" width="86" height="56" rx="14" fill="#fff" fill-opacity=".22"/>
+      </svg>`,
+    ),
   },
   {
     href: (code: string) => `https://homes.ph/form/list-your-hotel/${encodeURIComponent(code)}`,
     icon: Hotel,
     label: 'Hotels',
     previewClassName: 'bg-[linear-gradient(135deg,#1c3b3a_0%,#5ea49d_100%)] text-white',
+    previewImage: buildCategoryBackground(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 360">
+        <rect width="600" height="360" fill="#173938"/>
+        <rect x="88" y="88" width="168" height="202" rx="16" fill="#fff" fill-opacity=".16"/>
+        <rect x="280" y="54" width="232" height="236" rx="18" fill="#fff" fill-opacity=".13"/>
+        <g fill="#fff" fill-opacity=".42">
+          <rect x="120" y="120" width="26" height="26" rx="6"/><rect x="162" y="120" width="26" height="26" rx="6"/><rect x="204" y="120" width="26" height="26" rx="6"/>
+          <rect x="120" y="162" width="26" height="26" rx="6"/><rect x="162" y="162" width="26" height="26" rx="6"/><rect x="204" y="162" width="26" height="26" rx="6"/>
+          <rect x="120" y="204" width="26" height="26" rx="6"/><rect x="162" y="204" width="26" height="26" rx="6"/><rect x="204" y="204" width="26" height="26" rx="6"/>
+          <rect x="316" y="92" width="30" height="30" rx="7"/><rect x="364" y="92" width="30" height="30" rx="7"/><rect x="412" y="92" width="30" height="30" rx="7"/><rect x="460" y="92" width="30" height="30" rx="7"/>
+          <rect x="316" y="138" width="30" height="30" rx="7"/><rect x="364" y="138" width="30" height="30" rx="7"/><rect x="412" y="138" width="30" height="30" rx="7"/><rect x="460" y="138" width="30" height="30" rx="7"/>
+        </g>
+      </svg>`,
+    ),
   },
   {
     href: (code: string) => `https://homes.ph/form/feature-your-school/${encodeURIComponent(code)}`,
     icon: GraduationCap,
     label: 'Schools',
     previewClassName: 'bg-[linear-gradient(135deg,#44327c_0%,#8677d3_100%)] text-white',
+    previewImage: buildCategoryBackground(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 360">
+        <rect width="600" height="360" fill="#49377f"/>
+        <path d="M300 74l188 82-188 82-188-82 188-82z" fill="#fff" fill-opacity=".7"/>
+        <path d="M194 188v44c0 34 48 62 106 62s106-28 106-62v-44l-106 46-106-46z" fill="#fff" fill-opacity=".28"/>
+        <path d="M468 170v70" stroke="#fff" stroke-opacity=".76" stroke-width="14" stroke-linecap="round"/>
+        <circle cx="468" cy="256" r="22" fill="#fff" fill-opacity=".76"/>
+        <circle cx="116" cy="76" r="84" fill="#fff" fill-opacity=".06"/>
+      </svg>`,
+    ),
   },
   {
     href: (code: string) =>
@@ -66,6 +135,16 @@ const DESTINATIONS = [
     icon: MapPinned,
     label: 'Tourist Spot',
     previewClassName: 'bg-[linear-gradient(135deg,#0f4c3a_0%,#51a66f_100%)] text-white',
+    previewImage: buildCategoryBackground(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 360">
+        <rect width="600" height="360" fill="#0f4a39"/>
+        <path d="M136 84l112-24v214l-112 24V84z" fill="#fff" fill-opacity=".15"/>
+        <path d="M248 60l112 24v214l-112-24V60z" fill="#fff" fill-opacity=".09"/>
+        <path d="M360 84l104-26v214l-104 26V84z" fill="#fff" fill-opacity=".15"/>
+        <path d="M456 142c0 54-74 126-74 126s-74-72-74-126a74 74 0 11148 0z" fill="#fff" fill-opacity=".72"/>
+        <circle cx="382" cy="142" r="28" fill="#0f4a39"/>
+      </svg>`,
+    ),
   },
 ] as const
 
@@ -241,7 +320,7 @@ export default function MediaProfileClient({ profileUrl, user }: MediaProfileCli
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {DESTINATIONS.map(({ href, icon: Icon, label, previewClassName }) => {
+            {DESTINATIONS.map(({ href, icon: Icon, label, previewClassName, previewImage }) => {
               const destinationHref = href(user.code)
 
               return (
@@ -252,10 +331,18 @@ export default function MediaProfileClient({ profileUrl, user }: MediaProfileCli
                   )}
                   key={label}
                 >
-                  <div className={cn('relative min-h-40 p-5', previewClassName)}>
-                   
+                  <div
+                    className={cn('relative min-h-40 overflow-hidden p-5', previewClassName)}
+                    style={{
+                      backgroundImage: `${previewImage}, linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0))`,
+                      backgroundPosition: 'center',
+                      backgroundRepeat: 'no-repeat',
+                      backgroundSize: 'cover',
+                    }}
+                  >
+                    <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(15,23,42,0.24)_0%,rgba(15,23,42,0.62)_100%)]" />
                     <div className="mt-8 flex items-end justify-between gap-4">
-                      <div>
+                      <div className="relative z-10">
                         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">
                           FORM
                         </p>
@@ -263,7 +350,7 @@ export default function MediaProfileClient({ profileUrl, user }: MediaProfileCli
                           {label}
                         </h3>
                       </div>
-                      <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[1.25rem] border border-white/25 bg-white/15 text-white">
+                      <span className="relative z-10 flex h-14 w-14 shrink-0 items-center justify-center rounded-[1.25rem] border border-white/25 bg-white/15 text-white backdrop-blur-sm">
                         <Icon className="h-7 w-7" />
                       </span>
                     </div>
