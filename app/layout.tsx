@@ -15,7 +15,10 @@ const manrope = Manrope({
   variable: '--font-manrope',
 })
 
+const appOrigin = process.env.NEXT_PUBLIC_APP_URL?.trim() || 'http://localhost:3000'
+
 export const metadata: Metadata = {
+  metadataBase: new URL(appOrigin),
   title: 'Homes.ph Drive',
   description: 'Browse and discover premium real estate photography across the Philippines and beyond.',
   manifest: '/site.webmanifest',
