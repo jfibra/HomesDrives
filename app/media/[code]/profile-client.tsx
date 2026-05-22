@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { getHomesFormPath } from '@/lib/app-url'
+import { getHomesFormUrl } from '@/lib/app-url'
 import {
   buildCategoryPhotoBackground,
   CATEGORY_PHOTO_OVERLAY,
@@ -141,14 +141,6 @@ export default function MediaProfileClient({ profileUrl, user }: MediaProfileCli
     return `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(categoryQrTarget.url)}`
   }, [categoryQrTarget])
 
-  function getAbsoluteUrl(path: string) {
-    if (typeof window === 'undefined') {
-      return path
-    }
-
-    return new URL(path, window.location.origin).href
-  }
-
   async function handleShareProfile() {
     try {
       if (navigator.share) {
@@ -264,7 +256,7 @@ export default function MediaProfileClient({ profileUrl, user }: MediaProfileCli
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {DESTINATIONS.map(({ slug, icon: Icon, label, previewPhoto, previewTint }) => {
-              const destinationHref = getHomesFormPath(slug, user.code)
+              const destinationHref = getHomesFormUrl(slug, user.code)
 
               return (
                 <article
@@ -308,7 +300,7 @@ export default function MediaProfileClient({ profileUrl, user }: MediaProfileCli
                         onClick={() =>
                           setCategoryQrTarget({
                             label,
-                            url: getAbsoluteUrl(destinationHref),
+                            url: destinationHref,
                           })
                         }
                         type="button"
