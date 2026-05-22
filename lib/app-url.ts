@@ -19,11 +19,12 @@ export function getPublicAppOrigin() {
   return DEFAULT_PRODUCTION_ORIGIN
 }
 
-/** Legacy homes.ph form URLs, routed locally when using localhost. */
-export function getHomesFormUrl(slug: string, code: string) {
-  const origin = getPublicAppOrigin()
-  const safeSlug = encodeURIComponent(slug)
-  const safeCode = encodeURIComponent(code)
+/** Relative form path — use with the current site origin (QR, links in the browser). */
+export function getHomesFormPath(slug: string, code: string) {
+  return `/form/${encodeURIComponent(slug)}/${encodeURIComponent(code)}`
+}
 
-  return `${origin}/form/${safeSlug}/${safeCode}`
+/** Absolute form URL using NEXT_PUBLIC_APP_URL or production default (server/email). */
+export function getHomesFormUrl(slug: string, code: string) {
+  return `${getPublicAppOrigin()}${getHomesFormPath(slug, code)}`
 }

@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { getHomesFormUrl } from '@/lib/app-url'
+import { getHomesFormPath } from '@/lib/app-url'
 import {
   buildCategoryPhotoBackground,
   CATEGORY_PHOTO_OVERLAY,
@@ -38,42 +38,42 @@ type MediaProfileClientProps = {
 
 const DESTINATIONS = [
   {
-    href: (code: string) => getHomesFormUrl('share-your-news', code),
+    slug: 'share-your-news',
     icon: Newspaper,
     label: 'News',
     previewPhoto: buildCategoryPhotoBackground(CATEGORY_PREVIEW_PHOTOS.news),
     previewTint: 'linear-gradient(135deg, rgba(30,64,175,0.22), rgba(15,23,42,0.08))',
   },
   {
-    href: (code: string) => getHomesFormUrl('feature-your-restaurant', code),
+    slug: 'feature-your-restaurant',
     icon: UtensilsCrossed,
     label: 'Restaurant',
     previewPhoto: buildCategoryPhotoBackground(CATEGORY_PREVIEW_PHOTOS.restaurant),
     previewTint: 'linear-gradient(135deg, rgba(124,45,18,0.24), rgba(15,23,42,0.1))',
   },
   {
-    href: (code: string) => getHomesFormUrl('feature-your-event', code),
+    slug: 'feature-your-event',
     icon: CalendarDays,
     label: 'Event',
     previewPhoto: buildCategoryPhotoBackground(CATEGORY_PREVIEW_PHOTOS.event),
     previewTint: 'linear-gradient(135deg, rgba(88,28,135,0.2), rgba(15,23,42,0.1))',
   },
   {
-    href: (code: string) => getHomesFormUrl('list-your-hotel', code),
+    slug: 'list-your-hotel',
     icon: Hotel,
     label: 'Hotels',
     previewPhoto: buildCategoryPhotoBackground(CATEGORY_PREVIEW_PHOTOS.hotel),
     previewTint: 'linear-gradient(135deg, rgba(15,118,110,0.22), rgba(15,23,42,0.08))',
   },
   {
-    href: (code: string) => getHomesFormUrl('feature-your-school', code),
+    slug: 'feature-your-school',
     icon: GraduationCap,
     label: 'Schools',
     previewPhoto: buildCategoryPhotoBackground(CATEGORY_PREVIEW_PHOTOS.school),
     previewTint: 'linear-gradient(135deg, rgba(79,70,229,0.2), rgba(15,23,42,0.1))',
   },
   {
-    href: (code: string) => getHomesFormUrl('feature-your-tourist-spot', code),
+    slug: 'feature-your-tourist-spot',
     icon: MapPinned,
     label: 'Tourist Spot',
     previewPhoto: buildCategoryPhotoBackground(CATEGORY_PREVIEW_PHOTOS.touristSpot),
@@ -146,7 +146,7 @@ export default function MediaProfileClient({ profileUrl, user }: MediaProfileCli
       return path
     }
 
-    return new URL(path, window.location.origin).toString()
+    return new URL(path, window.location.origin).href
   }
 
   async function handleShareProfile() {
@@ -263,8 +263,8 @@ export default function MediaProfileClient({ profileUrl, user }: MediaProfileCli
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {DESTINATIONS.map(({ href, icon: Icon, label, previewPhoto, previewTint }) => {
-              const destinationHref = href(user.code)
+            {DESTINATIONS.map(({ slug, icon: Icon, label, previewPhoto, previewTint }) => {
+              const destinationHref = getHomesFormPath(slug, user.code)
 
               return (
                 <article
