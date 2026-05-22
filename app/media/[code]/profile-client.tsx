@@ -8,6 +8,7 @@ import {
   GraduationCap,
   Hotel,
   Link2,
+  MapPinned,
   Newspaper,
   Phone,
   QrCode,
@@ -30,34 +31,41 @@ type MediaProfileClientProps = {
 
 const DESTINATIONS = [
   {
-    href: (code: string) => `/media/${encodeURIComponent(code)}/news`,
+    href: (code: string) => `https://homes.ph/form/share-your-news/${encodeURIComponent(code)}`,
     icon: Newspaper,
     label: 'News',
     previewClassName: 'bg-[linear-gradient(135deg,#08243d_0%,#2a5d82_100%)] text-white',
   },
   {
-    href: (code: string) => `/media/${encodeURIComponent(code)}/restaurants`,
+    href: (code: string) => `https://homes.ph/form/feature-your-restaurant/${encodeURIComponent(code)}`,
     icon: UtensilsCrossed,
     label: 'Restaurant',
     previewClassName: 'bg-[linear-gradient(135deg,#86411d_0%,#d68d4d_100%)] text-white',
   },
   {
-    href: (code: string) => `/media/${encodeURIComponent(code)}/event`,
+    href: (code: string) => `https://homes.ph/form/feature-your-event/${encodeURIComponent(code)}`,
     icon: CalendarDays,
     label: 'Event',
     previewClassName: 'bg-[linear-gradient(135deg,#6f1321_0%,#c55a5d_100%)] text-white',
   },
   {
-    href: (code: string) => `/media/${encodeURIComponent(code)}/hotels`,
+    href: (code: string) => `https://homes.ph/form/list-your-hotel/${encodeURIComponent(code)}`,
     icon: Hotel,
     label: 'Hotels',
     previewClassName: 'bg-[linear-gradient(135deg,#1c3b3a_0%,#5ea49d_100%)] text-white',
   },
   {
-    href: (code: string) => `/media/${encodeURIComponent(code)}/schools`,
+    href: (code: string) => `https://homes.ph/form/feature-your-school/${encodeURIComponent(code)}`,
     icon: GraduationCap,
     label: 'Schools',
     previewClassName: 'bg-[linear-gradient(135deg,#44327c_0%,#8677d3_100%)] text-white',
+  },
+  {
+    href: (code: string) =>
+      `https://dev.homes.ph/form/feature-your-tourist-spot/${encodeURIComponent(code)}`,
+    icon: MapPinned,
+    label: 'Tourist Spot',
+    previewClassName: 'bg-[linear-gradient(135deg,#0f4c3a_0%,#51a66f_100%)] text-white',
   },
 ] as const
 
