@@ -2448,16 +2448,20 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
       />
 
       {/* Mobile sidebar backdrop */}
-      {isSidebarOpen ? (
-        <div
-          className="fixed inset-0 z-20 bg-black/20 md:hidden"
-          onClick={() => setIsSidebarOpen(false)}
-        />
-      ) : null}
+      <div
+        className="fixed inset-0 z-20 md:hidden transition-all duration-300"
+        style={{
+          backgroundColor: 'rgba(0,0,0,0.3)',
+          backdropFilter: isSidebarOpen ? 'blur(6px)' : 'blur(0px)',
+          opacity: isSidebarOpen ? 1 : 0,
+          pointerEvents: isSidebarOpen ? 'auto' : 'none',
+        }}
+        onClick={() => setIsSidebarOpen(false)}
+      />
 
       {/* ─── Top Bar ─────────────────────────────────────────────────────────── */}
       <header
-        className="relative z-30 flex h-20 min-w-0 shrink-0 items-center gap-2 border-b px-4 sm:px-16"
+        className="relative z-30 flex h-16 min-w-0 shrink-0 items-center gap-2 border-b px-4 sm:h-20 sm:px-8 lg:px-16"
         style={{
           backgroundColor: 'rgba(255,255,255,0.9)',
           backdropFilter: 'blur(12px)',
@@ -2485,48 +2489,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
           </div>
         </div>
 
-        {/* Center: search */}
-        <div
-          className="mx-2 flex min-w-0 flex-1 max-w-2xl items-center gap-2 rounded-lg border px-4 py-2.5 transition-all"
-          style={{
-            backgroundColor: 'var(--ds-surface-container)',
-            borderColor: 'var(--ds-outline-variant)',
-          }}
-          onFocus={(e) => {
-            const el = e.currentTarget
-            el.style.backgroundColor = 'var(--ds-surface-container-lowest)'
-            el.style.boxShadow = '0 0 0 1px var(--ds-primary)'
-            el.style.borderColor = 'var(--ds-primary)'
-          }}
-          onBlur={(e) => {
-            const el = e.currentTarget
-            el.style.backgroundColor = 'var(--ds-surface-container)'
-            el.style.boxShadow = 'none'
-            el.style.borderColor = 'var(--ds-outline-variant)'
-          }}
-        >
-          <Search className="h-4 w-4 shrink-0" style={{ color: 'var(--ds-outline)' }} />
-          <input
-            className="flex-1 bg-transparent text-sm outline-none placeholder:text-gray-400"
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search in Homes Albums"
-            style={{ color: 'var(--ds-on-surface)' }}
-            type="search"
-            value={searchQuery}
-          />
-          {searchQuery ? (
-            <button
-              className="transition-colors hover:opacity-60"
-              onClick={() => setSearchQuery('')}
-              style={{ color: 'var(--ds-outline)' }}
-              type="button"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          ) : null}
-        </div>
-
-        {/* Right: user avatar */}
+{/* Right: user avatar */}
         <div className="ml-auto flex shrink-0 items-center gap-2">
           <button
             className="rounded-full transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ds-primary)] focus-visible:ring-offset-2"
@@ -2549,8 +2512,8 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
         {/* Sidebar */}
         <aside
           className={cn(
-            'fixed inset-y-0 left-0 z-20 flex w-64 flex-col pt-20 transition-transform duration-200',
-            'md:relative md:inset-auto md:z-auto md:pt-0 md:translate-x-0',
+            'fixed inset-y-0 left-0 z-20 flex w-64 flex-col pt-16 transition-transform duration-200',
+            'md:relative md:inset-auto md:z-auto md:pt-0 md:translate-x-0 sm:pt-20',
             isSidebarOpen ? 'translate-x-0 shadow-xl' : '-translate-x-full',
           )}
           style={{
@@ -2739,7 +2702,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
 
           {/* Upload view */}
           {activeView === 'upload' ? (
-            <div className="space-y-12 px-8 py-12 lg:px-16">
+            <div className="space-y-8 px-4 py-6 sm:space-y-12 sm:px-8 sm:py-10 lg:px-16 lg:py-12">
 
               {/* ── Dashboard header ─────────────────────────────────── */}
               <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
@@ -2755,7 +2718,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                   </p>
                 </div>
                 <button
-                  className="shrink-0 inline-flex items-center gap-2 rounded-lg px-6 py-3 text-label-caps font-bold text-white transition-all hover:opacity-90 active:scale-95"
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg px-6 py-3 text-label-caps font-bold text-white transition-all hover:opacity-90 active:scale-95 sm:w-auto sm:shrink-0"
                   style={{ backgroundColor: 'var(--ds-primary)', boxShadow: '0 4px 12px rgba(0,32,69,0.2)' }}
                   onClick={() => { resetFolderModalState(); setIsFolderModalOpen(true) }}
                   type="button"

@@ -775,18 +775,18 @@ export default function AdminMapView({
         </div>
       )}
 
-      {/* Search bar — top center */}
+      {/* Search bar — top center (desktop) / top right (mobile) */}
       {isMapLoaded && (
-        <div className="absolute left-1/2 top-3 z-10 -translate-x-1/2">
+        <div className="absolute right-3 top-3 z-10 sm:left-1/2 sm:right-auto sm:-translate-x-1/2">
           <div
             className="flex items-center gap-2 rounded-xl border bg-white/95 px-3 py-2 shadow-md backdrop-blur"
             style={{ borderColor: 'var(--ds-outline-variant)' }}
           >
             <Search className="h-4 w-4 shrink-0 text-gray-400" />
             <input
-              className="w-56 bg-transparent text-sm outline-none placeholder:text-gray-400"
+              className="w-28 bg-transparent text-sm outline-none placeholder:text-gray-400 sm:w-56"
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search places, cities, types…"
+              placeholder="Search places…"
               style={{ color: 'var(--ds-on-surface)' }}
               type="text"
               value={searchQuery}
@@ -807,9 +807,9 @@ export default function AdminMapView({
 
       {/* Category count summary — below search bar */}
       {isMapLoaded && categoryCounts.length > 0 && (
-        <div className="absolute left-1/2 top-14 z-10 -translate-x-1/2">
+        <div className="absolute left-1/2 top-14 z-10 -translate-x-1/2 sm:top-14">
           <div
-            className="flex max-w-[80vw] gap-1.5 overflow-x-auto rounded-2xl border bg-white/95 p-1.5 shadow-md backdrop-blur"
+            className="flex max-w-[92vw] gap-1.5 overflow-x-auto rounded-2xl border bg-white/95 p-1.5 shadow-md backdrop-blur sm:max-w-[80vw]"
             style={{ borderColor: 'var(--ds-outline-variant)', scrollbarWidth: 'none' }}
           >
             {categoryCounts.map(({ key, label, icon: Icon, color, count }) => (
@@ -841,10 +841,10 @@ export default function AdminMapView({
         </div>
       )}
 
-      {/* Category filter strip — right side (hidden when detail panel is open) */}
+      {/* Category filter strip — right side, desktop only (hidden when detail panel is open) */}
       {isMapLoaded && !selectedFolder && (
         <div
-          className="absolute right-14 top-1/2 z-10 flex -translate-y-1/2 flex-col gap-1 rounded-2xl border bg-white/95 p-1.5 shadow-lg backdrop-blur"
+          className="absolute right-14 top-1/2 z-10 hidden -translate-y-1/2 flex-col gap-1 rounded-2xl border bg-white/95 p-1.5 shadow-lg backdrop-blur sm:flex"
           style={{ borderColor: 'var(--ds-outline-variant)' }}
         >
           {FILTER_CATEGORIES.map(({ key, label, icon: Icon, color }) => (
@@ -881,7 +881,7 @@ export default function AdminMapView({
       {/* ── Side panel ── */}
       {selectedFolder && (
         <div
-          className="absolute right-0 top-0 z-10 flex h-full w-80 flex-col overflow-hidden border-l bg-white shadow-2xl"
+          className="absolute right-0 top-0 z-10 flex h-full w-full flex-col overflow-hidden border-l bg-white shadow-2xl sm:w-80"
           style={{ borderColor: 'var(--ds-outline-variant)' }}
         >
           {/* Panel header */}

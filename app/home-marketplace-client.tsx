@@ -215,7 +215,7 @@ export default function HomeMarketplaceClient({
       <section
         id="marketplace"
         className="mx-auto max-w-[1280px] px-4 py-12 sm:px-6 sm:py-16 lg:px-8 lg:py-20"
-        style={{ scrollMarginTop: "140px" }}
+        style={{ scrollMarginTop: "80px" }}
       >
         {/* Mobile / tablet filter bar — hidden on lg where the sidebar takes over */}
         <div className="mb-6 space-y-3 lg:hidden">
