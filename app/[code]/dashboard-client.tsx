@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   Archive,
@@ -20,6 +20,7 @@ import {
   ImageIcon,
   List,
   LogOut,
+  Map as MapIcon,
   MapPin,
   Maximize2,
   Menu,
@@ -27,20 +28,45 @@ import {
   Pencil,
   Search,
   Share2,
+  Star,
   StickyNote,
   Trash2,
   Upload,
+  Users,
   X,
 } from 'lucide-react'
 
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import AdminMapView from '@/components/admin/AdminMapView'
+import type { MapFolder } from '@/components/admin/AdminMapView'
 import { MAX_AVATAR_UPLOAD_BYTES, MAX_PHOTO_UPLOAD_BYTES } from '@/lib/photo-upload-limits'
 import { cn } from '@/lib/utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type UploadStatus = 'uploading' | 'uploaded' | 'error' | 'deleting'
-type DashboardView = 'upload' | 'my-photos'
+type DashboardView = 'upload' | 'my-photos' | 'all-folders' | 'map'
+
+/** System-wide folder row for media directory (read-only). */
+type MediaDirectoryFolderRow = {
+  id: string
+  folder_name: string
+  full_address: string | null
+  city: string | null
+  province: string | null
+  latitude: number | null
+  longitude: number | null
+  type_of_place: string[]
+  tags: string[]
+  notes: string | null
+  status: string
+  created_at: string
+  photo_count: number
+  cover_image_url: string | null
+  owner_user_id: number | null
+  owner_code: string
+  owner_name: string
+}
 
 type GoogleMapsWindow = Window & { google?: any }
 
@@ -149,7 +175,10 @@ type DbPhoto = {
   tags: string[]
   latitude: number | null
   longitude: number | null
+  article_star_rank: number | null
 }
+
+const MAX_ARTICLE_STAR_PICKS = 3
 
 type AlbumFolder = {
   id: string
@@ -657,6 +686,10 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [activeView, setActiveView] = useState<DashboardView>('upload')
   const [searchQuery, setSearchQuery] = useState('')
+  const [mediaDirectoryFolders, setMediaDirectoryFolders] = useState<MediaDirectoryFolderRow[]>([])
+  const [isLoadingMediaDirectory, setIsLoadingMediaDirectory] = useState(false)
+  const [mediaDirectoryError, setMediaDirectoryError] = useState('')
+  const [mediaDirectorySearch, setMediaDirectorySearch] = useState('')
 
   // Upload state
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -744,6 +777,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
   const [photosViewMode, setPhotosViewMode] = useState<'grid' | 'list'>('grid')
   const [folderPhotosViewMode, setFolderPhotosViewMode] = useState<'grid' | 'list'>('grid')
   const [deletingPhotoIds, setDeletingPhotoIds] = useState<Set<string>>(new Set())
+  const [starringPhotoIds, setStarringPhotoIds] = useState<Set<string>>(new Set())
   const [lightboxImages, setLightboxImages] = useState<LightboxImage[]>([])
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
 
@@ -968,7 +1002,14 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
       )
       const data = await r.json()
       if (!r.ok) throw new Error(data?.error || 'Unable to load photos.')
-      setDbPhotos(Array.isArray(data.photos) ? data.photos : [])
+      setDbPhotos(
+        Array.isArray(data.photos)
+          ? data.photos.map((photo: DbPhoto) => ({
+              ...photo,
+              article_star_rank: photo.article_star_rank ?? null,
+            }))
+          : [],
+      )
       if (!silent) setPhotosError('')
     } catch (error) {
       setPhotosError(error instanceof Error ? error.message : 'Unable to load photos.')
@@ -992,6 +1033,38 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
     if (!isAuthenticated) return
     void loadFolders()
   }, [isAuthenticated, liveUser.fullName, user.code])
+
+  useEffect(() => {
+    if (!isAuthenticated) return
+    if (liveUser.role !== 'media') return
+    if (activeView !== 'all-folders' && activeView !== 'map') return
+    let cancelled = false
+    setIsLoadingMediaDirectory(true)
+    setMediaDirectoryError('')
+    void (async () => {
+      try {
+        const r = await fetch(
+          `/api/media/folders?uploaderCode=${encodeURIComponent(user.code)}`,
+        )
+        const data = await r.json()
+        if (!r.ok) throw new Error(data?.error || 'Unable to load folder directory.')
+        const list = Array.isArray(data.folders) ? (data.folders as MediaDirectoryFolderRow[]) : []
+        if (!cancelled) setMediaDirectoryFolders(list)
+      } catch (e) {
+        if (!cancelled) {
+          setMediaDirectoryError(
+            e instanceof Error ? e.message : 'Unable to load folder directory.',
+          )
+          setMediaDirectoryFolders([])
+        }
+      } finally {
+        if (!cancelled) setIsLoadingMediaDirectory(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [isAuthenticated, liveUser.role, activeView, user.code])
 
   useEffect(() => {
     if (!isTagModalOpen) return
@@ -1365,9 +1438,11 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
       }
       const r = await fetch('/api/photos', { method: 'POST', body: formData })
       const rawText = await r.text()
-      let data: { error?: string } | null = null
+      let data: { error?: string; photo?: { id: string; image_url: string } } | null = null
       try {
-        data = rawText ? (JSON.parse(rawText) as { error?: string }) : null
+        data = rawText
+          ? (JSON.parse(rawText) as { error?: string; photo?: { id: string; image_url: string } })
+          : null
       } catch {
         data = null
       }
@@ -1379,15 +1454,13 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
         throw new Error(data?.error || fallback)
       }
 
-      // Remove completed uploads from the queue immediately.
-      URL.revokeObjectURL(image.previewUrl)
-      previewUrlsRef.current = previewUrlsRef.current.filter((url) => url !== image.previewUrl)
-      setSelectedIds((prev) => {
-        const next = new Set(prev)
-        next.delete(image.id)
-        return next
-      })
-      setUploadedImages((imgs) => imgs.filter((img) => img.id !== image.id))
+      updateUploadedImage(image.id, (img) => ({
+        ...img,
+        dbId: data?.photo?.id ?? img.dbId,
+        imageUrl: data?.photo?.image_url ?? img.imageUrl,
+        uploadError: null,
+        uploadStatus: 'uploaded',
+      }))
     } catch (error) {
       updateUploadedImage(image.id, (img) => ({
         ...img,
@@ -1417,6 +1490,46 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
         uploadError: error instanceof Error ? error.message : 'Unable to delete photo.',
         uploadStatus: image.dbId ? 'uploaded' : 'error',
       }))
+    }
+  }
+
+  async function handleToggleArticleStar(photoId: string) {
+    if (starringPhotoIds.has(photoId)) return
+
+    setStarringPhotoIds((prev) => {
+      const next = new Set(prev)
+      next.add(photoId)
+      return next
+    })
+    setAnalysisError('')
+
+    try {
+      const r = await fetch(`/api/photos/${photoId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'star', uploaderCode: user.code }),
+      })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data?.error || 'Unable to update article star.')
+
+      const rank =
+        typeof data?.photo?.article_star_rank === 'number' ? data.photo.article_star_rank : null
+
+      setDbPhotos((current) =>
+        current.map((photo) =>
+          photo.id === photoId ? { ...photo, article_star_rank: rank } : photo,
+        ),
+      )
+    } catch (error) {
+      setAnalysisError(
+        error instanceof Error ? error.message : 'Unable to update article star.',
+      )
+    } finally {
+      setStarringPhotoIds((prev) => {
+        const next = new Set(prev)
+        next.delete(photoId)
+        return next
+      })
     }
   }
 
@@ -1961,9 +2074,49 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
   const displayedFolders = showArchivedFolders ? archivedFolders : activeFolders
   const hasPhotosFilters = !!(photosFilterFolderId || photosFilterGpsOnly || photosFilterUntagged)
 
-  const openedFolderPhotos = activeFolderId
-    ? dbPhotos.filter((photo) => photo.folder_id === activeFolderId)
-    : []
+  const filteredMediaDirectoryFolders = useMemo(() => {
+    const q = mediaDirectorySearch.trim().toLowerCase()
+    if (!q) return mediaDirectoryFolders
+    return mediaDirectoryFolders.filter((f) => {
+      const hay = [
+        f.folder_name,
+        f.full_address ?? '',
+        f.city ?? '',
+        f.province ?? '',
+        f.owner_name,
+        f.owner_code,
+        f.status,
+        f.notes ?? '',
+        ...(f.type_of_place ?? []),
+        ...(f.tags ?? []),
+      ]
+        .join(' ')
+        .toLowerCase()
+      return hay.includes(q)
+    })
+  }, [mediaDirectoryFolders, mediaDirectorySearch])
+
+  const openedFolderPhotos = useMemo(() => {
+    if (!activeFolderId) return []
+    return dbPhotos
+      .filter((photo) => photo.folder_id === activeFolderId)
+      .sort((a, b) => {
+        const aRank = a.article_star_rank ?? 99
+        const bRank = b.article_star_rank ?? 99
+        if (aRank !== bRank) return aRank - bRank
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      })
+  }, [activeFolderId, dbPhotos])
+
+  const articleStarPhotos = useMemo(
+    () =>
+      openedFolderPhotos
+        .filter((photo) => photo.article_star_rank != null)
+        .sort((a, b) => (a.article_star_rank ?? 0) - (b.article_star_rank ?? 0)),
+    [openedFolderPhotos],
+  )
+
+  const articleStarCount = articleStarPhotos.length
 
   const uploadedLightboxItems: LightboxImage[] = uploadedImages.map((image) => ({
     id: image.id,
@@ -2295,16 +2448,20 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
       />
 
       {/* Mobile sidebar backdrop */}
-      {isSidebarOpen ? (
-        <div
-          className="fixed inset-0 z-20 bg-black/20 md:hidden"
-          onClick={() => setIsSidebarOpen(false)}
-        />
-      ) : null}
+      <div
+        className="fixed inset-0 z-20 md:hidden transition-all duration-300"
+        style={{
+          backgroundColor: 'rgba(0,0,0,0.3)',
+          backdropFilter: isSidebarOpen ? 'blur(6px)' : 'blur(0px)',
+          opacity: isSidebarOpen ? 1 : 0,
+          pointerEvents: isSidebarOpen ? 'auto' : 'none',
+        }}
+        onClick={() => setIsSidebarOpen(false)}
+      />
 
       {/* ─── Top Bar ─────────────────────────────────────────────────────────── */}
       <header
-        className="relative z-30 flex h-20 min-w-0 shrink-0 items-center gap-2 border-b px-4 sm:px-16"
+        className="relative z-30 flex h-16 min-w-0 shrink-0 items-center gap-2 border-b px-4 sm:h-20 sm:px-8 lg:px-16"
         style={{
           backgroundColor: 'rgba(255,255,255,0.9)',
           backdropFilter: 'blur(12px)',
@@ -2332,48 +2489,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
           </div>
         </div>
 
-        {/* Center: search */}
-        <div
-          className="mx-2 flex min-w-0 flex-1 max-w-2xl items-center gap-2 rounded-lg border px-4 py-2.5 transition-all"
-          style={{
-            backgroundColor: 'var(--ds-surface-container)',
-            borderColor: 'var(--ds-outline-variant)',
-          }}
-          onFocus={(e) => {
-            const el = e.currentTarget
-            el.style.backgroundColor = 'var(--ds-surface-container-lowest)'
-            el.style.boxShadow = '0 0 0 1px var(--ds-primary)'
-            el.style.borderColor = 'var(--ds-primary)'
-          }}
-          onBlur={(e) => {
-            const el = e.currentTarget
-            el.style.backgroundColor = 'var(--ds-surface-container)'
-            el.style.boxShadow = 'none'
-            el.style.borderColor = 'var(--ds-outline-variant)'
-          }}
-        >
-          <Search className="h-4 w-4 shrink-0" style={{ color: 'var(--ds-outline)' }} />
-          <input
-            className="flex-1 bg-transparent text-sm outline-none placeholder:text-gray-400"
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search in Homes Albums"
-            style={{ color: 'var(--ds-on-surface)' }}
-            type="search"
-            value={searchQuery}
-          />
-          {searchQuery ? (
-            <button
-              className="transition-colors hover:opacity-60"
-              onClick={() => setSearchQuery('')}
-              style={{ color: 'var(--ds-outline)' }}
-              type="button"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          ) : null}
-        </div>
-
-        {/* Right: user avatar */}
+{/* Right: user avatar */}
         <div className="ml-auto flex shrink-0 items-center gap-2">
           <button
             className="rounded-full transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ds-primary)] focus-visible:ring-offset-2"
@@ -2396,8 +2512,8 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
         {/* Sidebar */}
         <aside
           className={cn(
-            'fixed inset-y-0 left-0 z-20 flex w-64 flex-col pt-20 transition-transform duration-200',
-            'md:relative md:inset-auto md:z-auto md:pt-0 md:translate-x-0',
+            'fixed inset-y-0 left-0 z-20 flex w-64 flex-col pt-16 transition-transform duration-200',
+            'md:relative md:inset-auto md:z-auto md:pt-0 md:translate-x-0 sm:pt-20',
             isSidebarOpen ? 'translate-x-0 shadow-xl' : '-translate-x-full',
           )}
           style={{
@@ -2447,12 +2563,59 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
             {/* Nav */}
             <nav>
               <SidebarNavItem
-                active={activeView === 'upload'}
+                active={
+                  activeView === 'upload' &&
+                  (liveUser.role !== 'media' || activeFolderId !== null)
+                }
                 badge={uploadedImages.length > 0 ? uploadedImages.length : undefined}
                 icon={<Upload className="h-5 w-5" />}
                 label="Upload"
-                onClick={() => { setActiveView('upload'); setIsSidebarOpen(false) }}
+                onClick={() => {
+                  setActiveView('upload')
+                  setIsSidebarOpen(false)
+                }}
               />
+              {liveUser.role === 'media' ? (
+                <>
+                  <SidebarNavItem
+                    active={activeView === 'all-folders'}
+                    badge={
+                      mediaDirectoryFolders.length > 0 ? mediaDirectoryFolders.length : undefined
+                    }
+                    icon={<Folder className="h-5 w-5" />}
+                    label="All folders"
+                    onClick={() => {
+                      setActiveView('all-folders')
+                      setIsSidebarOpen(false)
+                    }}
+                  />
+                  <SidebarNavItem
+                    active={activeView === 'map'}
+                    icon={<MapIcon className="h-5 w-5" />}
+                    label="Map view"
+                    onClick={() => {
+                      setActiveView('map')
+                      setIsSidebarOpen(false)
+                    }}
+                  />
+                  <SidebarNavItem
+                    active={activeView === 'upload' && activeFolderId === null}
+                    badge={activeFolders.length > 0 ? activeFolders.length : undefined}
+                    icon={<FolderOpen className="h-5 w-5" />}
+                    label="My folders"
+                    onClick={() => {
+                      setActiveView('upload')
+                      setActiveFolderId(null)
+                      setIsSidebarOpen(false)
+                      window.requestAnimationFrame(() => {
+                        document
+                          .getElementById('media-folders')
+                          ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                      })
+                    }}
+                  />
+                </>
+              ) : null}
               <SidebarNavItem
                 active={activeView === 'my-photos'}
                 badge={dbPhotos.length > 0 ? dbPhotos.length : undefined}
@@ -2489,6 +2652,19 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
               </div>
               <button
                 className="flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors hover:bg-white"
+                onClick={() => router.push(`/media/${encodeURIComponent(liveUser.code)}`)}
+                style={{
+                  borderColor: 'var(--ds-outline-variant)',
+                  color: 'var(--ds-primary)',
+                  backgroundColor: 'var(--ds-surface-container-lowest)',
+                }}
+                type="button"
+              >
+                <Share2 className="h-3.5 w-3.5" />
+                Public profile
+              </button>
+              <button
+                className="flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors hover:bg-white"
                 onClick={openProfileModal}
                 style={{
                   borderColor: 'var(--ds-outline-variant)',
@@ -2522,11 +2698,11 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
         </aside>
 
         {/* ─── Main content ────────────────────────────────────────────────────── */}
-        <main className="flex-1 min-w-0 overflow-y-auto">
+        <main className={`flex-1 min-w-0 ${activeView === 'map' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
 
           {/* Upload view */}
           {activeView === 'upload' ? (
-            <div className="space-y-12 px-8 py-12 lg:px-16">
+            <div className="space-y-8 px-4 py-6 sm:space-y-12 sm:px-8 sm:py-10 lg:px-16 lg:py-12">
 
               {/* ── Dashboard header ─────────────────────────────────── */}
               <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
@@ -2542,7 +2718,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                   </p>
                 </div>
                 <button
-                  className="shrink-0 inline-flex items-center gap-2 rounded-lg px-6 py-3 text-label-caps font-bold text-white transition-all hover:opacity-90 active:scale-95"
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg px-6 py-3 text-label-caps font-bold text-white transition-all hover:opacity-90 active:scale-95 sm:w-auto sm:shrink-0"
                   style={{ backgroundColor: 'var(--ds-primary)', boxShadow: '0 4px 12px rgba(0,32,69,0.2)' }}
                   onClick={() => { resetFolderModalState(); setIsFolderModalOpen(true) }}
                   type="button"
@@ -2556,6 +2732,11 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
 
               {!activeFolder ? (
                   <>
+                    <section
+                      id="media-folders"
+                      className="scroll-mt-28 space-y-6"
+                      aria-label="Your folders"
+                    >
                     {/* Archive toggle */}
                     {archivedFolders.length > 0 ? (
                       <div className="mb-6">
@@ -2786,6 +2967,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                         </button>
                       </div>
                     )}
+                    </section>
 
                     {/* ── Activity + Storage bento ───────────────────── */}
                     {(activeFolders.length > 0 || dbPhotos.length > 0) ? (
@@ -3034,7 +3216,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                       </div>
 
                       {/* Stats strip */}
-                      <div className="grid grid-cols-2 border-t border-gray-100 sm:grid-cols-4">
+                      <div className="grid grid-cols-2 border-t border-gray-100 sm:grid-cols-5">
                         {[
                           { label: 'Photos', value: String(openedFolderPhotos.length) },
                           {
@@ -3044,6 +3226,10 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                           {
                             label: 'GPS tagged',
                             value: `${openedFolderPhotos.filter((p) => p.latitude != null).length} / ${openedFolderPhotos.length}`,
+                          },
+                          {
+                            label: 'Article picks',
+                            value: `${articleStarCount} / ${MAX_ARTICLE_STAR_PICKS}`,
                           },
                           {
                             label: 'Tagged',
@@ -3101,6 +3287,21 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                     ) : null}
 
                     <div className="p-6">
+                      <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                        <div className="flex items-start gap-2">
+                          <Star className="mt-0.5 h-4 w-4 shrink-0 fill-amber-500 text-amber-500" />
+                          <div>
+                            <p className="text-sm font-semibold text-amber-900">Article picks (up to 3)</p>
+                            <p className="mt-0.5 text-xs text-amber-800/90">
+                              Star photos the article writer should use. Tap the star on any photo below.
+                              {articleStarCount > 0
+                                ? ` ${articleStarCount} of ${MAX_ARTICLE_STAR_PICKS} selected.`
+                                : ' None selected yet.'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
                       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                         <p className="text-sm font-semibold text-gray-700">
                           {openedFolderPhotos.length} photo{openedFolderPhotos.length !== 1 ? 's' : ''} in this folder
@@ -3172,12 +3373,17 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
                           {openedFolderPhotos.map((photo, index) => {
                             const isSelected = selectedFolderPhotoIds.has(photo.id)
+                            const isArticlePick = photo.article_star_rank != null
                             return (
                               <div
                                 key={photo.id}
                                 className={cn(
                                   'relative overflow-hidden rounded-xl border bg-white transition-all',
-                                  isFolderBulkMode && isSelected ? 'border-slate-900 ring-2 ring-slate-900' : 'border-gray-100',
+                                  isFolderBulkMode && isSelected
+                                    ? 'border-slate-900 ring-2 ring-slate-900'
+                                    : isArticlePick
+                                      ? 'border-amber-400 ring-1 ring-amber-300'
+                                      : 'border-gray-100',
                                 )}
                               >
                                 {isFolderBulkMode ? (
@@ -3195,25 +3401,59 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                                     </svg>
                                   </button>
                                 ) : (
-                                  <div className="absolute right-2 top-2 z-10 flex items-center gap-1">
+                                  <>
                                     <button
-                                      aria-label="Move photo to another folder"
-                                      className="flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white transition-colors hover:bg-black/75"
-                                      onClick={() => openMoveModal([photo.id])}
+                                      aria-label={
+                                        photo.article_star_rank
+                                          ? `Remove article pick ${photo.article_star_rank}`
+                                          : 'Mark for article'
+                                      }
+                                      className={cn(
+                                        'absolute left-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full transition-colors',
+                                        photo.article_star_rank
+                                          ? 'bg-amber-500 text-white hover:bg-amber-600'
+                                          : 'bg-black/55 text-white hover:bg-black/75',
+                                      )}
+                                      disabled={starringPhotoIds.has(photo.id)}
+                                      onClick={() => void handleToggleArticleStar(photo.id)}
                                       type="button"
                                     >
-                                      <ArrowRight className="h-3.5 w-3.5" />
+                                      {starringPhotoIds.has(photo.id) ? (
+                                        <Spinner className="h-3.5 w-3.5" />
+                                      ) : (
+                                        <Star
+                                          className={cn(
+                                            'h-3.5 w-3.5',
+                                            photo.article_star_rank ? 'fill-current' : '',
+                                          )}
+                                        />
+                                      )}
                                     </button>
-                                    <button
-                                      aria-label={`Delete ${photo.original_file_name}`}
-                                      className="flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white transition-colors hover:bg-black/75"
-                                      disabled={deletingPhotoIds.has(photo.id)}
-                                      onClick={() => void handleDeleteDbPhoto(photo.id)}
-                                      type="button"
-                                    >
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                    </button>
-                                  </div>
+                                    {photo.article_star_rank ? (
+                                      <span className="absolute left-2 top-9 z-10 rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-bold text-white">
+                                        #{photo.article_star_rank}
+                                      </span>
+                                    ) : null}
+                                    <div className="absolute right-2 top-2 z-10 flex items-center gap-1">
+                                      <button
+                                        aria-label="Move photo to another folder"
+                                        className="flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white transition-colors hover:bg-black/75"
+                                        onClick={() => openMoveModal([photo.id])}
+                                        type="button"
+                                      >
+                                        <ArrowRight className="h-3.5 w-3.5" />
+                                      </button>
+                                      <button
+                                        aria-label={`Delete ${photo.original_file_name}`}
+                                        className="flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white transition-colors hover:bg-black/75"
+                                        disabled={deletingPhotoIds.has(photo.id)}
+                                        onClick={() => void handleDeleteDbPhoto(photo.id)}
+                                        type="button"
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </button>
+                                    </div>
+                                  </>
                                 )}
                                 <button
                                   className="w-full transition-all hover:opacity-95"
@@ -3315,6 +3555,35 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                                 <div className="flex items-center gap-1">
                                   {!isFolderBulkMode ? (
                                     <button
+                                      aria-label={
+                                        photo.article_star_rank
+                                          ? `Remove article pick ${photo.article_star_rank}`
+                                          : 'Mark for article'
+                                      }
+                                      className={cn(
+                                        'flex h-8 w-8 items-center justify-center rounded-full transition-colors',
+                                        photo.article_star_rank
+                                          ? 'bg-amber-100 text-amber-600 hover:bg-amber-200'
+                                          : 'text-gray-500 hover:bg-gray-100',
+                                      )}
+                                      disabled={starringPhotoIds.has(photo.id)}
+                                      onClick={() => void handleToggleArticleStar(photo.id)}
+                                      type="button"
+                                    >
+                                      {starringPhotoIds.has(photo.id) ? (
+                                        <Spinner className="h-4 w-4" />
+                                      ) : (
+                                        <Star
+                                          className={cn(
+                                            'h-4 w-4',
+                                            photo.article_star_rank ? 'fill-current' : '',
+                                          )}
+                                        />
+                                      )}
+                                    </button>
+                                  ) : null}
+                                  {!isFolderBulkMode ? (
+                                    <button
                                       aria-label="Move to another folder"
                                       className="flex h-8 w-8 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-gray-100"
                                       onClick={() => openMoveModal([photo.id])}
@@ -3385,10 +3654,12 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                     style={{ borderColor: 'var(--ds-outline-variant)' }}
                   >
                     <div>
-                      <h2 className="font-headline text-base font-semibold" style={{ color: 'var(--ds-on-surface)' }}>Upload queue</h2>
+                      <h2 className="font-headline text-base font-semibold" style={{ color: 'var(--ds-on-surface)' }}>Your uploads</h2>
                       <p className="mt-0.5 text-xs" style={{ color: 'var(--ds-on-surface-variant)' }}>
-                        {uploadedImages.length} file{uploadedImages.length !== 1 ? 's' : ''}
-                        {uploadingCount > 0 ? ` · ${uploadingCount} uploading` : ''}
+                        {uploadedImages.length} photo{uploadedImages.length !== 1 ? 's' : ''} picked
+                        {uploadingCount > 0
+                          ? ` · ${uploadingCount} still uploading`
+                          : ` · ${uploadedImages.filter((img) => img.uploadStatus === 'uploaded').length} done`}
                       </p>
                     </div>
                     <button
@@ -3408,6 +3679,10 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                         image.metadata.latitude != null && image.metadata.longitude != null
                       const isBusy =
                         image.uploadStatus === 'uploading' || image.uploadStatus === 'deleting'
+                      const queuedDbPhoto = image.dbId
+                        ? dbPhotos.find((photo) => photo.id === image.dbId)
+                        : null
+                      const queuedStarRank = queuedDbPhoto?.article_star_rank ?? null
 
                       return (
                         <div
@@ -3500,14 +3775,45 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                                   </span>
                                 ) : null}
                               </div>
-                              <button
-                                className="text-[11px] font-medium text-red-400 transition-colors hover:text-red-600 disabled:cursor-not-allowed disabled:text-gray-300"
-                                disabled={isBusy}
-                                onClick={() => void handleDeleteImage(image.id)}
-                                type="button"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </button>
+                              <div className="flex items-center gap-1">
+                                {image.dbId && image.uploadStatus === 'uploaded' ? (
+                                  <button
+                                    aria-label={
+                                      queuedStarRank
+                                        ? `Remove article pick ${queuedStarRank}`
+                                        : 'Mark for article'
+                                    }
+                                    className={cn(
+                                      'flex h-6 w-6 items-center justify-center rounded-full transition-colors',
+                                      queuedStarRank
+                                        ? 'bg-amber-100 text-amber-600'
+                                        : 'text-gray-400 hover:bg-gray-100 hover:text-amber-600',
+                                    )}
+                                    disabled={starringPhotoIds.has(image.dbId)}
+                                    onClick={() => void handleToggleArticleStar(image.dbId!)}
+                                    type="button"
+                                  >
+                                    {starringPhotoIds.has(image.dbId) ? (
+                                      <Spinner className="h-3 w-3" />
+                                    ) : (
+                                      <Star
+                                        className={cn(
+                                          'h-3 w-3',
+                                          queuedStarRank ? 'fill-current' : '',
+                                        )}
+                                      />
+                                    )}
+                                  </button>
+                                ) : null}
+                                <button
+                                  className="text-[11px] font-medium text-red-400 transition-colors hover:text-red-600 disabled:cursor-not-allowed disabled:text-gray-300"
+                                  disabled={isBusy}
+                                  onClick={() => void handleDeleteImage(image.id)}
+                                  type="button"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              </div>
                             </div>
                             {image.uploadError ? (
                               <p className="mt-1 text-[10px] leading-tight text-red-500">
@@ -3524,6 +3830,228 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
             </div>
           ) : null}
 
+          {/* Media: map view */}
+          {liveUser.role === 'media' && activeView === 'map' ? (
+            <section className="h-full">
+              <AdminMapView
+                folders={mediaDirectoryFolders as unknown as MapFolder[]}
+                onOpenFolder={() => {
+                  setActiveView('all-folders')
+                  setIsSidebarOpen(false)
+                }}
+              />
+            </section>
+          ) : null}
+
+          {/* Media: system-wide folder directory (read-only) */}
+          {liveUser.role === 'media' && activeView === 'all-folders' ? (
+            <section className="mx-auto flex max-w-6xl flex-col gap-6 px-8 py-12 lg:px-16">
+              <div>
+                <h1
+                  className="text-display-xl font-headline mb-3"
+                  style={{ color: 'var(--ds-primary)' }}
+                >
+                  All folders
+                </h1>
+                <p className="max-w-2xl text-sm" style={{ color: 'var(--ds-on-surface-variant)' }}>
+                  Every place folder in the system—use this to see whether a location is already
+                  captured before you create a new one. Open{' '}
+                  <span className="font-semibold" style={{ color: 'var(--ds-on-surface)' }}>
+                    My folders
+                  </span>{' '}
+                  in the sidebar to work in your own workspace.
+                </p>
+              </div>
+
+              <div
+                className="flex items-center gap-2 rounded-lg border px-3 py-2"
+                style={{
+                  borderColor: 'var(--ds-outline-variant)',
+                  backgroundColor: 'var(--ds-surface-container-lowest)',
+                }}
+              >
+                <Search className="h-4 w-4 shrink-0" style={{ color: 'var(--ds-outline)' }} />
+                <input
+                  className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+                  onChange={(e) => setMediaDirectorySearch(e.target.value)}
+                  placeholder="Search by folder name, owner, code, address, tags, status..."
+                  style={{ color: 'var(--ds-on-surface)' }}
+                  type="search"
+                  value={mediaDirectorySearch}
+                />
+              </div>
+
+              {mediaDirectoryError ? (
+                <div
+                  className="rounded-lg border px-4 py-3 text-sm"
+                  style={{
+                    backgroundColor: 'var(--ds-error-container)',
+                    borderColor: 'rgba(186,26,26,0.2)',
+                    color: 'var(--ds-error)',
+                  }}
+                >
+                  {mediaDirectoryError}
+                </div>
+              ) : null}
+
+              {isLoadingMediaDirectory && mediaDirectoryFolders.length === 0 ? (
+                <div
+                  className="flex h-48 items-center justify-center rounded-2xl border text-sm"
+                  style={{
+                    borderColor: 'var(--ds-outline-variant)',
+                    backgroundColor: 'var(--ds-surface-container-lowest)',
+                    color: 'var(--ds-on-surface-variant)',
+                  }}
+                >
+                  Loading folders...
+                </div>
+              ) : filteredMediaDirectoryFolders.length === 0 ? (
+                <div
+                  className="flex h-48 flex-col items-center justify-center gap-2 rounded-2xl border border-dashed text-center"
+                  style={{
+                    borderColor: 'var(--ds-outline-variant)',
+                    color: 'var(--ds-on-surface-variant)',
+                  }}
+                >
+                  <Folder className="h-8 w-8 opacity-50" />
+                  <div className="text-sm font-semibold">
+                    {mediaDirectoryFolders.length === 0
+                      ? 'No folders yet.'
+                      : 'No folders match your search.'}
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div
+                    className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-semibold uppercase tracking-wider"
+                    style={{ color: 'var(--ds-on-surface-variant)' }}
+                  >
+                    <span>
+                      Showing {filteredMediaDirectoryFolders.length} of {mediaDirectoryFolders.length}{' '}
+                      folder
+                      {mediaDirectoryFolders.length === 1 ? '' : 's'}
+                    </span>
+                    <span>
+                      Total photos:{' '}
+                      {filteredMediaDirectoryFolders.reduce((s, f) => s + f.photo_count, 0)}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {filteredMediaDirectoryFolders.map((folder) => {
+                      const isArchived = (folder.status ?? 'active') === 'archived'
+                      const isMine =
+                        folder.owner_code.trim().toLowerCase() === user.code.trim().toLowerCase()
+                      return (
+                        <div
+                          key={folder.id}
+                          className="group flex flex-col gap-2 overflow-hidden rounded-2xl border text-left transition-all hover:shadow-md"
+                          style={{
+                            borderColor: 'var(--ds-outline-variant)',
+                            backgroundColor: 'var(--ds-surface-container-lowest)',
+                          }}
+                        >
+                          {folder.cover_image_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              alt={folder.folder_name}
+                              className="h-32 w-full object-cover"
+                              src={folder.cover_image_url}
+                            />
+                          ) : (
+                            <div
+                              className="flex h-32 w-full items-center justify-center"
+                              style={{ backgroundColor: 'var(--ds-surface-container)' }}
+                            >
+                              <FolderOpen
+                                className="h-8 w-8"
+                                style={{ color: 'var(--ds-on-surface-variant)' }}
+                              />
+                            </div>
+                          )}
+                          <div className="flex flex-col gap-1.5 px-3 pb-3">
+                            <div className="flex items-start justify-between gap-2">
+                              <div
+                                className="min-w-0 flex-1 truncate font-semibold"
+                                style={{ color: 'var(--ds-on-surface)' }}
+                              >
+                                {folder.folder_name}
+                              </div>
+                              <span
+                                className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold tabular-nums"
+                                style={{
+                                  backgroundColor:
+                                    folder.photo_count > 0
+                                      ? 'var(--ds-primary)'
+                                      : 'var(--ds-surface-container-high)',
+                                  color:
+                                    folder.photo_count > 0
+                                      ? 'var(--ds-on-primary)'
+                                      : 'var(--ds-on-surface-variant)',
+                                }}
+                              >
+                                {folder.photo_count}{' '}
+                                {folder.photo_count === 1 ? 'photo' : 'photos'}
+                              </span>
+                            </div>
+                            {isMine ? (
+                              <div
+                                className="w-fit rounded-full px-2 py-0.5 text-[10px] font-bold"
+                                style={{
+                                  backgroundColor: 'var(--ds-secondary-container)',
+                                  color: 'var(--ds-on-secondary-container)',
+                                }}
+                              >
+                                Your folder
+                              </div>
+                            ) : null}
+                            <div
+                              className="flex items-center gap-2 text-[11px]"
+                              style={{ color: 'var(--ds-on-surface-variant)' }}
+                            >
+                              <Users className="h-3.5 w-3.5 shrink-0" />
+                              <span className="min-w-0 truncate">
+                                <span className="font-medium" style={{ color: 'var(--ds-on-surface)' }}>
+                                  {folder.owner_name}
+                                </span>
+                                <span className="ml-1 font-mono text-[10px]">{folder.owner_code}</span>
+                              </span>
+                            </div>
+                            {folder.full_address ? (
+                              <div
+                                className="flex items-start gap-1 text-[11px]"
+                                style={{ color: 'var(--ds-on-surface-variant)' }}
+                              >
+                                <MapPin className="mt-0.5 h-3 w-3 shrink-0" />
+                                <span className="line-clamp-2">{folder.full_address}</span>
+                              </div>
+                            ) : null}
+                            <div
+                              className="flex items-center justify-between text-[10px]"
+                              style={{ color: 'var(--ds-on-surface-variant)' }}
+                            >
+                              <span>{formatCaptureDate(folder.created_at)}</span>
+                              {isArchived ? (
+                                <span
+                                  className="rounded-full px-2 py-0.5 font-semibold"
+                                  style={{
+                                    backgroundColor: 'var(--ds-surface-container-high)',
+                                    color: 'var(--ds-on-surface-variant)',
+                                  }}
+                                >
+                                  Archived
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
+            </section>
+          ) : null}
+
           {/* My Photos view */}
           {activeView === 'my-photos' ? (
             <div className="mx-auto max-w-5xl space-y-6 px-4 py-8">
@@ -3536,7 +4064,19 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                     All photos uploaded by {liveUser.fullName}
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <button
+                    className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 shadow-sm transition-colors hover:bg-gray-50"
+                    onClick={() => {
+                      setActiveView('upload')
+                      setActiveFolderId(null)
+                      setIsSidebarOpen(false)
+                    }}
+                    type="button"
+                  >
+                    <Folder className="h-4 w-4 shrink-0" />
+                    Folders
+                  </button>
                   {/* Bulk mode toggle */}
                   <button
                     className={cn(

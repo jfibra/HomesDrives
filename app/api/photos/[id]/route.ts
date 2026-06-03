@@ -4,6 +4,7 @@ import {
   createSupabaseAdminClient,
   deleteImageObject,
   movePhotoToFolder,
+  setPhotoArticleStar,
   updateAlbumPhotoTags,
 } from '@/lib/server/albums'
 
@@ -56,6 +57,21 @@ export async function PATCH(
   try {
     const { id } = await context.params
     const body = await request.json()
+
+    // ── Mark / unmark photo for article (max 3 per folder) ────────────────────
+    if (body?.action === 'star') {
+      const uploaderCode =
+        typeof body?.uploaderCode === 'string' && body.uploaderCode.trim()
+          ? body.uploaderCode.trim()
+          : null
+
+      if (!uploaderCode) {
+        return NextResponse.json({ error: 'Missing uploaderCode.' }, { status: 400 })
+      }
+
+      const photo = await setPhotoArticleStar({ photoId: id, uploaderCode })
+      return NextResponse.json({ photo })
+    }
 
     // ── Move photo to a different folder ──────────────────────────────────────
     if (body?.action === 'move') {

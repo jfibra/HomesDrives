@@ -12,23 +12,23 @@ export default function AboutPage() {
       <Navbar />
 
       {/* Hero Section */}
-      <section className="pt-32" style={{ backgroundColor: "#f0f3ff" }}>
-        <div className="mx-auto max-w-[1280px] px-8 py-20">
-          <div className="space-y-6">
+      <section className="pt-16 sm:pt-20" style={{ backgroundColor: "#f0f3ff" }}>
+        <div className="mx-auto max-w-[1280px] px-4 py-12 sm:px-6 sm:py-16 lg:px-8 lg:py-20">
+          <div className="space-y-4 sm:space-y-6">
             <p
-              className="inline-block text-xs font-semibold uppercase tracking-[0.2em]"
+              className="inline-block text-[10px] font-semibold uppercase tracking-[0.2em] sm:text-xs"
               style={{ color: "#b52426" }}
             >
               Our Story
             </p>
             <h1
-              className="text-5xl font-bold leading-tight lg:text-6xl"
+              className="text-3xl font-bold leading-tight sm:text-4xl md:text-5xl lg:text-6xl"
               style={{ color: "#002045" }}
             >
               About Homes.ph Drive
             </h1>
             <p
-              className="text-xl leading-relaxed max-w-3xl"
+              className="text-base leading-relaxed sm:text-lg lg:text-xl lg:max-w-3xl"
               style={{ color: "#43474e" }}
             >
               A revolutionary marketplace connecting premium real estate
@@ -40,16 +40,16 @@ export default function AboutPage() {
       </section>
 
       {/* Mission & Vision Section */}
-      <section className="py-20" style={{ backgroundColor: "#ffffff" }}>
-        <div className="mx-auto max-w-[1280px] px-8">
-          <div className="grid grid-cols-1 gap-12 lg:grid-cols-2">
+      <section className="py-12 sm:py-16 lg:py-20" style={{ backgroundColor: "#ffffff" }}>
+        <div className="mx-auto max-w-[1280px] px-4 sm:px-6 lg:px-8">
+          <div className="grid grid-cols-1 gap-8 sm:gap-12 lg:grid-cols-2">
             {/* Mission */}
             <div className="space-y-4">
-              <h2 className="text-3xl font-bold" style={{ color: "#002045" }}>
+              <h2 className="text-2xl font-bold sm:text-3xl" style={{ color: "#002045" }}>
                 Our Mission
               </h2>
               <p
-                className="text-lg leading-relaxed"
+                className="text-base leading-relaxed sm:text-lg"
                 style={{ color: "#43474e" }}
               >
                 To empower real estate professionals by providing access to
@@ -57,22 +57,22 @@ export default function AboutPage() {
                 presentations and accelerates sales cycles.
               </p>
               <p
-                className="text-lg leading-relaxed"
+                className="text-base leading-relaxed sm:text-lg"
                 style={{ color: "#43474e" }}
               >
                 We believe that exceptional imagery transforms how properties
-                are perceived, and we're committed to making premium photography
+                are perceived, and we&apos;re committed to making premium photography
                 accessible to everyone in the real estate industry.
               </p>
             </div>
 
             {/* Vision */}
             <div className="space-y-4">
-              <h2 className="text-3xl font-bold" style={{ color: "#002045" }}>
+              <h2 className="text-2xl font-bold sm:text-3xl" style={{ color: "#002045" }}>
                 Our Vision
               </h2>
               <p
-                className="text-lg leading-relaxed"
+                className="text-base leading-relaxed sm:text-lg"
                 style={{ color: "#43474e" }}
               >
                 To become the leading marketplace for real estate photography in
@@ -80,7 +80,7 @@ export default function AboutPage() {
                 drives every transaction.
               </p>
               <p
-                className="text-lg leading-relaxed"
+                className="text-base leading-relaxed sm:text-lg"
                 style={{ color: "#43474e" }}
               >
                 We envision a future where professional photographers are fairly
@@ -95,21 +95,21 @@ export default function AboutPage() {
 
       {/* Values Section */}
       <section
-        className="py-20"
+        className="py-12 sm:py-16 lg:py-20"
         style={{
           backgroundColor: "#f9f9ff",
           borderTop: "1px solid #c4c6cf",
           borderBottom: "1px solid #c4c6cf",
         }}
       >
-        <div className="mx-auto max-w-[1280px] px-8">
+        <div className="mx-auto max-w-[1280px] px-4 sm:px-6 lg:px-8">
           <h2
-            className="mb-12 text-4xl font-bold text-center"
+            className="mb-8 text-3xl font-bold text-center sm:mb-12 sm:text-4xl"
             style={{ color: "#002045" }}
           >
             Our Core Values
           </h2>
-          <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {[
               {
                 title: "Quality",
@@ -138,38 +138,38 @@ export default function AboutPage() {
             ].map((value) => (
               <div
                 key={value.title}
-                className="rounded-2xl p-6"
+                className="rounded-2xl p-5 sm:p-6"
                 style={{
                   border: "1px solid #c4c6cf",
                   backgroundColor: "#ffffff",
                 }}
               >
-                <div className="text-4xl mb-3" style={{ color: "#b52426" }}>
+                <div className="text-3xl mb-3" style={{ color: "#b52426" }}>
                   {value.icon}
                 </div>
                 <h3
-                  className="text-xl font-bold mb-2"
+                  className="text-lg font-bold mb-2 sm:text-xl"
                   style={{ color: "#002045" }}
                 >
                   {value.title}
                 </h3>
-                <p style={{ color: "#43474e" }}>{value.description}</p>
+                <p className="text-sm sm:text-base" style={{ color: "#43474e" }}>{value.description}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* Team Section */}
-      <section className="py-20">
-        <div className="mx-auto max-w-[1280px] px-8">
+      {/* Why Choose Us Section */}
+      <section className="py-12 sm:py-16 lg:py-20">
+        <div className="mx-auto max-w-[1280px] px-4 sm:px-6 lg:px-8">
           <h2
-            className="mb-12 text-4xl font-bold text-center"
+            className="mb-8 text-3xl font-bold text-center sm:mb-12 sm:text-4xl"
             style={{ color: "#002045" }}
           >
             Why Choose Homes.ph Drive?
           </h2>
-          <div className="space-y-6">
+          <div className="space-y-5 sm:space-y-6">
             {[
               {
                 title: "Curated Collection",
@@ -189,7 +189,7 @@ export default function AboutPage() {
               {
                 title: "Dedicated Support",
                 description:
-                  "Our team is here to help you succeed, whether you're buying or selling.",
+                  "Our team is here to help you succeed, whether you&apos;re buying or selling.",
               },
               {
                 title: "Growing Network",
@@ -204,7 +204,7 @@ export default function AboutPage() {
             ].map((item, index) => (
               <div key={index} className="flex gap-4">
                 <div
-                  className="h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0"
+                  className="h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 text-sm"
                   style={{
                     backgroundColor: "#b52426",
                     color: "#ffffff",
@@ -215,12 +215,12 @@ export default function AboutPage() {
                 </div>
                 <div>
                   <h3
-                    className="font-bold text-lg"
+                    className="font-bold text-base sm:text-lg"
                     style={{ color: "#002045" }}
                   >
                     {item.title}
                   </h3>
-                  <p style={{ color: "#43474e" }}>{item.description}</p>
+                  <p className="text-sm sm:text-base mt-0.5" style={{ color: "#43474e" }}>{item.description}</p>
                 </div>
               </div>
             ))}
@@ -230,22 +230,20 @@ export default function AboutPage() {
 
       {/* CTA Section */}
       <section
-        className="py-16"
-        style={{
-          backgroundColor: "#002045",
-        }}
+        className="py-12 sm:py-16"
+        style={{ backgroundColor: "#002045" }}
       >
-        <div className="mx-auto max-w-[1280px] px-8 text-center">
-          <h2 className="text-4xl font-bold mb-6 text-white">
+        <div className="mx-auto max-w-[1280px] px-4 text-center sm:px-6 lg:px-8">
+          <h2 className="text-3xl font-bold mb-4 text-white sm:text-4xl sm:mb-6">
             Ready to Explore?
           </h2>
-          <p className="text-lg mb-8 text-white" style={{ opacity: 0.9 }}>
+          <p className="text-base mb-6 text-white sm:text-lg sm:mb-8" style={{ opacity: 0.9 }}>
             Join our community of real estate professionals and discover
             exceptional photography.
           </p>
           <a
             href="/"
-            className="inline-flex items-center gap-2 rounded-full px-7 py-3.5 text-sm font-semibold text-white transition hover:opacity-90"
+            className="inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-semibold text-white transition hover:opacity-90 sm:px-7 sm:py-3.5"
             style={{ backgroundColor: "#b52426" }}
           >
             Browse Marketplace
@@ -255,7 +253,7 @@ export default function AboutPage() {
 
       {/* Footer */}
       <footer style={{ backgroundColor: "#002045" }}>
-        <div className="mx-auto max-w-[1280px] px-8 py-12 text-center">
+        <div className="mx-auto max-w-[1280px] px-4 py-8 text-center sm:px-6 sm:py-12 lg:px-8">
           <p className="text-sm" style={{ color: "rgba(255,255,255,0.45)" }}>
             © {new Date().getFullYear()} homes.ph · All rights reserved
           </p>

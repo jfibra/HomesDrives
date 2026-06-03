@@ -104,15 +104,6 @@ async function compositeLogos(baseImageBuffer: Buffer, logos: Array<{ buffer: Bu
   )
 
   const logoGap = Math.max(8, Math.round(baseHeight * 0.012))
-  const totalLogoHeight = prepared.reduce((sum, l) => sum + l.height + logoGap, 0) - logoGap
-  const bannerW = maxLogoWidth + margin * 2
-  const bannerH = totalLogoHeight + margin * 2
-
-  const whiteBanner = await sharp({
-    create: { width: bannerW, height: bannerH, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 0.92 } },
-  })
-    .png()
-    .toBuffer()
 
   let currentTop = margin
   const logoComposites = prepared.map((logo) => {
@@ -122,10 +113,7 @@ async function compositeLogos(baseImageBuffer: Buffer, logos: Array<{ buffer: Bu
   })
 
   return sharp(baseImageBuffer)
-    .composite([
-      { input: whiteBanner, left: 0, top: 0 },
-      ...logoComposites,
-    ])
+    .composite(logoComposites)
     .png()
     .toBuffer()
 }
@@ -242,15 +230,67 @@ async function compositePersonPhotos(
   return sharp(baseImageBuffer).composite(composites).png().toBuffer()
 }
 
+async function enhanceBriefWithPerplexity(
+  posterType: string,
+  designStyle: string,
+  designTraits: string,
+  headline: string,
+  subtitle: string,
+  content: string,
+  aiInstructions: string,
+  apiKey: string,
+): Promise<string> {
+  const briefLines = [
+    `Poster Type: ${posterType || 'General real estate marketing'}`,
+    `Design Style: ${designStyle || 'Modern friendly professional'}`,
+    `Style Traits: ${designTraits || 'Not specified'}`,
+    headline ? `Headline: "${headline}"` : null,
+    subtitle ? `Subtitle: "${subtitle}"` : null,
+    content ? `Body Copy: "${content}"` : null,
+    aiInstructions ? `Additional Instructions: "${aiInstructions}"` : null,
+  ].filter(Boolean).join('\n')
+
+  const response = await fetch('https://api.perplexity.ai/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'sonar',
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are a senior award-winning creative director at a world-class Philippine real estate marketing agency. Given a poster brief, write 5–7 sentences of specific, opinionated visual design direction for an AI image generator that will produce stunning, scroll-stopping work. Be specific about: exact background treatment (gradient colours, atmosphere), typography drama (size, weight contrast, accent techniques), one dominant focal point, specific colour palette with hex codes, and the emotional mood to convey. Reference real design aesthetics (e.g. "Brutalist editorial", "luxury magazine", "bold street poster", "cinematic"). Output design direction only — no preamble, no bullet points, no generic advice.',
+        },
+        {
+          role: 'user',
+          content: `Write specific, bold visual design direction for this poster brief. Push for something genuinely beautiful and modern — not safe or generic:\n\n${briefLines}`,
+        },
+      ],
+      max_tokens: 400,
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Perplexity API error: ${response.status} ${response.statusText}`)
+  }
+
+  const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> }
+  return data.choices?.[0]?.message?.content?.trim() ?? ''
+}
+
 export async function POST(request: Request) {
   try {
-    const apiKey = process.env.GEMINI_API_KEY
-    if (!apiKey) {
+    const geminiKey = process.env.GEMINI_API_KEY
+    if (!geminiKey) {
       return NextResponse.json({ error: 'Gemini API key is not configured.' }, { status: 500 })
     }
 
     const formData = await request.formData()
 
+    const provider = (formData.get('provider') as string | null)?.trim() ?? 'gemini'
     const posterType = (formData.get('posterType') as string | null)?.trim() ?? ''
     const designStyle = (formData.get('designStyle') as string | null)?.trim() ?? ''
     const designTraits = (formData.get('designTraits') as string | null)?.trim() ?? ''
@@ -264,6 +304,22 @@ export async function POST(request: Request) {
     const content = (formData.get('content') as string | null)?.trim() ?? ''
     const aiInstructions = (formData.get('aiInstructions') as string | null)?.trim() ?? ''
     const peopleJson = (formData.get('people') as string | null) ?? '[]'
+
+    let perplexityEnhancement = ''
+    if (provider === 'perplexity') {
+      const perplexityKey = process.env.PERPLEXITY_API_KEY
+      if (!perplexityKey) {
+        return NextResponse.json({ error: 'Perplexity API key is not configured.' }, { status: 500 })
+      }
+      try {
+        perplexityEnhancement = await enhanceBriefWithPerplexity(
+          posterType, designStyle, designTraits, headline, subtitle, content, aiInstructions, perplexityKey,
+        )
+      } catch (err) {
+        console.error('[perplexity-enhance]', err)
+        // Non-fatal — proceed with Gemini using the original brief
+      }
+    }
 
     const sizeLabel = formatName || (formatWidth && formatHeight)
       ? formatName
@@ -309,156 +365,229 @@ export async function POST(request: Request) {
       personIndex++
     }
 
-    const logoZoneDesc = normalizedLogos.length > 0
-      ? `${normalizedLogos.length} logo(s) will be composited here.`
-      : 'A brand logo will be composited here.'
-    const personZoneDesc = normalizedPersonPhotos.length > 0
-      ? 'CRITICAL: A real person photo will be composited here — keep this zone background-only (pale blue blob + white). No generated person. No text.'
-      : 'Contains the main visual subject (generated person, property, or object).'
+    const sceneMode = (formData.get('sceneMode') as string | null)?.trim() ?? 'background'
+    const scenePhotoFile = formData.get('scene_photo') as File | null
+    let normalizedScenePhoto: { buffer: Buffer; mimeType: string; data: string } | null = null
+    if (scenePhotoFile && scenePhotoFile.size > 0 && scenePhotoFile.type.startsWith('image/')) {
+      normalizedScenePhoto = await normalizeReferenceImage(scenePhotoFile)
+    }
 
     const lines: string[] = [
-      '=== HOMES.PH SOCIAL MEDIA POSTER — DESIGN SPECIFICATION ===',
+      'You are an award-winning creative director at a world-class Philippine real estate marketing agency.',
+      'Your work has won design awards, appeared in marketing publications, and stopped people mid-scroll on social media.',
+      'Create a STUNNING, scroll-stopping social media poster for a real estate campaign.',
       '',
-      'Generate a social media marketing poster matching the Homes.ph brand style described below.',
-      '',
-      '--- CREATIVE BRIEF ---',
+      '━━━ CAMPAIGN BRIEF ━━━',
       `Poster Type: ${posterType || 'General real estate marketing'}`,
-      `Design Style: ${designStyle || 'Modern friendly professional'}`,
-      `Style Traits: ${designTraits || 'Not specified'}`,
+      `Design Style: ${designStyle || 'Modern Premium'}`,
+      `Style Traits: ${designTraits || 'sophisticated, bold, editorial'}`,
       `Canvas Size: ${sizeLabel}`,
-      `Headline: ${headline || 'No headline provided'}`,
-      `Subtitle: ${subtitle || 'No subtitle provided'}`,
-      `Body Copy: ${content || 'No body copy provided'}`,
-      `Additional Instructions: ${aiInstructions || 'None'}`,
+      `Headline: ${headline || '(none — use visual elements to carry the poster)'}`,
+      `Subtitle: ${subtitle || '(none)'}`,
+      `Body Copy: ${content || '(none)'}`,
+      `Additional Instructions: ${aiInstructions || 'none'}`,
       '',
-      '=== LAYOUT STRUCTURE — HIGHEST PRIORITY, READ FIRST ===',
+      '━━━ NON-NEGOTIABLE CONSTRAINTS ━━━',
       '',
-      'The canvas has four spatial regions. No text or label referencing these regions should appear in the image. These are instructions only:',
+      ...(normalizedLogos.length > 0 ? [
+        '1. LOGO PLACEMENT AREA: A transparent-background logo image will be composited onto the top-left area after generation.',
+        '   - Let the poster background design continue naturally into the top-left corner — do NOT paint a white box, white panel, light rectangle, or any solid block of colour there.',
+        '   - Simply avoid placing any headline text, icons, or decorative shapes in the top-left 28%-width × 13%-height corner.',
+        '   - The background texture/colour/gradient should flow seamlessly through that corner so the transparent logo sits cleanly on top.',
+        '   - The headline must NOT start until at least 15% down from the top edge.',
+        '',
+      ] : [
+        '1. NO LOGO: There is no logo for this poster. Design freely across the full canvas — do NOT leave any white box, placeholder rectangle, or blank area in the top-left corner.',
+        '',
+      ]),
+      '2. TEXT FIDELITY (STRICT): Only render text that appears in the Creative Brief above.',
+      '   - Do NOT invent phone numbers, URLs, addresses, names, slogans, lorem ipsum, or any filler text.',
+      '   - Do NOT render bracketed placeholders like [logo here] or [your name].',
+      '   - If a field is empty, leave that space empty.',
       '',
-      '[TOP-LEFT CORNER — logo landing area]',
-      '  The top-left area (roughly the first 28% of width and first 13% of height) must be pure white with no content whatsoever.',
-      '  No headline, no text, no icons, no shapes may appear in this corner.',
-      `  ${logoZoneDesc}`,
-      '  The main headline must not start until at least 14% down from the top edge.',
+      '3. NO LOGOS: Do not generate any brand marks, logos, or watermarks.',
       '',
-      '[LEFT COLUMN — all text content]',
-      '  The left 56% of the canvas (from 14% down to 83% of height) holds: headline, script accent line, horizontal divider, subtitle, body text, icon row, and callout cards.',
-      '  All person name, job title, and company text must be placed in this column — never on the right side.',
+      '━━━ VISUAL DESIGN — MAKE THIS GENUINELY BEAUTIFUL ━━━',
       '',
-      '[RIGHT COLUMN — visual / photo area]',
-      `  The right 44% of the canvas (full height): ${personZoneDesc}`,
+      'You have full creative freedom. AVOID these common AI design failures:',
+      '✗ Plain white backgrounds with generic coloured blobs',
+      '✗ Clip-art or cartoonish illustrations',
+      '✗ Canva free-template layouts',
+      '✗ Equal-weight text blocks with no visual hierarchy',
+      '✗ Overcrowded layouts trying to fit everything in',
+      '✗ Muddy or unintentional colour combinations',
       '',
-      '[BOTTOM-LEFT CORNER — decorative accent]',
-      '  The bottom-left corner (roughly 30% width × 25% height from the bottom) holds: 1–2 large overlapping dark navy curved wave or quarter-circle shapes, plus a small solid gold/amber circle.',
+      'INSTEAD, create:',
+      '✓ A background with genuine visual atmosphere and depth',
+      '✓ Typography so bold the headline owns the poster',
+      '✓ Layered elements that create dimension and richness',
+      '✓ A curated 3–4 colour palette used with precision',
+      '✓ Generous white space around key text so it breathes',
+      '✓ One dominant focal point that anchors the eye immediately',
       '',
-      '=== VISUAL STYLE ===',
+      '━━━ BACKGROUND & ATMOSPHERE ━━━',
       '',
-      'BACKGROUND:',
-      '- Pure white (#FFFFFF) base — bright, clean, airy.',
-      '- Large soft organic blob in very pale light blue (#DBEAFE) at top-right (Zone C area), soft blurred edges.',
-      '- Another pale-blue blob at bottom-left, partially under the navy waves.',
-      '- Solid amber/gold circle (#F5A623) partially cropped at the very top-right corner.',
-      '- 5×5 or 6×6 grid of small dark navy dots (#1E3A8A) in upper-right, overlapping the pale-blue blob.',
+      'Choose a background treatment that matches the Design Style. Options:',
       '',
-      'BRAND COLORS:',
-      '- Dark navy #1E3A8A — headline, icons, borders, divider lines, wave shapes.',
-      '- Gold/amber #F5A623 — script accent line, icon fills, heart symbols, gold circle.',
-      '- Light sky blue #DBEAFE — blob shapes only.',
-      '- White #FFFFFF — background and card fills.',
+      'DARK/LUXURY: Deep gradient from near-black (#0A0E1A) or rich midnight navy (#0D1B2A) to deep forest (#0F2D27) or dark slate (#1A1A2E). Subtle noise or grain texture. Gold/champagne accent shapes.',
+      'MODERN/BOLD: Rich colour blocking — e.g. deep teal (#006d6d) fills the top 60%, clean off-white (#F8F5F0) fills the bottom. A bold angled or curved divider between them.',
+      'WARM/PREMIUM: Warm cream (#FDF6EC) or champagne base. Large bold accent panels in terracotta (#C75B3A), warm amber (#D4832A), or dusty rose. NOT plain white.',
+      'CONTEMPORARY/CLEAN: Off-white (#F4F1EC) background with a single dramatic full-bleed colour bar — deep navy or charcoal — occupying one large portion of the canvas.',
+      'VIBRANT/ENERGETIC: Vivid gradient (e.g. coral → magenta, or electric teal → deep purple) as the full background with white text on top. Bold and confident.',
       '',
-      'TYPOGRAPHY:',
-      '- Headline: Large bold sans-serif (Montserrat ExtraBold / Poppins Bold), dark navy, left-aligned, stacked 2–3 lines. Starts at ~14% from the top of the canvas, inside the left column.',
-      '- Script accent: The most emotional word/phrase rendered in flowing gold cursive (#F5A623), slightly larger, with a hand-drawn heart or underline curl.',
-      '- Body text: Regular weight, dark navy or charcoal, left-aligned. Key words bolded or gold.',
-      '- No all-caps headline unless it is an event/announcement poster.',
+      'Whatever you choose: the background must set a MOOD, not just fill space.',
       '',
-      'DECORATIVE ELEMENTS (always include):',
-      '- Bottom-left corner: 1–2 large overlapping dark navy curved wave shapes.',
-      '- Small gold/amber solid circle inside or near those wave shapes.',
-      '- Thin horizontal dark navy divider line (spanning ~40%–55% of canvas width) between the headline block and body text.',
+      '━━━ TYPOGRAPHY — MAKE IT COMMAND ATTENTION ━━━',
       '',
-      'ICON ROW (only if body copy has list items or features):',
-      '- Small circle icons (thin navy border, line-art inside). Bold navy label below each. Left column only.',
+      `Headline: Ultra-bold, massive — ${headline ? `"${headline}"` : 'use a grand architectural visual instead'}`,
+      '  - Font: Playfair Display / Didot-style serif for luxury, or Poppins ExtraBold / Montserrat Black for modern.',
+      '  - Size: Headline text should be LARGE — occupying 25%–40% of the canvas height visually.',
+      '  - Colour: Contrasting with background (white/gold on dark; deep navy/charcoal on light).',
+      '  - Style: Mix weights — ultra-bold main line, then a thinner weight for a sub-phrase on the next line.',
       '',
-      'CALLOUT CARDS (only if body copy has CTA or closing message):',
-      '- White rounded-rectangle cards, thin navy border. Bottom of the left column. Each: small icon + 2–3 lines navy text.',
+      subtitle ? `Subtitle: "${subtitle}" — elegant, moderate size, well-spaced below the headline. Lighter weight.` : '',
+      content ? `Body copy (${content.split(/\s+/).length} words): Break into digestible chunks with clear visual grouping. No dense text walls.` : '',
+      '',
+      'ACCENT: Pick one emotionally powerful word or phrase from the headline. Render it in:',
+      '  - A flowing script/italic style, OR',
+      '  - A contrasting accent colour (gold #C9A44A, copper #B87333, or coral #E8604C), OR',
+      '  - Oversized behind the main headline as a ghost/watermark element.',
+      '',
+      '━━━ LAYOUT & COMPOSITION ━━━',
+      '',
+      'PRIMARY LAYOUT: Left-heavy editorial.',
+      '  - Left 55%–60%: All text — headline starts at 15% from top, body copy flows down with generous line-height.',
+      '  - Right 40%–45%: Visual element (person, property, or abstract design shape).',
+      '  - Bottom-left: Bold decorative anchor — large geometric shape, arc, or abstract form.',
+      '',
+      'DECORATIVE ELEMENTS (choose 2–3, not all):',
+      '  - Large bold geometric shapes: rectangle cut at a diagonal, sweeping arc, oversized circle — in accent colour.',
+      '  - Thin elegant rule lines above or below the headline (1–2px, spanning 30%–50% of canvas width).',
+      '  - Subtle repeating pattern (tiny dots, fine diagonal lines, crosshatch) at 5%–10% opacity as background texture.',
+      '  - An oversized numeral, letter, or abstract shape as a ghost layer behind the headline.',
+      '  - A bold solid-colour panel or card holding body copy — contrasting with the background.',
+      '',
+      'BREATHING ROOM: Leave 8%–12% margin on all sides. Text should never touch the canvas edge.',
+      '',
+      '━━━ COLOUR STRATEGY ━━━',
+      '',
+      'Use exactly 3–4 colours. Choose a palette matching the Design Style:',
+      '  - Luxury/Premium: Midnight Navy (#0D1B3E) + Champagne Gold (#C9A44A) + Ivory (#F5F0E8)',
+      '  - Modern/Bold: Deep Teal (#005F73) + Coral (#EE6C4D) + Off-white (#F8F5F0) + Charcoal (#2B2D42)',
+      '  - Warm/Friendly: Terracotta (#C1440E) + Warm Amber (#E8A838) + Cream (#FDF6EC) + Dark Brown (#3D1F00)',
+      '  - Contemporary: Slate (#2B3A4A) + Electric Blue (#0A84FF) + White (#FFFFFF) + Light Grey (#F2F2F7)',
+      '  - Vibrant: Magenta (#C2185B) + Deep Purple (#4A148C) + White (#FFFFFF) + Gold (#FFD600)',
+      '',
+      'Apply colours with intention: dominant background colour, contrasting text colour, accent colour for highlights, neutral for supporting text.',
+      '',
+      '━━━ PEOPLE & PHOTOGRAPHY ━━━',
     ]
 
-    lines.push('', '=== PEOPLE & PHOTOGRAPHY ===')
+    if (normalizedScenePhoto) {
+      if (sceneMode === 'background') {
+        lines.push(
+          '',
+          '━━━ BACKGROUND PHOTO (attached image — highest visual priority) ━━━',
+          'The attached image is the poster background. Use it as the full-bleed canvas backdrop.',
+          'Do NOT replace, ignore, or generate an alternative background — this image IS the background.',
+          'Design all text, shapes, and decorative elements directly on top of this photo.',
+          'Where text needs to be readable, apply a subtle gradient overlay or frosted-glass panel — never a solid white block.',
+          'The overall visual mood, colour palette, and atmosphere must be drawn from this background photo.',
+        )
+      } else {
+        lines.push(
+          '',
+          '━━━ FEATURED IMAGE (attached image — key visual element) ━━━',
+          'The attached image must be prominently featured in the poster design.',
+          'Place it in the right visual zone or as the dominant focal point of the layout.',
+          'Style the surrounding design (colours, shapes, typography) to complement and showcase this image.',
+          'Do not crop it aggressively — let it breathe. Frame it with design elements rather than boxing it.',
+        )
+      }
+    }
 
     if (normalizedPersonPhotos.length > 0) {
       lines.push(
-        `A real person photo will be composited onto the right side of the poster after generation.`,
-        'Because of this, the right column must have only a clean background: soft pale-blue blob + white. No generated person, no faces, no figures.',
-        'Do NOT place any text in the right column.',
-        'Person name, job title, and company must be rendered as styled text in the LEFT column, below the divider:',
-        '  - Name: bold dark navy, medium-large.',
-        '  - Job title and company: regular weight, smaller, charcoal.',
-        namedPeople.length > 0 ? `  People to credit: ${peopleLines.join(' | ')}` : '  No named people — do not invent a name or title.',
+        'A real person photo WILL BE composited onto the right side after generation.',
+        'CRITICAL: The right 44% of the canvas must be a CLEAN BACKGROUND ONLY — gradient, solid colour, or subtle texture that will frame the composited photo.',
+        'Do NOT generate any person, face, or figure in the right zone. Do NOT place any text in the right zone.',
+        'The background in the right zone should complement (not compete with) a professional person photo.',
+        'Person credits go in the LEFT column, below the headline, in the designated text area:',
+        namedPeople.length > 0
+          ? `  Name, title, company: ${peopleLines.join(' | ')} — render as styled text, name in bold, title/company smaller.`
+          : '  No named people provided — do not invent any name or title.',
       )
     } else if (explicitlyRequestsPeople || namedPeople.length > 0) {
       lines.push(
-        'No person photo was uploaded. Generate a realistic person in the right column.',
-        'Style: natural cut-out blending into the white background. No rectangular frame.',
-        'Warm, aspirational, professionally styled. Southeast Asian / Filipino preferred.',
+        'No photo uploaded. Generate a photorealistic person in the right visual zone.',
+        'Style: professional, aspirational, naturally lit. Southeast Asian / Filipino appearance preferred.',
+        'Cut-out style — figure blends softly into the poster background, no hard rectangular frame.',
         namedPeople.length > 0
-          ? `Render name/title as styled text in the lower-right area: ${peopleLines.join(' | ')}`
+          ? `Render their name/title elegantly below or beside them: ${peopleLines.join(' | ')}`
           : '',
       )
     } else {
       lines.push(
-        'No person is involved. Right column visual: clean 3D house model, property photo, or lifestyle object, cut-out style blending into white.',
+        'No person involved. Right-side visual: choose the most impactful option for this campaign:',
+        '  A) A photorealistic architectural 3D render of a luxury home or property (not cartoonish).',
+        '  B) A dramatic wide-angle interior shot — marble floors, floor-to-ceiling windows, modern furnishings.',
+        '  C) A bold abstract shape or layered geometric composition in the accent colour palette.',
+        '  D) An editorial lifestyle shot — family, couple, or individual in a premium property setting.',
       )
     }
 
     lines.push(
       '',
-      '=== CONTENT & INFORMATION HIERARCHY ===',
+      '━━━ INFORMATION HIERARCHY ━━━',
       '',
-      'You are the designer — prioritize information, do not dump all text at equal size:',
-      '  Priority 1 (largest): Headline + script accent line.',
-      '  Priority 2 (medium): Subtitle or the single most important body copy sentence.',
-      '  Priority 3 (small): Supporting details — dates, locations, organizer, contact info.',
-      'For long body copy: break into logical groups using dividers, icon rows, or callout cards.',
-      'Bold key phrases. Use gold color for emotionally important words. Let secondary info be smaller.',
+      'Prioritise content ruthlessly — not everything needs equal prominence:',
+      '  TIER 1 (dominant, ~60% of text real estate): Headline + accent phrase.',
+      '  TIER 2 (secondary, ~25%): Subtitle or single most important body sentence.',
+      '  TIER 3 (small, ~15%): Supporting detail — dates, locations, contact info if provided.',
       '',
-      '=== TEXT RULES (STRICT) ===',
+      'For multi-item body copy: use minimal icon bullets or a clean numbered list — never a wall of text.',
+      'For a call-to-action phrase: isolate it in a bold pill/button shape or bordered card for visual impact.',
       '',
-      'Only render text from: Headline, Subtitle, Body Copy, Additional Instructions fields.',
-      'URLs, emails, contact details in the Body Copy MAY be rendered (they are user-provided).',
-      'Do NOT invent: phone numbers, URLs, names, taglines, lorem ipsum, or filler text not in the brief.',
-      'Do NOT render bracketed placeholders like [logo here], [website], [address].',
-      'Empty fields = blank zone. Do not substitute invented content.',
+      '━━━ FINAL QUALITY BAR ━━━',
       '',
-      '=== BRANDING RULES ===',
+      'Before you output, ask: "Would this win a design award or make someone stop scrolling?"',
+      'The poster must look like it was crafted by a senior designer at a premium Manila creative studio.',
+      'It should feel premium, intentional, and alive — not templated, safe, or generated.',
       '',
-      'Do NOT generate any logos or brand marks.',
-      'The top-left corner of the poster (first 28% of width, first 13% of height) must be completely empty — pure white, nothing at all.',
+      aiInstructions ? `USER OVERRIDE (follow precisely, highest priority after constraints): "${aiInstructions}"` : '',
       '',
-      '=== CREATIVE DIRECTION ===',
-      '',
-      `Poster Type "${posterType || 'General'}" → tone: event/announcement = structured hierarchy; motivational = expressive typography; informational = icon rows + cards.`,
-      `Design Style "${designStyle || 'Modern friendly professional'}" + Traits "${designTraits || 'not specified'}" → visual atmosphere, spacing, font weight.`,
-      headline ? `Headline "${headline}" → expressive typographic treatment, script accent on the most emotional phrase.` : '',
-      content ? `Body Copy (${content.split(/\s+/).length} words) → use layout elements to present cleanly. Prioritize. Breathe.` : '',
-      aiInstructions ? `Additional Instructions: "${aiInstructions}" → follow precisely, these override other decisions.` : '',
-      '',
-      '=== FINAL QUALITY REQUIREMENTS ===',
-      '',
-      'Must look like a professional Filipino creative agency designed this for a real brand campaign.',
-      'Bright, warm, friendly, modern. No dark backgrounds, no heavy shadows, no cluttered areas.',
-      'No overlapping text. Every text element stays in the left column. The top-left corner is always empty.',
-      'Every piece of information has intentional placement and appropriate size weight.',
-      'Production-ready for Instagram and Facebook.',
+      'Output canvas size: ' + sizeLabel + '. Production-ready for Instagram and Facebook.',
     )
+
+    if (perplexityEnhancement) {
+      lines.push(
+        '',
+        '=== PERPLEXITY-ENHANCED CREATIVE DIRECTION (HIGHEST PRIORITY) ===',
+        '',
+        perplexityEnhancement,
+        'Apply the above creative direction precisely — it overrides generic style defaults.',
+      )
+    }
 
     const prompt = lines.join('\n')
 
-    const ai = new GoogleGenAI({ apiKey })
+    const ai = new GoogleGenAI({ apiKey: geminiKey })
+
+    const contents = normalizedScenePhoto
+      ? [
+          {
+            role: 'user' as const,
+            parts: [
+              { text: prompt },
+              { inlineData: { mimeType: normalizedScenePhoto.mimeType, data: normalizedScenePhoto.data } },
+            ],
+          },
+        ]
+      : prompt
 
     const response = await ai.models.generateContent({
       model: 'gemini-3.1-flash-image-preview',
-      contents: prompt,
+      contents,
       config: {
         responseModalities: ['TEXT', 'IMAGE'],
         imageConfig: {

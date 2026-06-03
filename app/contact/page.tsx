@@ -23,7 +23,6 @@ export default function ContactPage() {
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    // Here you would typically send the data to a backend
     console.log("Form submitted:", formData);
     setSubmitted(true);
     setFormData({ name: "", email: "", message: "" });
@@ -41,23 +40,23 @@ export default function ContactPage() {
       <Navbar />
 
       {/* Hero Section */}
-      <section className="pt-32" style={{ backgroundColor: "#f0f3ff" }}>
-        <div className="mx-auto max-w-[1280px] px-8 py-20">
-          <div className="space-y-6 text-center">
+      <section className="pt-16 sm:pt-20" style={{ backgroundColor: "#f0f3ff" }}>
+        <div className="mx-auto max-w-[1280px] px-4 py-12 sm:px-6 sm:py-16 lg:px-8 lg:py-20">
+          <div className="space-y-4 text-center sm:space-y-6">
             <p
-              className="inline-block text-xs font-semibold uppercase tracking-[0.2em]"
+              className="inline-block text-[10px] font-semibold uppercase tracking-[0.2em] sm:text-xs"
               style={{ color: "#b52426" }}
             >
               Get In Touch
             </p>
             <h1
-              className="text-5xl font-bold leading-tight lg:text-6xl"
+              className="text-3xl font-bold leading-tight sm:text-4xl md:text-5xl lg:text-6xl"
               style={{ color: "#002045" }}
             >
               Contact Us
             </h1>
             <p
-              className="text-xl leading-relaxed max-w-2xl mx-auto"
+              className="text-base leading-relaxed mx-auto sm:text-lg lg:text-xl lg:max-w-2xl"
               style={{ color: "#43474e" }}
             >
               Have a question or feedback? We&apos;d love to hear from you. Get
@@ -68,14 +67,14 @@ export default function ContactPage() {
       </section>
 
       {/* Contact Section */}
-      <section className="py-20">
-        <div className="mx-auto max-w-[1280px] px-8">
-          <div className="grid grid-cols-1 gap-12 lg:grid-cols-2">
+      <section className="py-12 sm:py-16 lg:py-20">
+        <div className="mx-auto max-w-[1280px] px-4 sm:px-6 lg:px-8">
+          <div className="grid grid-cols-1 gap-10 sm:gap-12 lg:grid-cols-2">
             {/* Contact Information */}
-            <div className="space-y-8">
+            <div className="space-y-6 sm:space-y-8">
               <div>
                 <h2
-                  className="text-3xl font-bold mb-8"
+                  className="text-2xl font-bold mb-6 sm:text-3xl sm:mb-8"
                   style={{ color: "#002045" }}
                 >
                   Contact Information
@@ -106,19 +105,19 @@ export default function ContactPage() {
               ].map((item, index) => (
                 <div key={index} className="flex gap-4">
                   <div
-                    className="text-3xl flex-shrink-0"
+                    className="text-2xl flex-shrink-0 sm:text-3xl"
                     style={{ color: "#b52426" }}
                   >
                     {item.icon}
                   </div>
                   <div>
                     <h3
-                      className="font-bold text-lg"
+                      className="font-bold text-base sm:text-lg"
                       style={{ color: "#002045" }}
                     >
                       {item.title}
                     </h3>
-                    <p style={{ color: "#43474e" }}>{item.content}</p>
+                    <p className="text-sm sm:text-base" style={{ color: "#43474e" }}>{item.content}</p>
                   </div>
                 </div>
               ))}
@@ -127,7 +126,7 @@ export default function ContactPage() {
             {/* Contact Form */}
             <div>
               <div
-                className="rounded-2xl p-8"
+                className="rounded-2xl p-5 sm:p-8"
                 style={{
                   backgroundColor: "#ffffff",
                   border: "1px solid #c4c6cf",
@@ -135,28 +134,28 @@ export default function ContactPage() {
               >
                 {submitted ? (
                   <div
-                    className="rounded-xl p-6 text-center"
+                    className="rounded-xl p-5 text-center sm:p-6"
                     style={{
                       backgroundColor: "#f0f3ff",
                       border: "2px solid #b52426",
                     }}
                   >
-                    <div className="text-5xl mb-4" style={{ color: "#b52426" }}>
+                    <div className="text-4xl mb-3 sm:text-5xl sm:mb-4" style={{ color: "#b52426" }}>
                       ✓
                     </div>
                     <h3
-                      className="text-2xl font-bold mb-2"
+                      className="text-xl font-bold mb-2 sm:text-2xl"
                       style={{ color: "#002045" }}
                     >
                       Thank you!
                     </h3>
-                    <p style={{ color: "#43474e" }}>
+                    <p className="text-sm sm:text-base" style={{ color: "#43474e" }}>
                       Your message has been sent successfully. We&apos;ll get
                       back to you soon.
                     </p>
                   </div>
                 ) : (
-                  <form onSubmit={handleSubmit} className="space-y-6">
+                  <form onSubmit={handleSubmit} className="space-y-5 sm:space-y-6">
                     <div>
                       <label
                         htmlFor="name"
@@ -246,20 +245,20 @@ export default function ContactPage() {
 
       {/* FAQ Section */}
       <section
-        className="py-20"
+        className="py-12 sm:py-16 lg:py-20"
         style={{
           backgroundColor: "#f9f9ff",
           borderTop: "1px solid #c4c6cf",
         }}
       >
-        <div className="mx-auto max-w-[1280px] px-8">
+        <div className="mx-auto max-w-[1280px] px-4 sm:px-6 lg:px-8">
           <h2
-            className="mb-12 text-4xl font-bold text-center"
+            className="mb-8 text-3xl font-bold text-center sm:mb-12 sm:text-4xl"
             style={{ color: "#002045" }}
           >
             Frequently Asked Questions
           </h2>
-          <div className="space-y-4 max-w-2xl mx-auto">
+          <div className="space-y-4 mx-auto lg:max-w-2xl">
             {[
               {
                 question: "How do I list photos on Homes.ph Drive?",
@@ -284,19 +283,19 @@ export default function ContactPage() {
             ].map((item, index) => (
               <div
                 key={index}
-                className="rounded-xl p-6"
+                className="rounded-xl p-5 sm:p-6"
                 style={{
                   backgroundColor: "#ffffff",
                   border: "1px solid #c4c6cf",
                 }}
               >
                 <h3
-                  className="font-bold text-lg mb-2"
+                  className="font-bold text-base mb-2 sm:text-lg"
                   style={{ color: "#002045" }}
                 >
                   {item.question}
                 </h3>
-                <p style={{ color: "#43474e" }}>{item.answer}</p>
+                <p className="text-sm sm:text-base" style={{ color: "#43474e" }}>{item.answer}</p>
               </div>
             ))}
           </div>
@@ -305,7 +304,7 @@ export default function ContactPage() {
 
       {/* Footer */}
       <footer style={{ backgroundColor: "#002045" }}>
-        <div className="mx-auto max-w-[1280px] px-8 py-12 text-center">
+        <div className="mx-auto max-w-[1280px] px-4 py-8 text-center sm:px-6 sm:py-12 lg:px-8">
           <p className="text-sm" style={{ color: "rgba(255,255,255,0.45)" }}>
             © {new Date().getFullYear()} homes.ph · All rights reserved
           </p>

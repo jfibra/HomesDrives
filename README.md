@@ -8,7 +8,7 @@ This repository is linked to a [v0](https://v0.app) project. You can continue de
 
 [Continue working on v0 →](https://v0.app/chat/projects/prj_ABfrFgPVP1bdoPQQnFXeLSgUckbf)
 
-## Getting Started
+## this is Getting Started first
 
 First, run the development server:
 
