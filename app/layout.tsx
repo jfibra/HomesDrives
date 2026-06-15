@@ -3,6 +3,9 @@ import { Noto_Serif, Manrope } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import './globals.css'
 
+import { getPublicAppOrigin } from '@/lib/app-url'
+import { defaultSocialMetadata } from '@/lib/social-metadata'
+
 const notoSerif = Noto_Serif({
   subsets: ['latin'],
   weight: ['400', '500', '600', '700'],
@@ -15,12 +18,9 @@ const manrope = Manrope({
   variable: '--font-manrope',
 })
 
-const appOrigin = process.env.NEXT_PUBLIC_APP_URL?.trim() || 'http://localhost:3000'
-
 export const metadata: Metadata = {
-  metadataBase: new URL(appOrigin),
-  title: 'Homes.ph Drive',
-  description: 'Browse and discover premium real estate photography across the Philippines and beyond.',
+  metadataBase: new URL(getPublicAppOrigin()),
+  ...defaultSocialMetadata,
   manifest: '/site.webmanifest',
   icons: {
     icon: [
@@ -34,12 +34,6 @@ export const metadata: Metadata = {
       { url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
     ],
     shortcut: '/favicon.ico',
-  },
-  openGraph: {
-    title: 'Homes.ph Drive',
-    description: 'Browse and discover premium real estate photography across the Philippines and beyond.',
-    images: [{ url: '/android-chrome-512x512.png' }],
-    type: 'website',
   },
 }
 

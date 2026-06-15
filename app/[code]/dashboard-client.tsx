@@ -687,6 +687,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
   const [activeView, setActiveView] = useState<DashboardView>('upload')
   const [searchQuery, setSearchQuery] = useState('')
   const [mediaDirectoryFolders, setMediaDirectoryFolders] = useState<MediaDirectoryFolderRow[]>([])
+  const [mediaDirectoryFolderCount, setMediaDirectoryFolderCount] = useState<number | null>(null)
   const [isLoadingMediaDirectory, setIsLoadingMediaDirectory] = useState(false)
   const [mediaDirectoryError, setMediaDirectoryError] = useState('')
   const [mediaDirectorySearch, setMediaDirectorySearch] = useState('')
@@ -1037,6 +1038,29 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
   useEffect(() => {
     if (!isAuthenticated) return
     if (liveUser.role !== 'media') return
+    let cancelled = false
+    void (async () => {
+      try {
+        const r = await fetch(
+          `/api/media/folders?uploaderCode=${encodeURIComponent(user.code)}&countOnly=true`,
+        )
+        const data = await r.json()
+        if (!r.ok) throw new Error(data?.error || 'Unable to load folder count.')
+        if (!cancelled && typeof data.totalCount === 'number') {
+          setMediaDirectoryFolderCount(data.totalCount)
+        }
+      } catch {
+        if (!cancelled) setMediaDirectoryFolderCount(null)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [isAuthenticated, liveUser.role, user.code])
+
+  useEffect(() => {
+    if (!isAuthenticated) return
+    if (liveUser.role !== 'media') return
     if (activeView !== 'all-folders' && activeView !== 'map') return
     let cancelled = false
     setIsLoadingMediaDirectory(true)
@@ -1049,7 +1073,14 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
         const data = await r.json()
         if (!r.ok) throw new Error(data?.error || 'Unable to load folder directory.')
         const list = Array.isArray(data.folders) ? (data.folders as MediaDirectoryFolderRow[]) : []
-        if (!cancelled) setMediaDirectoryFolders(list)
+        if (!cancelled) {
+          setMediaDirectoryFolders(list)
+          if (typeof data.totalCount === 'number') {
+            setMediaDirectoryFolderCount(data.totalCount)
+          } else {
+            setMediaDirectoryFolderCount(list.length)
+          }
+        }
       } catch (e) {
         if (!cancelled) {
           setMediaDirectoryError(
@@ -2580,7 +2611,9 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                   <SidebarNavItem
                     active={activeView === 'all-folders'}
                     badge={
-                      mediaDirectoryFolders.length > 0 ? mediaDirectoryFolders.length : undefined
+                      (mediaDirectoryFolderCount ?? mediaDirectoryFolders.length) > 0
+                        ? (mediaDirectoryFolderCount ?? mediaDirectoryFolders.length)
+                        : undefined
                     }
                     icon={<Folder className="h-5 w-5" />}
                     label="All folders"
@@ -3927,9 +3960,9 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                     style={{ color: 'var(--ds-on-surface-variant)' }}
                   >
                     <span>
-                      Showing {filteredMediaDirectoryFolders.length} of {mediaDirectoryFolders.length}{' '}
-                      folder
-                      {mediaDirectoryFolders.length === 1 ? '' : 's'}
+                      Showing {filteredMediaDirectoryFolders.length} of{' '}
+                      {mediaDirectoryFolderCount ?? mediaDirectoryFolders.length} folder
+                      {(mediaDirectoryFolderCount ?? mediaDirectoryFolders.length) === 1 ? '' : 's'}
                     </span>
                     <span>
                       Total photos:{' '}

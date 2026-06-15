@@ -1,12 +1,32 @@
 import { headers } from 'next/headers'
+import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 
 import { getUserByCode } from '@/lib/server/albums'
+import { buildSocialMetadata } from '@/lib/social-metadata'
 
 import MediaProfileClient from './profile-client'
 
 type PageProps = {
   params: Promise<{ code: string }>
+}
+
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { code } = await params
+  const user = await getUserByCode(code).catch(() => null)
+
+  if (!user || user.status !== 'active' || user.role !== 'media') {
+    return buildSocialMetadata({
+      title: 'Media Profile · Homes.ph',
+      description: 'Open a public media profile on Homes.ph.',
+    })
+  }
+
+  return buildSocialMetadata({
+    title: `${user.full_name} · Media Profile`,
+    description: `Open ${user.full_name}'s public media profile on Homes.ph.`,
+    path: `/media/${encodeURIComponent(user.code)}`,
+  })
 }
 
 function getPublicOrigin(headerList: Headers) {

@@ -15,7 +15,7 @@ export async function GET(request: Request) {
 
     await requireAdminByCode(adminCode)
     const folders = await listAllFoldersForAdmin()
-    return NextResponse.json({ folders })
+    return NextResponse.json({ folders, totalCount: folders.length })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to load folders.'
     const status = /forbidden|not active|not found/i.test(message) ? 403 : 500

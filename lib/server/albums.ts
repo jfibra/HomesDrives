@@ -407,29 +407,50 @@ export type AlbumFolderContext = {
   tags: string[]
 }
 
+const ALBUM_FOLDER_ROW_SELECT =
+  'id, album_user_id, uploader_code, uploader_name, folder_name, full_address, street, city, province, zip_code, country, latitude, longitude, type_of_place, tags, created_at, notes, status'
+
+const SUPABASE_PAGE_SIZE = 1000
+
+async function fetchAllPagedRows<T>(
+  fetchPage: (
+    offset: number,
+    pageSize: number,
+  ) => Promise<{ data: T[] | null; error: { message: string } | null }>,
+  pageSize = SUPABASE_PAGE_SIZE,
+): Promise<T[]> {
+  const rows: T[] = []
+  let offset = 0
+  for (;;) {
+    const { data, error } = await fetchPage(offset, pageSize)
+    if (error) throw new Error(error.message)
+    const batch = data ?? []
+    rows.push(...batch)
+    if (batch.length < pageSize) break
+    offset += pageSize
+  }
+  return rows
+}
+
 export async function listAlbumFoldersByUploader(params: {
   uploaderCode?: string
   uploaderName: string
 }) {
   const supabaseAdmin = createSupabaseAdminClient()
-  let query = supabaseAdmin
-    .from('albums_folders')
-    .select('id, album_user_id, uploader_code, uploader_name, folder_name, full_address, street, city, province, zip_code, country, latitude, longitude, type_of_place, tags, created_at, notes, status')
-    .order('created_at', { ascending: false })
+  return fetchAllPagedRows(async (offset, pageSize) => {
+    let query = supabaseAdmin
+      .from('albums_folders')
+      .select(ALBUM_FOLDER_ROW_SELECT)
+      .order('created_at', { ascending: false })
 
-  if (params.uploaderCode) {
-    query = query.eq('uploader_code', params.uploaderCode)
-  } else {
-    query = query.eq('uploader_name', params.uploaderName)
-  }
+    if (params.uploaderCode) {
+      query = query.eq('uploader_code', params.uploaderCode)
+    } else {
+      query = query.eq('uploader_name', params.uploaderName)
+    }
 
-  const { data, error } = await query
-
-  if (error) {
-    throw new Error(error.message)
-  }
-
-  return data ?? []
+    return query.range(offset, offset + pageSize - 1)
+  })
 }
 
 export async function createAlbumFolder(params: {
@@ -652,22 +673,32 @@ export async function listAllAlbumUsers(): Promise<AdminUserRow[]> {
   const users = (data ?? []) as AdminUserRow[]
   if (users.length === 0) return users
 
-  // Augment with per-user photo + folder counts
+  // Augment with per-user photo + folder counts (page past PostgREST ~1000 row cap)
   const codes = users.map((u) => u.code)
-  const [{ data: folderRows, error: fErr }, { data: photoRows, error: pErr }] = await Promise.all([
-    supabaseAdmin.from('albums_folders').select('uploader_code').in('uploader_code', codes),
-    supabaseAdmin.from('albums_photos').select('uploader_code').in('uploader_code', codes),
+  const [folderRows, photoRows] = await Promise.all([
+    fetchAllPagedRows(async (offset, pageSize) =>
+      supabaseAdmin
+        .from('albums_folders')
+        .select('uploader_code')
+        .in('uploader_code', codes)
+        .range(offset, offset + pageSize - 1),
+    ),
+    fetchAllPagedRows(async (offset, pageSize) =>
+      supabaseAdmin
+        .from('albums_photos')
+        .select('uploader_code')
+        .in('uploader_code', codes)
+        .range(offset, offset + pageSize - 1),
+    ),
   ])
-  if (fErr) throw new Error(fErr.message)
-  if (pErr) throw new Error(pErr.message)
 
   const folderCount = new Map<string, number>()
-  for (const r of folderRows ?? []) {
+  for (const r of folderRows) {
     if (!r.uploader_code) continue
     folderCount.set(r.uploader_code, (folderCount.get(r.uploader_code) ?? 0) + 1)
   }
   const photoCount = new Map<string, number>()
-  for (const r of photoRows ?? []) {
+  for (const r of photoRows) {
     if (!r.uploader_code) continue
     photoCount.set(r.uploader_code, (photoCount.get(r.uploader_code) ?? 0) + 1)
   }
@@ -957,16 +988,16 @@ async function aggregatePhotosForFolderIds(
 
 export async function listFoldersByUserId(userId: number): Promise<AdminUserFolder[]> {
   const supabaseAdmin = createSupabaseAdminClient()
-  const { data: folders, error } = await supabaseAdmin
-    .from('albums_folders')
-    .select(
-      'id, uploader_code, uploader_name, folder_name, full_address, street, city, province, zip_code, country, latitude, longitude, type_of_place, tags, notes, status, created_at, updated_at',
-    )
-    .eq('album_user_id', userId)
-    .order('created_at', { ascending: false })
-
-  if (error) throw new Error(error.message)
-  const list = (folders ?? []) as Omit<AdminUserFolder, 'photo_count' | 'cover_image_url'>[]
+  const list = (await fetchAllPagedRows(async (offset, pageSize) =>
+    supabaseAdmin
+      .from('albums_folders')
+      .select(
+        'id, uploader_code, uploader_name, folder_name, full_address, street, city, province, zip_code, country, latitude, longitude, type_of_place, tags, notes, status, created_at, updated_at',
+      )
+      .eq('album_user_id', userId)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + pageSize - 1),
+  )) as Omit<AdminUserFolder, 'photo_count' | 'cover_image_url'>[]
   if (list.length === 0) return []
 
   const ids = list.map((f) => f.id)
@@ -986,18 +1017,27 @@ export type AdminFolderWithOwner = AdminUserFolder & {
   owner_name: string
 }
 
+export async function countAllAlbumFolders(): Promise<number> {
+  const supabaseAdmin = createSupabaseAdminClient()
+  const { count, error } = await supabaseAdmin
+    .from('albums_folders')
+    .select('id', { count: 'exact', head: true })
+  if (error) throw new Error(error.message)
+  return count ?? 0
+}
+
 /** All folders in the system (admin directory). Orphan rows use null owner_user_id. */
 export async function listAllFoldersForAdmin(): Promise<AdminFolderWithOwner[]> {
   const supabaseAdmin = createSupabaseAdminClient()
-  const { data: folders, error } = await supabaseAdmin
-    .from('albums_folders')
-    .select(
-      'id, album_user_id, uploader_code, uploader_name, folder_name, full_address, street, city, province, zip_code, country, latitude, longitude, type_of_place, tags, notes, status, created_at, updated_at',
-    )
-    .order('created_at', { ascending: false })
-
-  if (error) throw new Error(error.message)
-  const list = (folders ?? []) as (Omit<AdminUserFolder, 'photo_count' | 'cover_image_url'> & {
+  const list = (await fetchAllPagedRows(async (offset, pageSize) =>
+    supabaseAdmin
+      .from('albums_folders')
+      .select(
+        'id, album_user_id, uploader_code, uploader_name, folder_name, full_address, street, city, province, zip_code, country, latitude, longitude, type_of_place, tags, notes, status, created_at, updated_at',
+      )
+      .order('created_at', { ascending: false })
+      .range(offset, offset + pageSize - 1),
+  )) as (Omit<AdminUserFolder, 'photo_count' | 'cover_image_url'> & {
     album_user_id: number | null
   })[]
   if (list.length === 0) return []
@@ -1284,7 +1324,8 @@ export async function getAdminStats(): Promise<AdminStats> {
 
   const [
     usersRes,
-    foldersRes,
+    foldersCountRes,
+    archivedFoldersCountRes,
     photosCountRes,
     photoSizeSumRes,
     topUploadersRes,
@@ -1294,8 +1335,12 @@ export async function getAdminStats(): Promise<AdminStats> {
   ] = await Promise.all([
     // Users (id + code for heatmap: attribute rows by album_user_id when uploader_code is missing)
     supabaseAdmin.from('album_users').select('id, status, role, code, full_name'),
-    // Folders
-    supabaseAdmin.from('albums_folders').select('status'),
+    // Folders — use head count (PostgREST returns at most ~1000 rows per select)
+    supabaseAdmin.from('albums_folders').select('id', { count: 'exact', head: true }),
+    supabaseAdmin
+      .from('albums_folders')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'archived'),
     // Total photo count (head:true → count only, no row scan)
     supabaseAdmin.from('albums_photos').select('id', { count: 'exact', head: true }),
     // Total storage bytes — fetch only the size column, paginated isn't needed for sum
@@ -1329,7 +1374,8 @@ export async function getAdminStats(): Promise<AdminStats> {
   ])
 
   if (usersRes.error) throw new Error(usersRes.error.message)
-  if (foldersRes.error) throw new Error(foldersRes.error.message)
+  if (foldersCountRes.error) throw new Error(foldersCountRes.error.message)
+  if (archivedFoldersCountRes.error) throw new Error(archivedFoldersCountRes.error.message)
   if (photosCountRes.error) throw new Error(photosCountRes.error.message)
   if (photoSizeSumRes.error) throw new Error(photoSizeSumRes.error.message)
   if (topUploadersRes.error) throw new Error(topUploadersRes.error.message)
@@ -1338,7 +1384,8 @@ export async function getAdminStats(): Promise<AdminStats> {
   if (folderChartRes.error) throw new Error(folderChartRes.error.message)
 
   const userRows = usersRes.data ?? []
-  const folderRows = foldersRes.data ?? []
+  const totalFolders = foldersCountRes.count ?? 0
+  const archivedFolders = archivedFoldersCountRes.count ?? 0
   const photoSizeRows = photoSizeSumRes.data ?? []
   const topUploaderRows = topUploadersRes.data ?? []
   const chartRows = chartRes.data ?? []
@@ -1349,9 +1396,9 @@ export async function getAdminStats(): Promise<AdminStats> {
     activeUsers: userRows.filter((u) => u.status === 'active').length,
     inactiveUsers: userRows.filter((u) => u.status === 'inactive').length,
     suspendedUsers: userRows.filter((u) => u.status === 'suspended').length,
-    folders: folderRows.length,
-    activeFolders: folderRows.filter((f) => (f.status ?? 'active') !== 'archived').length,
-    archivedFolders: folderRows.filter((f) => f.status === 'archived').length,
+    folders: totalFolders,
+    activeFolders: totalFolders - archivedFolders,
+    archivedFolders,
     photos: photosCountRes.count ?? 0,
     totalStorageBytes: photoSizeRows.reduce(
       (sum: number, r: { file_size_bytes: number | null }) => sum + (r.file_size_bytes ?? 0),
@@ -1592,29 +1639,23 @@ export async function listPhotosByUploader(params: {
   uploaderName: string
 }) {
   const supabaseAdmin = createSupabaseAdminClient()
-  // Dashboard needs all of a user's photos for per-folder views and counts.
-  // Keep a high cap so Supabase/PostgREST stays bounded (adjust if you shard by user).
-  const maxRows = 50_000
+  const photoSelect =
+    'id, album_user_id, uploader_code, folder_id, image_url, original_file_name, file_size_bytes, created_at, capture_date, device_make, device_model, place_name, city, province, type_of_place, tags, latitude, longitude, article_star_rank'
 
-  let query = supabaseAdmin
-    .from('albums_photos')
-    .select('id, album_user_id, uploader_code, folder_id, image_url, original_file_name, file_size_bytes, created_at, capture_date, device_make, device_model, place_name, city, province, type_of_place, tags, latitude, longitude, article_star_rank')
-    .order('created_at', { ascending: false })
-    .limit(maxRows)
+  return fetchAllPagedRows(async (offset, pageSize) => {
+    let query = supabaseAdmin
+      .from('albums_photos')
+      .select(photoSelect)
+      .order('created_at', { ascending: false })
 
-  if (params.uploaderCode) {
-    query = query.eq('uploader_code', params.uploaderCode)
-  } else {
-    query = query.eq('uploader_name', params.uploaderName)
-  }
+    if (params.uploaderCode) {
+      query = query.eq('uploader_code', params.uploaderCode)
+    } else {
+      query = query.eq('uploader_name', params.uploaderName)
+    }
 
-  const { data, error } = await query
-
-  if (error) {
-    throw new Error(error.message)
-  }
-
-  return data ?? []
+    return query.range(offset, offset + pageSize - 1)
+  })
 }
 
 export type AlbumsMarketplaceSort = 'newest' | 'oldest' | 'captured'
@@ -1803,6 +1844,24 @@ export async function deleteAlbumFolder(params: {
     .eq('uploader_code', params.uploaderCode)
 
   if (error) throw new Error(error.message)
+}
+
+export async function deleteAlbumFolderAsAdmin(params: { id: string; withPhotos: boolean }) {
+  const supabaseAdmin = createSupabaseAdminClient()
+  const { data: folder, error } = await supabaseAdmin
+    .from('albums_folders')
+    .select('uploader_code')
+    .eq('id', params.id)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  if (!folder?.uploader_code) throw new Error('Folder not found.')
+
+  await deleteAlbumFolder({
+    id: params.id,
+    uploaderCode: folder.uploader_code,
+    withPhotos: params.withPhotos,
+  })
 }
 
 export async function movePhotoToFolder(params: {

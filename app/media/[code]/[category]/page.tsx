@@ -1,8 +1,10 @@
 import Link from 'next/link'
+import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { CalendarDays, GraduationCap, Hotel, Newspaper, UtensilsCrossed } from 'lucide-react'
 
 import { getUserByCode } from '@/lib/server/albums'
+import { buildSocialMetadata } from '@/lib/social-metadata'
 
 type PageProps = {
   params: Promise<{ code: string; category: string }>
@@ -35,6 +37,25 @@ const CATEGORY_DETAILS = {
     label: 'Schools',
   },
 } as const
+
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { category, code } = await params
+  const user = await getUserByCode(code).catch(() => null)
+  const details = CATEGORY_DETAILS[category as keyof typeof CATEGORY_DETAILS]
+
+  if (!user || user.status !== 'active' || user.role !== 'media' || !details) {
+    return buildSocialMetadata({
+      title: 'Media Category · Homes.ph',
+      description: 'Browse public media content on Homes.ph.',
+    })
+  }
+
+  return buildSocialMetadata({
+    title: `${details.label} · ${user.full_name}`,
+    description: details.description,
+    path: `/media/${encodeURIComponent(user.code)}/${encodeURIComponent(category)}`,
+  })
+}
 
 export default async function MediaCategoryPage({ params }: PageProps) {
   const { category, code } = await params

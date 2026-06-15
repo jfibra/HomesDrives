@@ -234,6 +234,10 @@ export default function AdminClient({ user }: { user: AdminUser }) {
   const [allFolders, setAllFolders] = useState<DirectoryFolderRow[]>([])
   const [isLoadingAllFolders, setIsLoadingAllFolders] = useState(false)
   const [allFoldersError, setAllFoldersError] = useState('')
+  const [deleteFolderTarget, setDeleteFolderTarget] = useState<DirectoryFolderRow | null>(null)
+  const [deleteFolderOption, setDeleteFolderOption] = useState<'unfile' | 'delete-all'>('unfile')
+  const [isDeletingFolder, setIsDeletingFolder] = useState(false)
+  const [deleteFolderError, setDeleteFolderError] = useState('')
   type BrowsePhoto = {
     id: string
     image_url: string
@@ -557,6 +561,34 @@ export default function AdminClient({ user }: { user: AdminUser }) {
       alert(error instanceof Error ? error.message : 'Unable to delete user.')
     } finally {
       setIsDeletingUser(false)
+    }
+  }
+
+  async function handleDeleteFolder() {
+    if (!deleteFolderTarget) return
+    setIsDeletingFolder(true)
+    setDeleteFolderError('')
+    try {
+      const withPhotos = deleteFolderOption === 'delete-all'
+      const r = await fetch(
+        `/api/admin/folders/${deleteFolderTarget.id}?adminCode=${encodeURIComponent(user.code)}&withPhotos=${withPhotos}`,
+        { method: 'DELETE' },
+      )
+      const data = await r.json().catch(() => null)
+      if (!r.ok) throw new Error(data?.error || 'Unable to delete folder.')
+
+      setAllFolders((current) => current.filter((f) => f.id !== deleteFolderTarget.id))
+      if (browseFolder?.id === deleteFolderTarget.id) {
+        setBrowseFolder(null)
+        setBrowsePhotos([])
+      }
+      setBrowseFolders((current) => current.filter((f) => f.id !== deleteFolderTarget.id))
+      setDeleteFolderTarget(null)
+      await loadStats()
+    } catch (error) {
+      setDeleteFolderError(error instanceof Error ? error.message : 'Unable to delete folder.')
+    } finally {
+      setIsDeletingFolder(false)
     }
   }
 
@@ -1496,13 +1528,16 @@ export default function AdminClient({ user }: { user: AdminUser }) {
                     {filteredAllFolders.map((folder) => {
                       const isArchived = (folder.status ?? 'active') === 'archived'
                       return (
-                        <button
+                        <div
                           key={folder.id}
-                          className="group flex flex-col gap-2 overflow-hidden rounded-2xl border bg-white text-left transition-all hover:-translate-y-0.5 hover:shadow-md"
-                          onClick={() => void openFolderFromDirectory(folder)}
+                          className="group relative flex flex-col gap-2 overflow-hidden rounded-2xl border bg-white text-left transition-all hover:-translate-y-0.5 hover:shadow-md"
                           style={{ borderColor: 'var(--ds-outline-variant)' }}
-                          type="button"
                         >
+                          <button
+                            className="flex flex-col gap-2 text-left"
+                            onClick={() => void openFolderFromDirectory(folder)}
+                            type="button"
+                          >
                           {folder.cover_image_url ? (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img
@@ -1585,7 +1620,25 @@ export default function AdminClient({ user }: { user: AdminUser }) {
                               ) : null}
                             </div>
                           </div>
-                        </button>
+                          </button>
+                          <button
+                            aria-label={`Delete folder ${folder.folder_name}`}
+                            className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full border bg-white/95 opacity-0 shadow-sm transition-all hover:border-red-200 hover:bg-red-50 group-hover:opacity-100"
+                            onClick={() => {
+                              setDeleteFolderOption('unfile')
+                              setDeleteFolderError('')
+                              setDeleteFolderTarget(folder)
+                            }}
+                            style={{
+                              borderColor: 'var(--ds-outline-variant)',
+                              color: 'var(--ds-on-surface-variant)',
+                            }}
+                            title="Delete folder"
+                            type="button"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
                       )
                     })}
                   </div>
@@ -2013,6 +2066,128 @@ export default function AdminClient({ user }: { user: AdminUser }) {
           </div>
         </div>
       ) : null}
+
+      {/* ─── Folder delete confirm ─────────────────────────────────────────── */}
+      <Dialog
+        open={deleteFolderTarget != null}
+        onOpenChange={(open) => {
+          if (!open && !isDeletingFolder) {
+            setDeleteFolderTarget(null)
+            setDeleteFolderError('')
+          }
+        }}
+      >
+        <DialogContent className="rounded-2xl sm:max-w-md" showCloseButton={!isDeletingFolder}>
+          <DialogHeader>
+            <DialogTitle
+              className="text-lg font-bold"
+              style={{ fontFamily: 'var(--font-noto-serif)' }}
+            >
+              Delete &ldquo;{deleteFolderTarget?.folder_name}&rdquo;?
+            </DialogTitle>
+            <DialogDescription>
+              Choose what happens to the {deleteFolderTarget?.photo_count ?? 0} photo(s) in this folder.
+              This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <label
+              className="flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors"
+              style={{
+                borderColor:
+                  deleteFolderOption === 'unfile'
+                    ? 'var(--ds-primary)'
+                    : 'var(--ds-outline-variant)',
+                backgroundColor:
+                  deleteFolderOption === 'unfile' ? 'var(--ds-surface-container)' : 'transparent',
+              }}
+            >
+              <input
+                checked={deleteFolderOption === 'unfile'}
+                className="mt-1"
+                disabled={isDeletingFolder}
+                onChange={() => setDeleteFolderOption('unfile')}
+                type="radio"
+              />
+              <div>
+                <p className="text-sm font-semibold" style={{ color: 'var(--ds-on-surface)' }}>
+                  Keep photos (unassign)
+                </p>
+                <p className="mt-0.5 text-xs" style={{ color: 'var(--ds-on-surface-variant)' }}>
+                  Photos stay in the owner&apos;s library but are no longer grouped under this folder.
+                </p>
+              </div>
+            </label>
+
+            <label
+              className="flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors"
+              style={{
+                borderColor: deleteFolderOption === 'delete-all' ? 'var(--ds-error)' : 'var(--ds-outline-variant)',
+                backgroundColor:
+                  deleteFolderOption === 'delete-all' ? 'var(--ds-error-container)' : 'transparent',
+              }}
+            >
+              <input
+                checked={deleteFolderOption === 'delete-all'}
+                className="mt-1"
+                disabled={isDeletingFolder}
+                onChange={() => setDeleteFolderOption('delete-all')}
+                type="radio"
+              />
+              <div>
+                <p className="text-sm font-semibold" style={{ color: 'var(--ds-error)' }}>
+                  Delete folder + all photos
+                </p>
+                <p className="mt-0.5 text-xs" style={{ color: 'var(--ds-on-surface-variant)' }}>
+                  Permanently deletes all photos and their storage files.
+                </p>
+              </div>
+            </label>
+
+            {deleteFolderError ? (
+              <div
+                className="rounded-lg border px-3 py-2 text-sm"
+                style={{
+                  backgroundColor: 'var(--ds-error-container)',
+                  borderColor: 'rgba(186,26,26,0.2)',
+                  color: 'var(--ds-error)',
+                }}
+              >
+                {deleteFolderError}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              className="rounded-lg border px-4 py-2 text-sm font-semibold transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={isDeletingFolder}
+              onClick={() => {
+                setDeleteFolderTarget(null)
+                setDeleteFolderError('')
+              }}
+              style={{ borderColor: 'var(--ds-outline-variant)' }}
+              type="button"
+            >
+              Cancel
+            </button>
+            <button
+              className="rounded-lg px-4 py-2 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={isDeletingFolder}
+              onClick={() => void handleDeleteFolder()}
+              style={{ backgroundColor: 'var(--ds-error)' }}
+              type="button"
+            >
+              {isDeletingFolder
+                ? 'Deleting...'
+                : deleteFolderOption === 'delete-all'
+                  ? 'Delete folder & photos'
+                  : 'Delete folder'}
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* ─── Browse user folders + photos ────────────────────────────────── */}
       {browseUser ? (

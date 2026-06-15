@@ -266,33 +266,44 @@ export default function MediaProfileClient({ profileUrl, user }: MediaProfileCli
                   )}
                   key={label}
                 >
-                  <div
-                    className="relative min-h-44 overflow-hidden bg-slate-900 p-5 text-white"
-                    style={{
-                      backgroundImage: `${previewPhoto}, ${previewTint}`,
-                      backgroundPosition: 'center',
-                      backgroundRepeat: 'no-repeat',
-                      backgroundSize: 'cover',
-                    }}
+                  <Link
+                    aria-label={`Open ${label} questionnaire`}
+                    className="group block"
+                    href={destinationHref}
                   >
-                    <div className={cn('absolute inset-0', CATEGORY_PHOTO_OVERLAY)} />
-                    <div className="mt-8 flex items-end justify-between gap-4">
-                      <div className="relative z-10">
-                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">
-                          FORM
-                        </p>
-                        <h3 className="mt-2 text-2xl font-semibold tracking-tight text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.55)]">
-                          {label}
-                        </h3>
+                    <div
+                      className="relative min-h-44 overflow-hidden bg-slate-900 p-5 text-white transition group-hover:brightness-105"
+                      style={{
+                        backgroundImage: `${previewPhoto}, ${previewTint}`,
+                        backgroundPosition: 'center',
+                        backgroundRepeat: 'no-repeat',
+                        backgroundSize: 'cover',
+                      }}
+                    >
+                      <div className={cn('absolute inset-0', CATEGORY_PHOTO_OVERLAY)} />
+                      <div className="mt-8 flex items-end justify-between gap-4">
+                        <div className="relative z-10">
+                          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">
+                            FORM
+                          </p>
+                          <h3 className="mt-2 text-2xl font-semibold tracking-tight text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.55)]">
+                            {label}
+                          </h3>
+                        </div>
+                        <span className="relative z-10 flex h-14 w-14 shrink-0 items-center justify-center rounded-[1.25rem] border border-white/25 bg-white/15 text-white backdrop-blur-sm transition group-hover:bg-white/25">
+                          <Icon className="h-7 w-7" />
+                        </span>
                       </div>
-                      <span className="relative z-10 flex h-14 w-14 shrink-0 items-center justify-center rounded-[1.25rem] border border-white/25 bg-white/15 text-white backdrop-blur-sm">
-                        <Icon className="h-7 w-7" />
-                      </span>
                     </div>
-                  </div>
+                  </Link>
 
                   <div className="flex items-center justify-between gap-3 p-4">
-                    <p className="text-sm font-semibold text-slate-900">{label}</p>
+                    <Link
+                      className="text-sm font-semibold text-slate-900 transition hover:text-[#a12d2f]"
+                      href={destinationHref}
+                    >
+                      {label}
+                    </Link>
                     <div className="flex items-center gap-2">
                       <button
                         aria-label={`Show QR code for ${label} category page`}
