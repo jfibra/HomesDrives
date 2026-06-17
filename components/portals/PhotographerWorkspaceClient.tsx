@@ -9,12 +9,22 @@ import {
   FolderPlus,
   ImagePlus,
   RefreshCw,
+  Settings2,
+  Trash2,
   Upload,
   X,
 } from 'lucide-react'
 
 import FolderTree from '@/components/portals/FolderTree'
 import PortalFrame from '@/components/portals/PortalFrame'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { getSubFolderCardColorByIndex } from '@/components/portals/sub-folder-card-colors'
 import { MAX_PHOTO_UPLOAD_BYTES, MAX_VIDEO_UPLOAD_BYTES, MULTIPART_VIDEO_THRESHOLD_BYTES } from '@/lib/photo-upload-limits'
 import type { PortalFolder, PortalFolderNode, PortalPhoto } from '@/lib/portals/types'
@@ -263,6 +273,10 @@ export default function PhotographerWorkspaceClient() {
   const [isSavingFolder, setIsSavingFolder] = useState(false)
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
   const [isDragging, setIsDragging] = useState(false)
+  const [folderManageOpen, setFolderManageOpen] = useState(false)
+  const [deletingFolder, setDeletingFolder] = useState(false)
+  const [confirmDeletePhotoId, setConfirmDeletePhotoId] = useState<string | null>(null)
+  const [deletingPhotoId, setDeletingPhotoId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const previewSignatureRef = useRef('')
   const previewUrlsRef = useRef<SelectedPreview[]>([])
@@ -291,6 +305,10 @@ export default function PhotographerWorkspaceClient() {
 
   const isMainFolder = Boolean(selectedFolder && !selectedFolder.parent_folder_id)
   const isSubFolder = Boolean(selectedFolder?.parent_folder_id)
+
+  useEffect(() => {
+    setFolderManageOpen(false)
+  }, [selectedFolderId])
 
   const loadFolders = useCallback(async () => {
     const res = await fetch('/api/portals/photographers/folders')
@@ -653,6 +671,68 @@ export default function PhotographerWorkspaceClient() {
     setFiles(Array.from(fileList))
   }
 
+  async function deleteSelectedFolder() {
+    if (!selectedFolderId) return
+    setError('')
+    setSuccess('')
+    setDeletingFolder(true)
+    try {
+      const parentId = selectedFolder?.parent_folder_id ?? null
+      const res = await fetch(`/api/portals/photographers/folders/${selectedFolderId}`, {
+        method: 'DELETE',
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(data?.error || 'Unable to delete folder.')
+
+      setFolderManageOpen(false)
+      const nextFolders = await loadFolders()
+      if (parentId && nextFolders.some((folder) => folder.id === parentId)) {
+        setSelectedFolderId(parentId)
+      } else {
+        const root = nextFolders.find((folder) => !folder.parent_folder_id)
+        setSelectedFolderId(root?.id ?? null)
+      }
+      setSuccess('Folder deleted.')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Unable to delete folder.')
+    } finally {
+      setDeletingFolder(false)
+    }
+  }
+
+  async function deletePhoto(photoId: string) {
+    setError('')
+    setSuccess('')
+    setDeletingPhotoId(photoId)
+    try {
+      const res = await fetch(`/api/portals/photographers/photos/${photoId}`, {
+        method: 'DELETE',
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(data?.error || 'Unable to delete photo.')
+
+      setConfirmDeletePhotoId(null)
+      setPhotos((current) => {
+        const nextPhotos = current.filter((photo) => photo.id !== photoId)
+        setLightboxIndex((lightbox) => {
+          if (lightbox == null) return lightbox
+          if (nextPhotos.length === 0) return null
+          const deletedIndex = current.findIndex((photo) => photo.id === photoId)
+          if (deletedIndex >= 0 && lightbox > deletedIndex) return lightbox - 1
+          if (lightbox >= nextPhotos.length) return nextPhotos.length - 1
+          return lightbox
+        })
+        return nextPhotos
+      })
+      await loadFolders()
+      setSuccess('Photo deleted.')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Unable to delete photo.')
+    } finally {
+      setDeletingPhotoId(null)
+    }
+  }
+
   const uploadPercent = uploadProgress
     ? Math.round((uploadProgress.current / uploadProgress.total) * 100)
     : 0
@@ -799,21 +879,64 @@ export default function PhotographerWorkspaceClient() {
                       {selectedFolder.folder_name}
                     </h2>
                   </div>
-                  {isMainFolder && !isCreatingChildFolder ? (
+                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    {isMainFolder && !isCreatingChildFolder ? (
+                      <button
+                        className="inline-flex items-center gap-2 rounded-xl bg-[#10233f] px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-[#10233f]/15 transition hover:bg-[#1a3354]"
+                        onClick={() => {
+                          resetCreateFolderState()
+                          setIsCreatingChildFolder(true)
+                        }}
+                        type="button"
+                      >
+                        <FolderPlus className="h-4 w-4" />
+                        Create sub-folder
+                      </button>
+                    ) : null}
                     <button
-                      className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-[#10233f] px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-[#10233f]/15 transition hover:bg-[#1a3354]"
-                      onClick={() => {
-                        resetCreateFolderState()
-                        setIsCreatingChildFolder(true)
-                      }}
+                      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-[#10233f] shadow-sm transition hover:bg-slate-50"
+                      onClick={() => setFolderManageOpen(true)}
                       type="button"
                     >
-                      <FolderPlus className="h-4 w-4" />
-                      Create sub-folder
+                      <Settings2 className="h-4 w-4" />
+                      Manage
                     </button>
-                  ) : null}
+                  </div>
                 </div>
               </div>
+
+              <Dialog onOpenChange={setFolderManageOpen} open={folderManageOpen}>
+                <DialogContent className="rounded-2xl border-slate-200 sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle className="text-[#10233f]">Delete folder?</DialogTitle>
+                    <DialogDescription>
+                      {isMainFolder
+                        ? `This will permanently delete "${selectedFolder.folder_name}", all of its sub-folders, and every photo inside them.`
+                        : `This will permanently delete "${selectedFolder.folder_name}" and all photos inside it.`}{' '}
+                      This cannot be undone.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <DialogFooter className="gap-2 sm:gap-2">
+                    <button
+                      className="inline-flex min-h-[44px] flex-1 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-60 sm:flex-none"
+                      disabled={deletingFolder}
+                      onClick={() => setFolderManageOpen(false)}
+                      type="button"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-red-700 disabled:opacity-60 sm:flex-none"
+                      disabled={deletingFolder}
+                      onClick={() => void deleteSelectedFolder()}
+                      type="button"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      {deletingFolder ? 'Deleting…' : 'Delete folder'}
+                    </button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
 
               <div className="mt-6 space-y-6">
                 {isMainFolder ? (
@@ -1092,9 +1215,41 @@ export default function PhotographerWorkspaceClient() {
                                   />
                                 )}
                               </button>
-                              <p className="truncate px-3 py-2 text-xs text-slate-600">
-                                {photo.original_file_name}
-                              </p>
+                              <div className="space-y-2 px-3 py-2">
+                                <p className="truncate text-xs text-slate-600">
+                                  {photo.original_file_name}
+                                </p>
+                                {confirmDeletePhotoId === photo.id ? (
+                                  <div className="flex gap-2">
+                                    <button
+                                      className="inline-flex min-h-[32px] flex-1 items-center justify-center rounded-lg bg-red-600 px-2 py-1.5 text-xs font-medium text-white disabled:opacity-60"
+                                      disabled={deletingPhotoId === photo.id}
+                                      onClick={() => void deletePhoto(photo.id)}
+                                      type="button"
+                                    >
+                                      {deletingPhotoId === photo.id ? 'Deleting…' : 'Confirm'}
+                                    </button>
+                                    <button
+                                      className="inline-flex min-h-[32px] flex-1 items-center justify-center rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-medium text-slate-600"
+                                      disabled={deletingPhotoId === photo.id}
+                                      onClick={() => setConfirmDeletePhotoId(null)}
+                                      type="button"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-red-200 bg-white px-2 py-1.5 text-xs font-medium text-red-600 transition hover:bg-red-50 disabled:opacity-60"
+                                    disabled={Boolean(deletingPhotoId)}
+                                    onClick={() => setConfirmDeletePhotoId(photo.id)}
+                                    type="button"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                    Delete
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           ))}
                         </div>

@@ -236,6 +236,86 @@ export async function deletePortalFolder(id: string) {
   if (error) throw new Error(error.message)
 }
 
+export async function deletePortalFolderForUploader(folderId: string, uploaderCode: string) {
+  await getPortalFolderForUploader(folderId, uploaderCode)
+
+  const allFolders = await listPortalFoldersForUploader(uploaderCode)
+  const folderIdsToRemove = new Set<string>()
+  const stack = [folderId]
+
+  while (stack.length) {
+    const current = stack.pop()!
+    folderIdsToRemove.add(current)
+    for (const folder of allFolders) {
+      if (folder.parent_folder_id === current) {
+        stack.push(folder.id)
+      }
+    }
+  }
+
+  const supabaseAdmin = createSupabaseAdminClient()
+  const ids = [...folderIdsToRemove]
+
+  for (const id of ids) {
+    const { data: photos } = await supabaseAdmin
+      .from('albums_photos')
+      .select('id, bucket_name, storage_path')
+      .eq('folder_id', id)
+
+    if (photos?.length) {
+      await Promise.allSettled(
+        photos.map((photo) => deleteImageObject(photo.bucket_name, photo.storage_path)),
+      )
+      await supabaseAdmin.from('albums_photos').delete().eq('folder_id', id)
+    }
+  }
+
+  const depthById = new Map<string, number>()
+  const getDepth = (id: string): number => {
+    if (depthById.has(id)) return depthById.get(id)!
+    const folder = allFolders.find((entry) => entry.id === id)
+    if (!folder?.parent_folder_id || !folderIdsToRemove.has(folder.parent_folder_id)) {
+      depthById.set(id, 0)
+      return 0
+    }
+    const depth = getDepth(folder.parent_folder_id) + 1
+    depthById.set(id, depth)
+    return depth
+  }
+
+  const sortedIds = [...ids].sort((a, b) => getDepth(b) - getDepth(a))
+  for (const id of sortedIds) {
+    const { error } = await supabaseAdmin
+      .from('albums_folders')
+      .delete()
+      .eq('id', id)
+      .eq('uploader_code', uploaderCode)
+
+    if (error) throw new Error(error.message)
+  }
+}
+
+export async function deletePortalPhotoForUploader(photoId: string, uploaderCode: string) {
+  const supabaseAdmin = createSupabaseAdminClient()
+  const { data: photo, error: selectError } = await supabaseAdmin
+    .from('albums_photos')
+    .select('id, folder_id, bucket_name, storage_path, uploader_code')
+    .eq('id', photoId)
+    .maybeSingle()
+
+  if (selectError) throw new Error(selectError.message)
+  if (!photo) throw new Error('Photo not found.')
+  if (photo.uploader_code !== uploaderCode) throw new Error('Photo not found.')
+
+  if (photo.folder_id) {
+    await getPortalFolderForUploader(photo.folder_id, uploaderCode)
+  }
+
+  await deleteImageObject(photo.bucket_name, photo.storage_path)
+  const { error } = await supabaseAdmin.from('albums_photos').delete().eq('id', photoId)
+  if (error) throw new Error(error.message)
+}
+
 export async function getPhotographerFolderTreeContext(rootFolderId: string) {
   const allFolders = await listPortalFoldersForUploader(PHOTOGRAPHER_PORTAL_CODE)
   const byId = new Map(allFolders.map((f) => [f.id, f]))
