@@ -1,4 +1,5 @@
 import PublicWorkspaceClient from '@/components/portals/PublicWorkspaceClient'
+import { Suspense } from 'react'
 
 export const metadata = {
   title: 'Public Download · Temporary Portal',
@@ -6,5 +7,9 @@ export const metadata = {
 }
 
 export default function PublicPortalPage() {
-  return <PublicWorkspaceClient />
+  return (
+    <Suspense fallback={null}>
+      <PublicWorkspaceClient />
+    </Suspense>
+  )
 }

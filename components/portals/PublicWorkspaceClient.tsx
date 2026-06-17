@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import {
   AlertCircle,
   ChevronLeft,
@@ -75,6 +76,9 @@ function PublicPhotoThumbnail({
 }
 
 export default function PublicWorkspaceClient() {
+  const searchParams = useSearchParams()
+  const folderIdFromUrl = searchParams.get('folder')
+  const isSharedFolderView = Boolean(folderIdFromUrl)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [photosLoading, setPhotosLoading] = useState(false)
@@ -95,7 +99,39 @@ export default function PublicWorkspaceClient() {
 
   const currentLightboxPhoto = lightboxIndex != null ? photos[lightboxIndex] ?? null : null
 
+  const loadSharedFolder = useCallback(async (folderId: string) => {
+    setError('')
+    setLoading(true)
+    setPhotosLoading(true)
+    try {
+      const res = await fetch(`/api/portals/public/folders/${folderId}/photos`)
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(data?.error || 'Unable to load folder.')
+      const folder = data?.folder as PortalFolder | undefined
+      if (!folder?.id) throw new Error('Folder not found.')
+      setFolders([folder])
+      setTree([])
+      setSelectedFolderId(folder.id)
+      setPhotos(Array.isArray(data.photos) ? data.photos : [])
+      setLightboxIndex(null)
+    } catch (e) {
+      setFolders([])
+      setTree([])
+      setSelectedFolderId(null)
+      setPhotos([])
+      setError(e instanceof Error ? e.message : 'Unable to load folder.')
+    } finally {
+      setLoading(false)
+      setPhotosLoading(false)
+    }
+  }, [])
+
   const loadFolders = useCallback(async () => {
+    if (folderIdFromUrl) {
+      await loadSharedFolder(folderIdFromUrl)
+      return
+    }
+
     setError('')
     setLoading(true)
     try {
@@ -105,13 +141,18 @@ export default function PublicWorkspaceClient() {
       const nextFolders = Array.isArray(data.folders) ? data.folders : []
       setFolders(nextFolders)
       setTree(Array.isArray(data.tree) ? data.tree : [])
-      setSelectedFolderId((current) => current ?? nextFolders[0]?.id ?? null)
+      setSelectedFolderId((current) => {
+        if (current && nextFolders.some((folder) => folder.id === current)) {
+          return current
+        }
+        return nextFolders[0]?.id ?? null
+      })
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unable to load folders.')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [folderIdFromUrl, loadSharedFolder])
 
   const loadPhotos = useCallback(async (folderId: string) => {
     setPhotosLoading(true)
@@ -134,13 +175,15 @@ export default function PublicWorkspaceClient() {
   }, [loadFolders])
 
   useEffect(() => {
-    if (!selectedFolderId) {
-      setPhotos([])
-      setLightboxIndex(null)
+    if (isSharedFolderView || !selectedFolderId) {
+      if (!isSharedFolderView) {
+        setPhotos([])
+        setLightboxIndex(null)
+      }
       return
     }
     void loadPhotos(selectedFolderId)
-  }, [selectedFolderId, loadPhotos])
+  }, [selectedFolderId, loadPhotos, isSharedFolderView])
 
   useEffect(() => {
     if (lightboxIndex == null) return
@@ -281,7 +324,8 @@ export default function PublicWorkspaceClient() {
       ) : null}
 
       <div className="overflow-hidden rounded-[1.75rem] border border-white/80 bg-white/75 shadow-[0_20px_60px_-12px_rgba(16,35,63,0.12)] backdrop-blur-sm">
-        <div className="grid lg:grid-cols-[300px_minmax(0,1fr)]">
+        <div className={isSharedFolderView ? '' : 'grid lg:grid-cols-[300px_minmax(0,1fr)]'}>
+          {!isSharedFolderView ? (
           <aside
             className={`border-b border-slate-100/80 bg-gradient-to-b from-[#f5f9ff] to-white p-4 sm:p-5 lg:border-b-0 lg:border-r ${
               foldersPanelOpen ? 'block' : 'hidden lg:block'
@@ -335,8 +379,10 @@ export default function PublicWorkspaceClient() {
               />
             )}
           </aside>
+          ) : null}
 
           <div className="min-h-[420px] bg-gradient-to-br from-white via-white to-slate-50/60 p-4 sm:min-h-[520px] sm:p-6 lg:p-8">
+            {!isSharedFolderView ? (
             <button
               className="mb-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-[#10233f] shadow-sm transition hover:bg-slate-50 lg:hidden"
               onClick={() => setFoldersPanelOpen((open) => !open)}
@@ -348,14 +394,38 @@ export default function PublicWorkspaceClient() {
                 <span className="truncate text-slate-500">· {selectedFolder.folder_name}</span>
               ) : null}
             </button>
+            ) : null}
 
-            {!selectedFolder ? (
+            {loading ? (
+              <div className="space-y-5">
+                <div className="space-y-2 border-b border-slate-100 pb-5">
+                  <div className="h-3 w-24 animate-pulse rounded bg-slate-100" />
+                  <div className="h-8 w-48 animate-pulse rounded bg-slate-100" />
+                </div>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                  {[1, 2, 3, 4, 5, 6].map((item) => (
+                    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white" key={item}>
+                      <div className="aspect-[4/3] animate-pulse bg-slate-100" />
+                      <div className="space-y-2 p-2.5">
+                        <div className="h-3 animate-pulse rounded bg-slate-100" />
+                        <div className="h-2.5 w-2/3 animate-pulse rounded bg-slate-100" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : !selectedFolder ? (
               <div className="flex min-h-[280px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200/80 bg-white/60 px-6 py-12 text-center sm:min-h-[360px]">
                 <FolderTreeIcon className="mb-3 h-10 w-10 text-slate-300" />
-                <p className="text-base font-medium text-[#10233f]">Select a folder</p>
-                <p className="mt-1 max-w-sm text-sm text-slate-500">
-                  Choose a folder from the sidebar to preview photos and videos before downloading.
+                <p className="text-base font-medium text-[#10233f]">
+                  {isSharedFolderView ? 'Shared folder unavailable' : 'Select a folder'}
                 </p>
+                <p className="mt-1 max-w-sm text-sm text-slate-500">
+                  {isSharedFolderView
+                    ? 'This link may be invalid or the folder may have been removed.'
+                    : 'Choose a folder from the sidebar to preview photos and videos before downloading.'}
+                </p>
+                {!isSharedFolderView ? (
                 <button
                   className="mt-5 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-blue-600/20 transition hover:bg-blue-700 lg:hidden"
                   onClick={() => setFoldersPanelOpen(true)}
@@ -364,13 +434,14 @@ export default function PublicWorkspaceClient() {
                   <PanelLeft className="h-4 w-4" />
                   Browse folders
                 </button>
+                ) : null}
               </div>
             ) : (
               <div className="space-y-5">
                 <div className="flex flex-col gap-4 border-b border-slate-100 pb-5 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0 flex-1">
                     <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                      Selected folder
+                      {isSharedFolderView ? 'Shared folder' : 'Selected folder'}
                     </p>
                     <h2 className="mt-1 truncate text-xl font-semibold text-[#10233f] sm:text-2xl">
                       {selectedFolder.folder_name}

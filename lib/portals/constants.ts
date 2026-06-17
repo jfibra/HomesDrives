@@ -31,3 +31,17 @@ export function getAllPortalUrls() {
     public: getPortalUrl('public'),
   }
 }
+
+export function getPublicPortalFolderUrl(folderId: string, origin = getPublicAppOrigin()) {
+  const url = new URL(PORTAL_PATHS.public, origin)
+  url.searchParams.set('folder', folderId)
+  return url.toString()
+}
+
+export function getFacebookShareUrl(shareUrl: string) {
+  return `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`
+}
+
+export function getMessengerShareUrl(shareUrl: string) {
+  return `https://www.facebook.com/dialog/send?link=${encodeURIComponent(shareUrl)}&redirect_uri=${encodeURIComponent(shareUrl)}`
+}

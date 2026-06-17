@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
+  Check,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
   FolderPlus,
   ImagePlus,
+  Link2,
   RefreshCw,
   Settings2,
   Trash2,
@@ -27,6 +29,7 @@ import {
 } from '@/components/ui/dialog'
 import { getSubFolderCardColorByIndex } from '@/components/portals/sub-folder-card-colors'
 import { MAX_PHOTO_UPLOAD_BYTES, MAX_VIDEO_UPLOAD_BYTES, MULTIPART_VIDEO_THRESHOLD_BYTES } from '@/lib/photo-upload-limits'
+import { getPublicPortalFolderUrl } from '@/lib/portals/constants'
 import type { PortalFolder, PortalFolderNode, PortalPhoto } from '@/lib/portals/types'
 import {
   inferPortalContentType,
@@ -81,6 +84,16 @@ function formatFileSize(bytes: number) {
     return `${Math.round(bytes / 1024)} KB`
   }
   return `${bytes} B`
+}
+
+function buildFolderShareUrl(folderId: string) {
+  if (typeof window !== 'undefined') {
+    const url = new URL('/public', window.location.origin)
+    url.searchParams.set('folder', folderId)
+    return url.toString()
+  }
+
+  return getPublicPortalFolderUrl(folderId)
 }
 
 async function uploadMultipartParts(
@@ -277,6 +290,7 @@ export default function PhotographerWorkspaceClient() {
   const [deletingFolder, setDeletingFolder] = useState(false)
   const [confirmDeletePhotoId, setConfirmDeletePhotoId] = useState<string | null>(null)
   const [deletingPhotoId, setDeletingPhotoId] = useState<string | null>(null)
+  const [linkCopied, setLinkCopied] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const previewSignatureRef = useRef('')
   const previewUrlsRef = useRef<SelectedPreview[]>([])
@@ -308,7 +322,21 @@ export default function PhotographerWorkspaceClient() {
 
   useEffect(() => {
     setFolderManageOpen(false)
+    setLinkCopied(false)
   }, [selectedFolderId])
+
+  async function copySelectedFolderLink() {
+    if (!selectedFolderId) return
+
+    const url = buildFolderShareUrl(selectedFolderId)
+    try {
+      await navigator.clipboard.writeText(url)
+      setLinkCopied(true)
+      window.setTimeout(() => setLinkCopied(false), 2000)
+    } catch {
+      setError('Unable to copy link.')
+    }
+  }
 
   const loadFolders = useCallback(async () => {
     const res = await fetch('/api/portals/photographers/folders')
@@ -880,6 +908,14 @@ export default function PhotographerWorkspaceClient() {
                     </h2>
                   </div>
                   <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    <button
+                      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-[#10233f] shadow-sm transition hover:bg-slate-50"
+                      onClick={() => void copySelectedFolderLink()}
+                      type="button"
+                    >
+                      {linkCopied ? <Check className="h-4 w-4 text-emerald-600" /> : <Link2 className="h-4 w-4" />}
+                      {linkCopied ? 'Copied!' : 'Copy link'}
+                    </button>
                     {isMainFolder && !isCreatingChildFolder ? (
                       <button
                         className="inline-flex items-center gap-2 rounded-xl bg-[#10233f] px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-[#10233f]/15 transition hover:bg-[#1a3354]"
