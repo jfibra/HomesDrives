@@ -1,4 +1,13 @@
-import { DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import {
+  CompleteMultipartUploadCommand,
+  CreateMultipartUploadCommand,
+  DeleteObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client,
+  UploadPartCommand,
+} from '@aws-sdk/client-s3'
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { createClient } from '@supabase/supabase-js'
 
 export type UploadedImageMetadata = {
@@ -153,7 +162,10 @@ export async function listAllowedTags() {
   return listActiveTaxonomy('albums_tags')
 }
 
-export async function uploadImageObject(params: {
+/**
+ * Stores media bytes exactly as received — no resize, re-encode, or transcoding.
+ */
+export async function uploadOriginalMediaObject(params: {
   contentType: string
   fileBuffer: Buffer
   fileName: string
@@ -168,21 +180,180 @@ export async function uploadImageObject(params: {
 
   const storagePath = buildStoragePath(params.uploaderName, params.fileName, uploadedAt)
   const storageClient = createStorageClient()
+  const contentType = params.contentType || 'application/octet-stream'
 
   await storageClient.send(
     new PutObjectCommand({
       Bucket: bucketName,
       Key: storagePath,
       Body: params.fileBuffer,
-      ContentType: params.contentType || 'application/octet-stream',
+      ContentType: contentType,
+      ContentLength: params.fileBuffer.length,
     }),
   )
 
   return {
     bucketName,
+    contentType,
     storagePath,
     uploadedAt,
   }
+}
+
+export async function uploadImageObject(params: {
+  contentType: string
+  fileBuffer: Buffer
+  fileName: string
+  uploaderName: string
+}) {
+  return uploadOriginalMediaObject(params)
+}
+
+export async function assertStoredObjectByteLength(params: {
+  bucketName: string
+  expectedBytes: number
+  storagePath: string
+}) {
+  if (params.expectedBytes <= 0) {
+    throw new Error('Upload size is missing or invalid.')
+  }
+
+  const storageClient = createStorageClient()
+  const head = await storageClient.send(
+    new HeadObjectCommand({
+      Bucket: params.bucketName,
+      Key: params.storagePath,
+    }),
+  )
+  const storedBytes = head.ContentLength ?? 0
+
+  if (storedBytes !== params.expectedBytes) {
+    throw new Error(
+      `Stored file size (${storedBytes} bytes) does not match the uploaded file (${params.expectedBytes} bytes).`,
+    )
+  }
+}
+
+export async function createPresignedUploadObject(params: {
+  contentType: string
+  expiresInSeconds?: number
+  fileName: string
+  uploaderName: string
+}) {
+  const uploadedAt = new Date()
+  const bucketName = getBucketEnv()
+
+  if (!bucketName) {
+    throw new Error('Missing required environment variable: AWS_S3_BUCKET or AWS_S3_BUCKET_NAME')
+  }
+
+  const storagePath = buildStoragePath(params.uploaderName, params.fileName, uploadedAt)
+  const storageClient = createStorageClient()
+  const contentType = params.contentType || 'application/octet-stream'
+  const command = new PutObjectCommand({
+    Bucket: bucketName,
+    Key: storagePath,
+    ContentType: contentType,
+  })
+  const uploadUrl = await getSignedUrl(storageClient, command, {
+    expiresIn: params.expiresInSeconds ?? 60 * 15,
+  })
+
+  return {
+    bucketName,
+    contentType,
+    storagePath,
+    uploadUrl,
+    uploadedAt,
+  }
+}
+
+export async function createPresignedMultipartUpload(params: {
+  contentType: string
+  expiresInSeconds?: number
+  fileName: string
+  fileSizeBytes: number
+  partSizeBytes: number
+  uploaderName: string
+}) {
+  const uploadedAt = new Date()
+  const bucketName = getBucketEnv()
+
+  if (!bucketName) {
+    throw new Error('Missing required environment variable: AWS_S3_BUCKET or AWS_S3_BUCKET_NAME')
+  }
+
+  if (params.fileSizeBytes <= 0) {
+    throw new Error('File size must be greater than zero.')
+  }
+
+  const storagePath = buildStoragePath(params.uploaderName, params.fileName, uploadedAt)
+  const storageClient = createStorageClient()
+  const contentType = params.contentType || 'application/octet-stream'
+  const partSizeBytes = Math.max(params.partSizeBytes, 5 * 1024 * 1024)
+  const partCount = Math.ceil(params.fileSizeBytes / partSizeBytes)
+  const expiresIn = params.expiresInSeconds ?? 60 * 60
+
+  const created = await storageClient.send(
+    new CreateMultipartUploadCommand({
+      Bucket: bucketName,
+      Key: storagePath,
+      ContentType: contentType,
+    }),
+  )
+
+  if (!created.UploadId) {
+    throw new Error('Unable to start multipart upload.')
+  }
+
+  const partUrls: Array<{ partNumber: number; uploadUrl: string }> = []
+
+  for (let partNumber = 1; partNumber <= partCount; partNumber++) {
+    const command = new UploadPartCommand({
+      Bucket: bucketName,
+      Key: storagePath,
+      PartNumber: partNumber,
+      UploadId: created.UploadId,
+    })
+    const uploadUrl = await getSignedUrl(storageClient, command, { expiresIn })
+    partUrls.push({ partNumber, uploadUrl })
+  }
+
+  return {
+    bucketName,
+    contentType,
+    partCount,
+    partSizeBytes,
+    partUrls,
+    storagePath,
+    uploadId: created.UploadId,
+    uploadedAt,
+  }
+}
+
+export async function completeMultipartUploadObject(params: {
+  bucketName: string
+  parts: Array<{ eTag: string; partNumber: number }>
+  storagePath: string
+  uploadId: string
+}) {
+  const storageClient = createStorageClient()
+
+  await storageClient.send(
+    new CompleteMultipartUploadCommand({
+      Bucket: params.bucketName,
+      Key: params.storagePath,
+      UploadId: params.uploadId,
+      MultipartUpload: {
+        Parts: [...params.parts]
+          .sort((a, b) => a.partNumber - b.partNumber)
+          .map((part) => ({
+            ETag: part.eTag,
+            PartNumber: part.partNumber,
+          })),
+      },
+    }),
+  )
 }
 
 export function buildAvatarStoragePath(userCode: string, uploadedAt: Date) {
