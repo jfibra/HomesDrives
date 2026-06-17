@@ -16,6 +16,15 @@ export const DEFAULT_PRESIGN_EXPIRY_SECONDS = 60 * 15
 /** Presigned URL lifetime for video uploads (60 minutes). */
 export const VIDEO_PRESIGN_EXPIRY_SECONDS = 60 * 60
 
+/** Parallel portal uploads (browser → S3). */
+export const PORTAL_UPLOAD_CONCURRENCY = 4
+
+/** Files per presign API call to cut round trips. */
+export const PORTAL_PRESIGN_BATCH_SIZE = 8
+
+/** Parallel S3 multipart parts per large video. */
+export const PORTAL_MULTIPART_PART_CONCURRENCY = 6
+
 /**
  * Longest edge in pixels for stored album photos. Images larger than this are
  * downscaled (aspect preserved) so storage stays practical; typical camera files stay untouched.

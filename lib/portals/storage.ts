@@ -604,6 +604,7 @@ export async function registerPortalPhotoUploads(params: {
     storagePath: string
   }>
   uploaderCode: string
+  verifyStoredBytes?: boolean
 }) {
   const user = await getPortalUser(params.uploaderCode)
   const folder = await getPortalFolderForUploader(params.folderId, params.uploaderCode)
@@ -636,11 +637,13 @@ export async function registerPortalPhotoUploads(params: {
       })
     }
 
-    await assertStoredObjectByteLength({
-      bucketName: upload.bucketName,
-      storagePath: upload.storagePath,
-      expectedBytes: upload.fileSizeBytes,
-    })
+    if (params.verifyStoredBytes !== false) {
+      await assertStoredObjectByteLength({
+        bucketName: upload.bucketName,
+        storagePath: upload.storagePath,
+        expectedBytes: upload.fileSizeBytes,
+      })
+    }
 
     const imageUrl = buildPublicImageUrl(upload.bucketName, upload.storagePath)
     const { data, error } = await supabaseAdmin
@@ -694,6 +697,7 @@ export async function uploadPortalPhoto(params: {
   const [photo] = await registerPortalPhotoUploads({
     folderId: params.folderId,
     uploaderCode: params.uploaderCode,
+    verifyStoredBytes: false,
     uploads: [
       {
         bucketName: uploadedObject.bucketName,

@@ -10,6 +10,7 @@ import {
   FolderPlus,
   ImagePlus,
   Link2,
+  PanelLeft,
   RefreshCw,
   Settings2,
   Trash2,
@@ -28,7 +29,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { getSubFolderCardColorByIndex } from '@/components/portals/sub-folder-card-colors'
-import { MAX_PHOTO_UPLOAD_BYTES, MAX_VIDEO_UPLOAD_BYTES, MULTIPART_VIDEO_THRESHOLD_BYTES } from '@/lib/photo-upload-limits'
+import {
+  MAX_PHOTO_UPLOAD_BYTES,
+  MAX_VIDEO_UPLOAD_BYTES,
+  PORTAL_MULTIPART_PART_CONCURRENCY,
+  PORTAL_PRESIGN_BATCH_SIZE,
+  PORTAL_UPLOAD_CONCURRENCY,
+} from '@/lib/photo-upload-limits'
 import { getPublicPortalFolderUrl } from '@/lib/portals/constants'
 import type { PortalFolder, PortalFolderNode, PortalPhoto } from '@/lib/portals/types'
 import {
@@ -40,7 +47,6 @@ import {
 
 const MAX_IMAGE_PREVIEW_COUNT = 20
 const MAX_IMAGE_PREVIEW_BYTES = 20 * 1024 * 1024
-const MULTIPART_PART_CONCURRENCY = 4
 
 type SelectedPreview = {
   name: string
@@ -108,8 +114,8 @@ async function uploadMultipartParts(
   const partUrls = upload.partUrls
   const partSizeBytes = upload.partSizeBytes
 
-  for (let offset = 0; offset < partUrls.length; offset += MULTIPART_PART_CONCURRENCY) {
-    const batch = partUrls.slice(offset, offset + MULTIPART_PART_CONCURRENCY)
+  for (let offset = 0; offset < partUrls.length; offset += PORTAL_MULTIPART_PART_CONCURRENCY) {
+    const batch = partUrls.slice(offset, offset + PORTAL_MULTIPART_PART_CONCURRENCY)
     const batchResults = await Promise.all(
       batch.map(async (part) => {
         const start = (part.partNumber - 1) * partSizeBytes
@@ -168,102 +174,166 @@ async function uploadFileToStorage(
   return null
 }
 
-async function uploadMediaBatchViaServer(folderId: string, files: File[]): Promise<PortalPhoto[]> {
-  const formData = new FormData()
-  for (const file of files) {
-    formData.append('files', file, file.name)
-  }
+const UPLOAD_REQUEST_TIMEOUT_MS = 10 * 60 * 1000
 
-  const res = await fetch(`/api/portals/photographers/folders/${folderId}/photos`, {
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+  timeoutMs = UPLOAD_REQUEST_TIMEOUT_MS,
+) {
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal })
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('Upload timed out. Try again with fewer or smaller files.')
+    }
+    throw error
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
+}
+
+async function uploadMediaFileViaServer(folderId: string, file: File): Promise<PortalPhoto> {
+  const formData = new FormData()
+  formData.append('files', file, file.name)
+
+  const res = await fetchWithTimeout(`/api/portals/photographers/folders/${folderId}/photos`, {
     method: 'POST',
     body: formData,
   })
-  const data = await res.json().catch(() => null)
-  if (!res.ok) {
-    throw new Error(data?.error || 'Unable to upload files.')
+  const rawBody = await res.text()
+  let data: { error?: string; photos?: PortalPhoto[] } | null = null
+  if (rawBody) {
+    try {
+      data = JSON.parse(rawBody) as { error?: string; photos?: PortalPhoto[] }
+    } catch {
+      data = null
+    }
   }
 
-  return Array.isArray(data?.photos) ? (data.photos as PortalPhoto[]) : []
+  if (!res.ok) {
+    if (res.status === 413) {
+      throw new Error(
+        `"${file.name}" is too large for a single upload request. Try a smaller file or compress it first.`,
+      )
+    }
+    throw new Error(data?.error || `"${file.name}" could not be uploaded (HTTP ${res.status}).`)
+  }
+
+  const photo = Array.isArray(data?.photos) ? data.photos[0] : null
+  if (!photo) {
+    throw new Error(`"${file.name}" uploaded but the server did not return photo data.`)
+  }
+
+  return photo
 }
 
 function isDirectStorageUploadError(error: unknown) {
   return error instanceof TypeError && /failed to fetch/i.test(error.message)
 }
 
-async function uploadDirectToStoragePortalFile(folderId: string, file: File): Promise<PortalPhoto> {
-  const contentType = inferPortalContentType(file.name, file.type)
+function shouldFallbackToServerUpload(error: unknown) {
+  if (!(error instanceof Error)) return false
+  return /blocked by the browser|could not reach storage|CORS|storage/i.test(error.message)
+}
 
-  let presignRes: Response
-  try {
-    presignRes = await fetch(`/api/portals/photographers/folders/${folderId}/photos/presign`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        files: [
-          {
-            fileName: file.name,
-            contentType,
-            fileSizeBytes: file.size,
-          },
-        ],
-      }),
-    })
-  } catch (error) {
-    if (isDirectStorageUploadError(error)) {
-      throw new Error(
-        `"${file.name}" could not reach storage. Large videos need S3 bucket CORS (PUT + ExposeHeaders: ETag) or upload a smaller file.`,
-      )
-    }
-    throw error
-  }
+async function runWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<void>,
+) {
+  if (items.length === 0) return
 
-  const presignData = await presignRes.json().catch(() => null)
-  if (!presignRes.ok) {
-    throw new Error(presignData?.error || `Unable to prepare upload for "${file.name}".`)
-  }
+  let nextIndex = 0
+  const poolSize = Math.min(concurrency, items.length)
 
-  const upload = (presignData?.uploads?.[0] ?? null) as PresignedPortalUpload | null
-  if (!upload) {
-    throw new Error(`Upload preparation failed for "${file.name}".`)
-  }
+  await Promise.all(
+    Array.from({ length: poolSize }, async () => {
+      while (nextIndex < items.length) {
+        const index = nextIndex
+        nextIndex += 1
+        await worker(items[index], index)
+      }
+    }),
+  )
+}
 
-  let multipart: CompletedMultipartUpload | null
-  try {
-    multipart = await uploadFileToStorage(file, upload)
-  } catch (error) {
-    if (isDirectStorageUploadError(error)) {
-      throw new Error(
-        `"${file.name}" was blocked by the browser when uploading to S3. Ask your admin to enable bucket CORS for PUT from this site.`,
-      )
-    }
-    throw error
-  }
-
-  const completeRes = await fetch(`/api/portals/photographers/folders/${folderId}/photos/complete`, {
+async function presignPortalFiles(folderId: string, files: File[]): Promise<PresignedPortalUpload[]> {
+  const presignRes = await fetchWithTimeout(`/api/portals/photographers/folders/${folderId}/photos/presign`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      uploads: [
-        {
-          fileName: upload.fileName,
-          contentType: upload.contentType,
-          fileSizeBytes: file.size,
-          bucketName: upload.bucketName,
-          storagePath: upload.storagePath,
-          multipart: multipart ?? undefined,
-        },
-      ],
+      files: files.map((file) => ({
+        fileName: file.name,
+        contentType: inferPortalContentType(file.name, file.type),
+        fileSizeBytes: file.size,
+      })),
+    }),
+  })
+
+  const presignData = await presignRes.json().catch(() => null)
+  if (!presignRes.ok) {
+    throw new Error(presignData?.error || 'Unable to prepare uploads.')
+  }
+
+  const uploads = Array.isArray(presignData?.uploads) ? (presignData.uploads as PresignedPortalUpload[]) : []
+  if (uploads.length !== files.length) {
+    throw new Error('Upload preparation returned incomplete results.')
+  }
+
+  return uploads
+}
+
+async function completePresignedPortalBatch(
+  folderId: string,
+  items: Array<{
+    file: File
+    multipart: CompletedMultipartUpload | null
+    upload: PresignedPortalUpload
+  }>,
+): Promise<PortalPhoto[]> {
+  if (items.length === 0) return []
+
+  const completeRes = await fetchWithTimeout(`/api/portals/photographers/folders/${folderId}/photos/complete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      uploads: items.map(({ file, upload, multipart }) => ({
+        fileName: upload.fileName,
+        contentType: upload.contentType,
+        fileSizeBytes: file.size,
+        bucketName: upload.bucketName,
+        storagePath: upload.storagePath,
+        multipart: multipart ?? undefined,
+      })),
     }),
   })
   const completeData = await completeRes.json().catch(() => null)
   if (!completeRes.ok) {
-    throw new Error(completeData?.error || `Unable to save "${file.name}".`)
+    throw new Error(completeData?.error || 'Unable to save uploaded files.')
   }
-  const photo = (completeData?.photos?.[0] ?? null) as PortalPhoto | null
-  if (!photo) {
-    throw new Error(`Upload failed for "${file.name}".`)
+
+  return Array.isArray(completeData?.photos) ? (completeData.photos as PortalPhoto[]) : []
+}
+
+async function uploadPortalFileWithFallback(folderId: string, file: File): Promise<PortalPhoto> {
+  try {
+    const [upload] = await presignPortalFiles(folderId, [file])
+    const multipart = await uploadFileToStorage(file, upload)
+    const [photo] = await completePresignedPortalBatch(folderId, [{ file, upload, multipart }])
+    if (!photo) {
+      throw new Error(`Upload failed for "${file.name}".`)
+    }
+    return photo
+  } catch (error) {
+    if (shouldFallbackToServerUpload(error) || isDirectStorageUploadError(error)) {
+      return uploadMediaFileViaServer(folderId, file)
+    }
+    throw error
   }
-  return photo
 }
 
 export default function PhotographerWorkspaceClient() {
@@ -291,6 +361,7 @@ export default function PhotographerWorkspaceClient() {
   const [confirmDeletePhotoId, setConfirmDeletePhotoId] = useState<string | null>(null)
   const [deletingPhotoId, setDeletingPhotoId] = useState<string | null>(null)
   const [linkCopied, setLinkCopied] = useState(false)
+  const [foldersPanelOpen, setFoldersPanelOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const previewSignatureRef = useRef('')
   const previewUrlsRef = useRef<SelectedPreview[]>([])
@@ -324,6 +395,11 @@ export default function PhotographerWorkspaceClient() {
     setFolderManageOpen(false)
     setLinkCopied(false)
   }, [selectedFolderId])
+
+  function handleFolderSelect(id: string) {
+    setSelectedFolderId(id)
+    setFoldersPanelOpen(false)
+  }
 
   async function copySelectedFolderLink() {
     if (!selectedFolderId) return
@@ -542,6 +618,7 @@ export default function PhotographerWorkspaceClient() {
     }
 
     let uploadedCount = 0
+    let refreshFolderId: string | null = null
     const failures: string[] = []
     const skippedMessages: string[] = []
 
@@ -564,17 +641,31 @@ export default function PhotographerWorkspaceClient() {
     }
 
     try {
-      const photoFiles = filesToUpload.filter(
-        (file) =>
-          !isPortalVideoFileName(file.name) &&
-          !file.type.startsWith('video/') &&
-          !inferPortalContentType(file.name, file.type).startsWith('video/'),
-      )
-      const videoFiles = filesToUpload.filter((file) => !photoFiles.includes(file))
-      const serverVideos = videoFiles.filter((file) => file.size <= MULTIPART_VIDEO_THRESHOLD_BYTES)
-      const directVideos = videoFiles.filter((file) => file.size > MULTIPART_VIDEO_THRESHOLD_BYTES)
-      const uploadQueue: File[] = [...photoFiles, ...serverVideos, ...directVideos]
-      let progressIndex = 0
+      const uploadQueue = [...filesToUpload]
+      let completedCount = 0
+      const finishedFileKeys = new Set<string>()
+
+      const fileProgressKey = (file: File) => `${file.name}:${file.size}:${file.lastModified}`
+
+      const finishFileProgress = (file: File) => {
+        const key = fileProgressKey(file)
+        if (finishedFileKeys.has(key)) return
+        finishedFileKeys.add(key)
+        completedCount += 1
+        setUploadProgress({
+          current: completedCount,
+          total: uploadQueue.length,
+          name: file.name,
+        })
+      }
+
+      const setActiveFile = (file: File) => {
+        setUploadProgress({
+          current: completedCount,
+          total: uploadQueue.length,
+          name: file.name,
+        })
+      }
 
       const mergePhotos = (nextPhotos: PortalPhoto[]) => {
         if (nextPhotos.length === 0) return
@@ -585,64 +676,116 @@ export default function PhotographerWorkspaceClient() {
         })
       }
 
-      for (let offset = 0; offset < photoFiles.length; offset += 10) {
-        const batch = photoFiles.slice(offset, offset + 10)
-        progressIndex += batch.length
-        setUploadProgress({
-          current: progressIndex,
-          total: uploadQueue.length,
-          name: batch.length === 1 ? batch[0].name : `${batch.length} photos`,
-        })
+      const uploadOne = async (file: File) => {
+        setActiveFile(file)
+        try {
+          mergePhotos([await uploadPortalFileWithFallback(selectedFolderId, file)])
+        } catch (error) {
+          failures.push(
+            `${file.name}: ${error instanceof Error ? error.message : 'Upload failed.'}`,
+          )
+        } finally {
+          finishFileProgress(file)
+        }
+      }
+
+      for (let offset = 0; offset < uploadQueue.length; offset += PORTAL_PRESIGN_BATCH_SIZE) {
+        const batch = uploadQueue.slice(offset, offset + PORTAL_PRESIGN_BATCH_SIZE)
+        let batchStorageDone = 0
+
+        const reportStorageProgress = (file: File) => {
+          batchStorageDone += 1
+          setUploadProgress({
+            current: completedCount + batchStorageDone,
+            total: uploadQueue.length,
+            name: file.name,
+          })
+        }
 
         try {
-          mergePhotos(await uploadMediaBatchViaServer(selectedFolderId, batch))
-        } catch (error) {
-          for (const file of batch) {
-            failures.push(
-              `${file.name}: ${error instanceof Error ? error.message : 'Upload failed.'}`,
-            )
+          const presigns = await presignPortalFiles(selectedFolderId, batch)
+          const jobs = batch.map((file, index) => ({ file, upload: presigns[index] }))
+          const readyToComplete: Array<{
+            file: File
+            multipart: CompletedMultipartUpload | null
+            upload: PresignedPortalUpload
+          }> = []
+          const storageFailed: File[] = []
+
+          await runWithConcurrency(jobs, PORTAL_UPLOAD_CONCURRENCY, async ({ file, upload }) => {
+            setActiveFile(file)
+            try {
+              readyToComplete.push({
+                file,
+                upload,
+                multipart: await uploadFileToStorage(file, upload),
+              })
+              reportStorageProgress(file)
+            } catch (error) {
+              if (shouldFallbackToServerUpload(error) || isDirectStorageUploadError(error)) {
+                storageFailed.push(file)
+              } else {
+                failures.push(
+                  `${file.name}: ${error instanceof Error ? error.message : 'Upload failed.'}`,
+                )
+                finishFileProgress(file)
+              }
+            }
+          })
+
+          const batchCompletedKeys = new Set<string>()
+
+          if (readyToComplete.length > 0) {
+            try {
+              mergePhotos(await completePresignedPortalBatch(selectedFolderId, readyToComplete))
+              for (const item of readyToComplete) {
+                batchCompletedKeys.add(fileProgressKey(item.file))
+                finishFileProgress(item.file)
+              }
+            } catch (error) {
+              for (const item of readyToComplete) {
+                storageFailed.push(item.file)
+                if (readyToComplete.length === 1) {
+                  failures.push(
+                    `${item.file.name}: ${error instanceof Error ? error.message : 'Upload failed.'}`,
+                  )
+                }
+              }
+              if (readyToComplete.length > 1) {
+                failures.push(
+                  error instanceof Error ? error.message : 'Some files could not be saved after upload.',
+                )
+              }
+            }
           }
-        }
-      }
 
-      for (const file of serverVideos) {
-        progressIndex++
-        setUploadProgress({
-          current: progressIndex,
-          total: uploadQueue.length,
-          name: file.name,
-        })
+          if (storageFailed.length > 0) {
+            await runWithConcurrency(storageFailed, PORTAL_UPLOAD_CONCURRENCY, async (file) => {
+              if (batchCompletedKeys.has(fileProgressKey(file))) return
 
-        try {
-          mergePhotos(await uploadMediaBatchViaServer(selectedFolderId, [file]))
-        } catch (error) {
-          failures.push(
-            `${file.name}: ${error instanceof Error ? error.message : 'Upload failed.'}`,
-          )
-        }
-      }
-
-      for (const file of directVideos) {
-        progressIndex++
-        setUploadProgress({
-          current: progressIndex,
-          total: uploadQueue.length,
-          name: file.name,
-        })
-
-        try {
-          mergePhotos([await uploadDirectToStoragePortalFile(selectedFolderId, file)])
-        } catch (error) {
-          failures.push(
-            `${file.name}: ${error instanceof Error ? error.message : 'Upload failed.'}`,
-          )
+              setActiveFile(file)
+              try {
+                mergePhotos([await uploadMediaFileViaServer(selectedFolderId, file)])
+              } catch (error) {
+                failures.push(
+                  `${file.name}: ${error instanceof Error ? error.message : 'Upload failed.'}`,
+                )
+              } finally {
+                finishFileProgress(file)
+              }
+            })
+          }
+        } catch {
+          await runWithConcurrency(batch, PORTAL_UPLOAD_CONCURRENCY, async (file) => {
+            await uploadOne(file)
+          })
         }
       }
 
       if (uploadedCount > 0) {
         setFiles([])
         setSelectedPreviews([])
-        await Promise.all([loadPhotos(selectedFolderId), loadFolders()])
+        refreshFolderId = selectedFolderId
       }
 
       if (uploadedCount === filesToUpload.length) {
@@ -668,6 +811,12 @@ export default function PhotographerWorkspaceClient() {
     } finally {
       setUploadProgress(null)
       setUploading(false)
+    }
+
+    if (refreshFolderId) {
+      void Promise.all([loadPhotos(refreshFolderId), loadFolders()]).catch((e) => {
+        setError(e instanceof Error ? e.message : 'Upload finished, but refreshing media failed.')
+      })
     }
   }
 
@@ -762,7 +911,12 @@ export default function PhotographerWorkspaceClient() {
   }
 
   const uploadPercent = uploadProgress
-    ? Math.round((uploadProgress.current / uploadProgress.total) * 100)
+    ? uploadProgress.total > 0
+      ? Math.min(
+          100,
+          Math.round((uploadProgress.current / uploadProgress.total) * 100),
+        )
+      : 0
     : 0
 
   return (
@@ -784,9 +938,13 @@ export default function PhotographerWorkspaceClient() {
         </div>
       ) : null}
 
-      <div className="overflow-hidden rounded-[1.75rem] border border-white/80 bg-white/75 shadow-[0_20px_60px_-12px_rgba(16,35,63,0.12)] backdrop-blur-sm">
+      <div className="overflow-hidden rounded-2xl border border-white/80 bg-white/75 shadow-[0_20px_60px_-12px_rgba(16,35,63,0.12)] backdrop-blur-sm sm:rounded-[1.75rem]">
         <div className="grid lg:grid-cols-[300px_minmax(0,1fr)]">
-          <aside className="border-b border-slate-100/80 bg-gradient-to-b from-[#faf8f6] to-white p-5 lg:border-b-0 lg:border-r">
+          <aside
+            className={`border-b border-slate-100/80 bg-gradient-to-b from-[#faf8f6] to-white p-4 sm:p-5 lg:border-b-0 lg:border-r ${
+              foldersPanelOpen ? 'block' : 'hidden lg:block'
+            }`}
+          >
             <div className="mb-4 flex items-center justify-between gap-2">
               <div>
                 <h2 className="text-sm font-semibold text-[#10233f]">Your folders</h2>
@@ -867,16 +1025,28 @@ export default function PhotographerWorkspaceClient() {
             ) : (
               <FolderTree
                 nodes={tree}
-                onSelect={setSelectedFolderId}
+                onSelect={handleFolderSelect}
                 selectedId={selectedFolderId}
                 variant="photographer"
               />
             )}
           </aside>
 
-          <div className="min-h-[520px] bg-gradient-to-br from-white via-white to-slate-50/60 p-6 sm:p-8">
+          <div className="min-h-[420px] bg-gradient-to-br from-white via-white to-slate-50/60 p-4 sm:min-h-[520px] sm:p-6 lg:p-8">
+            <button
+              className="mb-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-[#10233f] shadow-sm transition hover:bg-slate-50 lg:hidden"
+              onClick={() => setFoldersPanelOpen((open) => !open)}
+              type="button"
+            >
+              <PanelLeft className="h-4 w-4 shrink-0" />
+              {foldersPanelOpen ? 'Hide folders' : 'Browse folders'}
+              {selectedFolder ? (
+                <span className="truncate text-slate-500">· {selectedFolder.folder_name}</span>
+              ) : null}
+            </button>
+
           {!selectedFolder ? (
-            <div className="flex h-full min-h-[420px] flex-col items-center justify-center rounded-[1.5rem] border border-dashed border-slate-200/80 bg-white/50 px-6 text-center">
+            <div className="flex h-full min-h-[280px] flex-col items-center justify-center rounded-[1.5rem] border border-dashed border-slate-200/80 bg-white/50 px-6 py-12 text-center sm:min-h-[360px]">
               <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-[#c6603d]/10 text-[#c6603d]">
                 <FolderPlus className="h-7 w-7" />
               </div>
@@ -884,60 +1054,74 @@ export default function PhotographerWorkspaceClient() {
               <p className="mt-2 max-w-md text-sm leading-relaxed text-slate-500">
                 Pick a main folder to manage sub-folders, or open a sub-folder to upload photos and videos.
               </p>
+              <button
+                className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#c6603d] px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-[#c6603d]/20 transition hover:bg-[#ae5536] lg:hidden"
+                onClick={() => setFoldersPanelOpen(true)}
+                type="button"
+              >
+                <PanelLeft className="h-4 w-4" />
+                Browse folders
+              </button>
             </div>
           ) : (
             <>
-              <div className="border-b border-slate-100/90 pb-5">
+              <div className="space-y-4 border-b border-slate-100/90 pb-5">
                 {isSubFolder && parentFolder ? (
                   <button
-                    className="mb-3 inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-200/70 hover:text-[#10233f]"
+                    className="inline-flex max-w-full items-center gap-1 rounded-full bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-200/70 hover:text-[#10233f]"
                     onClick={() => setSelectedFolderId(parentFolder.id)}
                     type="button"
                   >
-                    <ChevronLeft className="h-4 w-4" />
-                    Back to {parentFolder.folder_name}
+                    <ChevronLeft className="h-4 w-4 shrink-0" />
+                    <span className="truncate">Back to {parentFolder.folder_name}</span>
                   </button>
                 ) : null}
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <span className="inline-flex rounded-full bg-[#10233f]/5 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-[#10233f]/70">
-                      {isMainFolder ? 'Main folder' : 'Sub-folder'}
-                    </span>
-                    <h2 className="mt-2 text-2xl font-semibold tracking-tight text-[#10233f]">
-                      {selectedFolder.folder_name}
-                    </h2>
-                  </div>
-                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                <div className="min-w-0">
+                  <span className="inline-flex rounded-full bg-[#10233f]/5 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-[#10233f]/70">
+                    {isMainFolder ? 'Main folder' : 'Sub-folder'}
+                  </span>
+                  <h2 className="mt-2 break-words text-xl font-semibold tracking-tight text-[#10233f] sm:text-2xl">
+                    {selectedFolder.folder_name}
+                  </h2>
+                </div>
+                <div
+                  className={`grid gap-2 ${
+                    isMainFolder && !isCreatingChildFolder
+                      ? 'grid-cols-1 sm:grid-cols-2 lg:flex lg:flex-wrap'
+                      : 'grid-cols-1 sm:grid-cols-2 lg:flex lg:flex-wrap'
+                  }`}
+                >
+                  <button
+                    className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-[#10233f] shadow-sm transition hover:bg-slate-50 lg:w-auto"
+                    onClick={() => void copySelectedFolderLink()}
+                    type="button"
+                  >
+                    {linkCopied ? <Check className="h-4 w-4 text-emerald-600" /> : <Link2 className="h-4 w-4" />}
+                    {linkCopied ? 'Copied!' : 'Copy link'}
+                  </button>
+                  {isMainFolder && !isCreatingChildFolder ? (
                     <button
-                      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-[#10233f] shadow-sm transition hover:bg-slate-50"
-                      onClick={() => void copySelectedFolderLink()}
+                      className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-[#10233f] px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-[#10233f]/15 transition hover:bg-[#1a3354] lg:w-auto"
+                      onClick={() => {
+                        resetCreateFolderState()
+                        setIsCreatingChildFolder(true)
+                      }}
                       type="button"
                     >
-                      {linkCopied ? <Check className="h-4 w-4 text-emerald-600" /> : <Link2 className="h-4 w-4" />}
-                      {linkCopied ? 'Copied!' : 'Copy link'}
+                      <FolderPlus className="h-4 w-4" />
+                      Create sub-folder
                     </button>
-                    {isMainFolder && !isCreatingChildFolder ? (
-                      <button
-                        className="inline-flex items-center gap-2 rounded-xl bg-[#10233f] px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-[#10233f]/15 transition hover:bg-[#1a3354]"
-                        onClick={() => {
-                          resetCreateFolderState()
-                          setIsCreatingChildFolder(true)
-                        }}
-                        type="button"
-                      >
-                        <FolderPlus className="h-4 w-4" />
-                        Create sub-folder
-                      </button>
-                    ) : null}
-                    <button
-                      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-[#10233f] shadow-sm transition hover:bg-slate-50"
-                      onClick={() => setFolderManageOpen(true)}
-                      type="button"
-                    >
-                      <Settings2 className="h-4 w-4" />
-                      Manage
-                    </button>
-                  </div>
+                  ) : null}
+                  <button
+                    className={`inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-[#10233f] shadow-sm transition hover:bg-slate-50 lg:w-auto ${
+                      isMainFolder && !isCreatingChildFolder ? 'sm:col-span-2 lg:col-span-1' : ''
+                    }`}
+                    onClick={() => setFolderManageOpen(true)}
+                    type="button"
+                  >
+                    <Settings2 className="h-4 w-4" />
+                    Manage
+                  </button>
                 </div>
               </div>
 
@@ -1028,7 +1212,7 @@ export default function PhotographerWorkspaceClient() {
                             <button
                               key={folder.id}
                               className={`rounded-2xl border-2 px-4 py-4 text-left text-sm font-medium shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md ${colors.card}`}
-                              onClick={() => setSelectedFolderId(folder.id)}
+                              onClick={() => handleFolderSelect(folder.id)}
                               type="button"
                             >
                               <span className={`block truncate text-base font-semibold ${colors.title}`}>
@@ -1067,14 +1251,14 @@ export default function PhotographerWorkspaceClient() {
 
                 {isSubFolder ? (
                   <>
-                    <div className="rounded-[1.5rem] border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
-                      <div className="mb-4 flex items-start justify-between gap-3">
+                    <div className="rounded-[1.5rem] border border-slate-200/80 bg-white p-4 shadow-sm sm:p-6">
+                      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div>
                           <h3 className="text-base font-semibold text-[#10233f]">Upload media</h3>
                         </div>
                         {files.length > 0 || uploading ? (
                           <button
-                            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-[#c6603d] px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-[#c6603d]/20 transition hover:bg-[#ae5536] disabled:cursor-not-allowed disabled:opacity-50"
+                            className="inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-[#c6603d] px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-[#c6603d]/20 transition hover:bg-[#ae5536] disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
                             disabled={uploading}
                             onClick={() => void uploadPhotos()}
                             type="button"
@@ -1129,7 +1313,8 @@ export default function PhotographerWorkspaceClient() {
                         </p>
                         <p className="mt-1 text-xs text-slate-500">
                           Photos up to {formatMaxUploadLabel(MAX_PHOTO_UPLOAD_BYTES)} · Videos up to{' '}
-                          {formatMaxUploadLabel(MAX_VIDEO_UPLOAD_BYTES)}
+                          {formatMaxUploadLabel(MAX_VIDEO_UPLOAD_BYTES)} · Up to {PORTAL_UPLOAD_CONCURRENCY}{' '}
+                          files upload at once
                         </p>
                         <p className="mt-1 text-xs text-slate-500">
                           Original quality is preserved — files are not compressed or resized.
@@ -1302,12 +1487,12 @@ export default function PhotographerWorkspaceClient() {
 
       {currentLightboxPhoto ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[#10233f]/90 px-4 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#10233f]/90 px-3 backdrop-blur-sm sm:px-4"
           onClick={closeLightbox}
         >
           <button
             aria-label="Close photo preview"
-            className="absolute right-4 top-4 z-20 rounded-full bg-white/10 p-2.5 text-white transition hover:bg-white/20"
+            className="absolute right-3 top-3 z-20 rounded-full bg-white/10 p-2.5 text-white transition hover:bg-white/20 sm:right-4 sm:top-4"
             onClick={closeLightbox}
             type="button"
           >
@@ -1318,7 +1503,7 @@ export default function PhotographerWorkspaceClient() {
             <>
               <button
                 aria-label="Previous photo"
-                className="absolute left-4 top-1/2 z-20 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
+                className="absolute left-2 top-1/2 z-20 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20 sm:left-4 sm:h-11 sm:w-11"
                 onClick={(e) => {
                   e.stopPropagation()
                   showPreviousLightboxPhoto()
@@ -1329,7 +1514,7 @@ export default function PhotographerWorkspaceClient() {
               </button>
               <button
                 aria-label="Next photo"
-                className="absolute right-4 top-1/2 z-20 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
+                className="absolute right-2 top-1/2 z-20 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20 sm:right-4 sm:h-11 sm:w-11"
                 onClick={(e) => {
                   e.stopPropagation()
                   showNextLightboxPhoto()
@@ -1355,7 +1540,7 @@ export default function PhotographerWorkspaceClient() {
             {isVideoFileName(currentLightboxPhoto.original_file_name) ? (
               <video
                 controls
-                className="max-h-[80vh] w-auto max-w-full rounded-lg object-contain shadow-2xl"
+                className="max-h-[70vh] w-auto max-w-[calc(100vw-2rem)] rounded-lg object-contain shadow-2xl sm:max-h-[80vh] sm:max-w-full"
                 key={currentLightboxPhoto.id}
                 src={currentLightboxPhoto.image_url}
               />
@@ -1363,7 +1548,7 @@ export default function PhotographerWorkspaceClient() {
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 alt={currentLightboxPhoto.original_file_name}
-                className="max-h-[80vh] w-auto max-w-full rounded-lg object-contain shadow-2xl"
+                className="max-h-[70vh] w-auto max-w-[calc(100vw-2rem)] rounded-lg object-contain shadow-2xl sm:max-h-[80vh] sm:max-w-full"
                 key={currentLightboxPhoto.id}
                 src={currentLightboxPhoto.image_url}
               />
