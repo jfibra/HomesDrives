@@ -54,7 +54,7 @@ function PublicPhotoThumbnail({
     >
       {isVideoFileName(photo.original_file_name) ? (
         <video
-          className="h-full w-full object-cover transition duration-200 group-hover:scale-[1.02]"
+          className="h-full w-full object-contain object-top transition duration-200 group-hover:scale-[1.02]"
           muted
           onError={() => setFailed(true)}
           playsInline
@@ -65,7 +65,7 @@ function PublicPhotoThumbnail({
         // eslint-disable-next-line @next/next/no-img-element
         <img
           alt={photo.original_file_name}
-          className="h-full w-full object-cover transition duration-200 group-hover:scale-[1.02]"
+          className="h-full w-full object-contain object-top transition duration-200 group-hover:scale-[1.02]"
           key={photo.image_url}
           onError={() => setFailed(true)}
           src={photo.image_url}

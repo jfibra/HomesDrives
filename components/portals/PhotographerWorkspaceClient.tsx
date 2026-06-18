@@ -1414,7 +1414,7 @@ export default function PhotographerWorkspaceClient() {
                                     {/* eslint-disable-next-line @next/next/no-img-element */}
                                     <img
                                       alt={preview.name}
-                                      className="aspect-square w-full object-cover"
+                                      className="aspect-square w-full object-contain object-top"
                                       src={preview.url}
                                     />
                                   </div>
@@ -1466,7 +1466,7 @@ export default function PhotographerWorkspaceClient() {
                               >
                                 {isVideoFileName(photo.original_file_name) ? (
                                   <video
-                                    className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
+                                    className="h-full w-full object-contain object-top transition duration-300 group-hover:scale-[1.03]"
                                     src={photo.image_url}
                                     preload="metadata"
                                     muted
@@ -1475,7 +1475,7 @@ export default function PhotographerWorkspaceClient() {
                                   // eslint-disable-next-line @next/next/no-img-element
                                   <img
                                     alt={photo.original_file_name}
-                                    className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
+                                    className="h-full w-full object-contain object-top transition duration-300 group-hover:scale-[1.03]"
                                     src={photo.image_url}
                                   />
                                 )}
