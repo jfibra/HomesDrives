@@ -33,10 +33,18 @@ import {
   MAX_PHOTO_UPLOAD_BYTES,
   MAX_VIDEO_UPLOAD_BYTES,
   PORTAL_MULTIPART_PART_CONCURRENCY,
-  PORTAL_PRESIGN_BATCH_SIZE,
   PORTAL_UPLOAD_CONCURRENCY,
 } from '@/lib/photo-upload-limits'
 import { getPublicPortalFolderUrl } from '@/lib/portals/constants'
+import {
+  canPortalFileUseServerUpload,
+  getPortalPresignBatchSize,
+  getPortalUploadConcurrency,
+  isDirectStorageFetchError,
+  prefersPortalServerUpload,
+  shouldFallbackPortalUploadToServer,
+  shouldPortalFileUseServerUploadFirst,
+} from '@/lib/portals/upload-client-utils'
 import type { PortalFolder, PortalFolderNode, PortalPhoto } from '@/lib/portals/types'
 import {
   inferPortalContentType,
@@ -232,12 +240,37 @@ async function uploadMediaFileViaServer(folderId: string, file: File): Promise<P
 }
 
 function isDirectStorageUploadError(error: unknown) {
-  return error instanceof TypeError && /failed to fetch/i.test(error.message)
+  return isDirectStorageFetchError(error)
 }
 
 function shouldFallbackToServerUpload(error: unknown) {
-  if (!(error instanceof Error)) return false
-  return /blocked by the browser|could not reach storage|CORS|storage/i.test(error.message)
+  return shouldFallbackPortalUploadToServer(error)
+}
+
+async function uploadPortalFileDirect(folderId: string, file: File): Promise<PortalPhoto> {
+  const [upload] = await presignPortalFiles(folderId, [file])
+  const multipart = await uploadFileToStorage(file, upload)
+  const [photo] = await completePresignedPortalBatch(folderId, [{ file, upload, multipart }])
+  if (!photo) {
+    throw new Error(`Upload failed for "${file.name}".`)
+  }
+  return photo
+}
+
+async function uploadPortalFileResolved(folderId: string, file: File): Promise<PortalPhoto> {
+  if (shouldPortalFileUseServerUploadFirst(file)) {
+    try {
+      return await uploadMediaFileViaServer(folderId, file)
+    } catch (serverError) {
+      try {
+        return await uploadPortalFileDirect(folderId, file)
+      } catch {
+        throw serverError
+      }
+    }
+  }
+
+  return uploadPortalFileWithFallback(folderId, file)
 }
 
 async function runWithConcurrency<T>(
@@ -321,13 +354,7 @@ async function completePresignedPortalBatch(
 
 async function uploadPortalFileWithFallback(folderId: string, file: File): Promise<PortalPhoto> {
   try {
-    const [upload] = await presignPortalFiles(folderId, [file])
-    const multipart = await uploadFileToStorage(file, upload)
-    const [photo] = await completePresignedPortalBatch(folderId, [{ file, upload, multipart }])
-    if (!photo) {
-      throw new Error(`Upload failed for "${file.name}".`)
-    }
-    return photo
+    return await uploadPortalFileDirect(folderId, file)
   } catch (error) {
     if (shouldFallbackToServerUpload(error) || isDirectStorageUploadError(error)) {
       return uploadMediaFileViaServer(folderId, file)
@@ -679,7 +706,7 @@ export default function PhotographerWorkspaceClient() {
       const uploadOne = async (file: File) => {
         setActiveFile(file)
         try {
-          mergePhotos([await uploadPortalFileWithFallback(selectedFolderId, file)])
+          mergePhotos([await uploadPortalFileResolved(selectedFolderId, file)])
         } catch (error) {
           failures.push(
             `${file.name}: ${error instanceof Error ? error.message : 'Upload failed.'}`,
@@ -689,8 +716,19 @@ export default function PhotographerWorkspaceClient() {
         }
       }
 
-      for (let offset = 0; offset < uploadQueue.length; offset += PORTAL_PRESIGN_BATCH_SIZE) {
-        const batch = uploadQueue.slice(offset, offset + PORTAL_PRESIGN_BATCH_SIZE)
+      const uploadConcurrency = getPortalUploadConcurrency()
+      const presignBatchSize = getPortalPresignBatchSize()
+      const useServerUploadOnly =
+        prefersPortalServerUpload() &&
+        uploadQueue.every((file) => shouldPortalFileUseServerUploadFirst(file))
+
+      if (useServerUploadOnly) {
+        await runWithConcurrency(uploadQueue, uploadConcurrency, async (file) => {
+          await uploadOne(file)
+        })
+      } else {
+      for (let offset = 0; offset < uploadQueue.length; offset += presignBatchSize) {
+        const batch = uploadQueue.slice(offset, offset + presignBatchSize)
         let batchStorageDone = 0
 
         const reportStorageProgress = (file: File) => {
@@ -712,7 +750,12 @@ export default function PhotographerWorkspaceClient() {
           }> = []
           const storageFailed: File[] = []
 
-          await runWithConcurrency(jobs, PORTAL_UPLOAD_CONCURRENCY, async ({ file, upload }) => {
+          await runWithConcurrency(jobs, uploadConcurrency, async ({ file, upload }) => {
+            if (shouldPortalFileUseServerUploadFirst(file)) {
+              storageFailed.push(file)
+              return
+            }
+
             setActiveFile(file)
             try {
               readyToComplete.push({
@@ -722,7 +765,7 @@ export default function PhotographerWorkspaceClient() {
               })
               reportStorageProgress(file)
             } catch (error) {
-              if (shouldFallbackToServerUpload(error) || isDirectStorageUploadError(error)) {
+              if (canPortalFileUseServerUpload(file)) {
                 storageFailed.push(file)
               } else {
                 failures.push(
@@ -760,7 +803,7 @@ export default function PhotographerWorkspaceClient() {
           }
 
           if (storageFailed.length > 0) {
-            await runWithConcurrency(storageFailed, PORTAL_UPLOAD_CONCURRENCY, async (file) => {
+            await runWithConcurrency(storageFailed, uploadConcurrency, async (file) => {
               if (batchCompletedKeys.has(fileProgressKey(file))) return
 
               setActiveFile(file)
@@ -776,10 +819,11 @@ export default function PhotographerWorkspaceClient() {
             })
           }
         } catch {
-          await runWithConcurrency(batch, PORTAL_UPLOAD_CONCURRENCY, async (file) => {
+          await runWithConcurrency(batch, uploadConcurrency, async (file) => {
             await uploadOne(file)
           })
         }
+      }
       }
 
       if (uploadedCount > 0) {
