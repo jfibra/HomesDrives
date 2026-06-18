@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Check, ChevronLeft, ChevronRight, Folder, ImageIcon, PanelLeft, Pencil, RefreshCw, Settings2, Trash2, Upload, X, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, Folder, ImageIcon, PanelLeft, Pencil, RefreshCw, Search, Settings2, Trash2, Upload, X, AlertCircle, CheckCircle2 } from 'lucide-react'
 
 import FolderTree from '@/components/portals/FolderTree'
 import PortalFrame from '@/components/portals/PortalFrame'
+import { applySiblingReorder, collectFolderSortOrders } from '@/lib/portals/folder-tree'
+import { filterPortalPhotosByFileName } from '@/lib/portals/filter-photos'
 import {
   Dialog,
   DialogContent,
@@ -94,6 +96,7 @@ export default function AdminWorkspaceClient() {
     return localStorage.getItem(PORTAL_ADMIN_SESSION_KEY) ?? ''
   })
   const [folderSearch, setFolderSearch] = useState('')
+  const [photoSearch, setPhotoSearch] = useState('')
   const [tree, setTree] = useState<PortalFolderNode[]>([])
   const [folders, setFolders] = useState<PortalFolder[]>([])
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
@@ -117,6 +120,7 @@ export default function AdminWorkspaceClient() {
   const [isSavingFolderName, setIsSavingFolderName] = useState(false)
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
   const [foldersPanelOpen, setFoldersPanelOpen] = useState(false)
+  const [isReorderingFolders, setIsReorderingFolders] = useState(false)
 
   const selectedFolder = useMemo(
     () => folders.find((f) => f.id === selectedFolderId) ?? null,
@@ -127,12 +131,21 @@ export default function AdminWorkspaceClient() {
     if (!selectedFolderId) return []
     return folders
       .filter((folder) => folder.parent_folder_id === selectedFolderId)
-      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .sort((a, b) => {
+        if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order
+        return b.created_at.localeCompare(a.created_at)
+      })
   }, [folders, selectedFolderId])
 
   const hasChildFolders = childFolders.length > 0
 
-  const currentLightboxPhoto = lightboxIndex != null ? photos[lightboxIndex] ?? null : null
+  const currentLightboxPhoto =
+    lightboxIndex != null ? filteredPhotos[lightboxIndex] ?? null : null
+
+  const filteredPhotos = useMemo(
+    () => filterPortalPhotosByFileName(photos, photoSearch),
+    [photos, photoSearch],
+  )
 
   const loadFolders = useCallback(async (code: string) => {
     const res = await fetch(`/api/portals/admin/folders?adminCode=${encodeURIComponent(code)}`)
@@ -195,6 +208,10 @@ export default function AdminWorkspaceClient() {
   }, [loadFolders, router])
 
   useEffect(() => {
+    setPhotoSearch('')
+  }, [selectedFolderId])
+
+  useEffect(() => {
     if (!adminCode || !selectedFolderId) {
       setPhotos([])
       return
@@ -225,40 +242,83 @@ export default function AdminWorkspaceClient() {
         setLightboxIndex(null)
         return
       }
-      if (photos.length <= 1) return
+      if (filteredPhotos.length <= 1) return
       if (event.key === 'ArrowLeft') {
         setLightboxIndex((current) => {
           if (current == null) return current
-          return (current - 1 + photos.length) % photos.length
+          return (current - 1 + filteredPhotos.length) % filteredPhotos.length
         })
       }
       if (event.key === 'ArrowRight') {
         setLightboxIndex((current) => {
           if (current == null) return current
-          return (current + 1) % photos.length
+          return (current + 1) % filteredPhotos.length
         })
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [lightboxIndex, photos.length])
+  }, [lightboxIndex, filteredPhotos.length])
 
   useEffect(() => {
     if (lightboxIndex == null) return
-    if (photos.length === 0) {
+    if (filteredPhotos.length === 0) {
       setLightboxIndex(null)
       return
     }
-    if (lightboxIndex >= photos.length) {
-      setLightboxIndex(photos.length - 1)
+    if (lightboxIndex >= filteredPhotos.length) {
+      setLightboxIndex(filteredPhotos.length - 1)
     }
-  }, [photos.length, lightboxIndex])
+  }, [filteredPhotos.length, lightboxIndex])
 
   function handleFolderSelect(id: string) {
     setSelectedFolderId(id)
     setFoldersPanelOpen(false)
   }
+
+  const handleFolderReorder = useCallback(
+    async (parentFolderId: string | null, draggedId: string, targetId: string) => {
+      if (!adminCode || folderSearch.trim()) return
+
+      const previousTree = tree
+      const previousFolders = folders
+      const nextTree = applySiblingReorder(tree, parentFolderId, draggedId, targetId)
+      const sortOrders = collectFolderSortOrders(nextTree)
+      const nextFolders = folders.map((folder) =>
+        sortOrders.has(folder.id) ? { ...folder, sort_order: sortOrders.get(folder.id)! } : folder,
+      )
+      const siblings = nextFolders.filter(
+        (folder) => (folder.parent_folder_id ?? null) === (parentFolderId ?? null),
+      )
+      const folderIds = siblings
+        .sort((a, b) => a.sort_order - b.sort_order)
+        .map((folder) => folder.id)
+
+      setTree(nextTree)
+      setFolders(nextFolders)
+      setIsReorderingFolders(true)
+      clearMessages()
+
+      try {
+        const res = await fetch('/api/portals/admin/folders/reorder', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ adminCode, parentFolderId, folderIds }),
+        })
+        const data = await res.json().catch(() => null)
+        if (!res.ok) throw new Error(data?.error || 'Unable to reorder folders.')
+        setSuccess('Folder order updated.')
+      } catch (error) {
+        setTree(previousTree)
+        setFolders(previousFolders)
+        setError(getErrorMessage(error, 'Unable to reorder folders.'))
+      } finally {
+        setIsReorderingFolders(false)
+      }
+    },
+    [adminCode, folderSearch, folders, tree],
+  )
 
   function clearMessages() {
     setError('')
@@ -266,7 +326,7 @@ export default function AdminWorkspaceClient() {
   }
 
   function openLightbox(photo: PortalPhoto) {
-    const index = photos.findIndex((item) => item.id === photo.id)
+    const index = filteredPhotos.findIndex((item) => item.id === photo.id)
     setLightboxIndex(index >= 0 ? index : 0)
   }
 
@@ -276,15 +336,15 @@ export default function AdminWorkspaceClient() {
 
   function showPreviousLightboxPhoto() {
     setLightboxIndex((current) => {
-      if (current == null || photos.length === 0) return current
-      return (current - 1 + photos.length) % photos.length
+      if (current == null || filteredPhotos.length === 0) return current
+      return (current - 1 + filteredPhotos.length) % filteredPhotos.length
     })
   }
 
   function showNextLightboxPhoto() {
     setLightboxIndex((current) => {
-      if (current == null || photos.length === 0) return current
-      return (current + 1) % photos.length
+      if (current == null || filteredPhotos.length === 0) return current
+      return (current + 1) % filteredPhotos.length
     })
   }
 
@@ -511,7 +571,12 @@ export default function AdminWorkspaceClient() {
               </div>
             ) : (
               <FolderTree
+                enableReorder={!folderSearch.trim()}
+                isReordering={isReorderingFolders}
                 nodes={filteredTree}
+                onReorder={(parentFolderId, draggedId, targetId) => {
+                  void handleFolderReorder(parentFolderId, draggedId, targetId)
+                }}
                 onSelect={handleFolderSelect}
                 selectedId={selectedFolderId}
                 showPublicVisibility
@@ -760,8 +825,31 @@ export default function AdminWorkspaceClient() {
                         {hasChildFolders ? (
                           <h3 className="mb-3 text-sm font-semibold text-[#10233f]">Photos in this folder</h3>
                         ) : null}
+                        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                          <p className="text-xs text-slate-500">
+                            {photoSearch.trim()
+                              ? `${filteredPhotos.length} of ${photos.length} files`
+                              : `${photos.length} file${photos.length === 1 ? '' : 's'}`}
+                          </p>
+                        </div>
+                        <div className="relative mb-4">
+                          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                          <input
+                            className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#10233f] focus:ring-2 focus:ring-[#10233f]/10"
+                            onChange={(e) => setPhotoSearch(e.target.value)}
+                            placeholder="Search photos and videos by file name..."
+                            type="search"
+                            value={photoSearch}
+                          />
+                        </div>
+                        {filteredPhotos.length === 0 ? (
+                          <div className="flex min-h-[160px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 px-6 py-10 text-center text-slate-500">
+                            <Search className="mb-2 h-7 w-7 opacity-40" />
+                            <p className="text-sm font-medium text-slate-600">No files match your search</p>
+                          </div>
+                        ) : (
                         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                          {photos.map((photo) => {
+                          {filteredPhotos.map((photo) => {
                             const isRenaming = renamingPhotoId === photo.id
                             const isSavingRename = savingRenamePhotoId === photo.id
                             const isDeleting = deletingPhotoId === photo.id
@@ -886,6 +974,7 @@ export default function AdminWorkspaceClient() {
                             )
                           })}
                         </div>
+                        )}
                       </div>
                     )}
                   </>
@@ -910,7 +999,7 @@ export default function AdminWorkspaceClient() {
             <X className="h-5 w-5" />
           </button>
 
-          {photos.length > 1 ? (
+          {filteredPhotos.length > 1 ? (
             <>
               <button
                 aria-label="Previous photo"
@@ -942,9 +1031,9 @@ export default function AdminWorkspaceClient() {
               <p className="max-w-[90vw] truncate text-sm font-medium text-white sm:max-w-none">
                 {currentLightboxPhoto.original_file_name}
               </p>
-              {photos.length > 1 ? (
+              {filteredPhotos.length > 1 ? (
                 <span className="shrink-0 rounded-full bg-white/10 px-2.5 py-1 text-xs text-white/80">
-                  {(lightboxIndex ?? 0) + 1} / {photos.length}
+                  {(lightboxIndex ?? 0) + 1} / {filteredPhotos.length}
                 </span>
               ) : null}
             </div>

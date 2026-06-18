@@ -12,6 +12,7 @@ import {
   Link2,
   PanelLeft,
   RefreshCw,
+  Search,
   Settings2,
   Trash2,
   Upload,
@@ -46,6 +47,7 @@ import {
   shouldPortalFileUseServerUploadFirst,
 } from '@/lib/portals/upload-client-utils'
 import type { PortalFolder, PortalFolderNode, PortalPhoto } from '@/lib/portals/types'
+import { filterPortalPhotosByFileName } from '@/lib/portals/filter-photos'
 import { sortPortalPhotosByFileName } from '@/lib/portals/sort-photos'
 import {
   inferPortalContentType,
@@ -369,6 +371,7 @@ export default function PhotographerWorkspaceClient() {
   const [folders, setFolders] = useState<PortalFolder[]>([])
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
   const [photos, setPhotos] = useState<PortalPhoto[]>([])
+  const [photoSearch, setPhotoSearch] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const [selectedPreviews, setSelectedPreviews] = useState<SelectedPreview[]>([])
   const [error, setError] = useState('')
@@ -395,7 +398,13 @@ export default function PhotographerWorkspaceClient() {
   const previewUrlsRef = useRef<SelectedPreview[]>([])
   const uploadInputId = useId()
 
-  const currentLightboxPhoto = lightboxIndex != null ? photos[lightboxIndex] ?? null : null
+  const filteredPhotos = useMemo(
+    () => filterPortalPhotosByFileName(photos, photoSearch),
+    [photos, photoSearch],
+  )
+
+  const currentLightboxPhoto =
+    lightboxIndex != null ? filteredPhotos[lightboxIndex] ?? null : null
 
   function isVideoFileName(name: string) {
     return isPortalVideoFileName(name)
@@ -422,6 +431,7 @@ export default function PhotographerWorkspaceClient() {
   useEffect(() => {
     setFolderManageOpen(false)
     setLinkCopied(false)
+    setPhotoSearch('')
   }, [selectedFolderId])
 
   function handleFolderSelect(id: string) {
@@ -532,35 +542,35 @@ export default function PhotographerWorkspaceClient() {
         setLightboxIndex(null)
         return
       }
-      if (photos.length <= 1) return
+      if (filteredPhotos.length <= 1) return
       if (event.key === 'ArrowLeft') {
         setLightboxIndex((current) => {
           if (current == null) return current
-          return (current - 1 + photos.length) % photos.length
+          return (current - 1 + filteredPhotos.length) % filteredPhotos.length
         })
       }
       if (event.key === 'ArrowRight') {
         setLightboxIndex((current) => {
           if (current == null) return current
-          return (current + 1) % photos.length
+          return (current + 1) % filteredPhotos.length
         })
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [lightboxIndex, photos.length])
+  }, [lightboxIndex, filteredPhotos.length])
 
   useEffect(() => {
     if (lightboxIndex == null) return
-    if (photos.length === 0) {
+    if (filteredPhotos.length === 0) {
       setLightboxIndex(null)
       return
     }
-    if (lightboxIndex >= photos.length) {
-      setLightboxIndex(photos.length - 1)
+    if (lightboxIndex >= filteredPhotos.length) {
+      setLightboxIndex(filteredPhotos.length - 1)
     }
-  }, [photos.length, lightboxIndex])
+  }, [filteredPhotos.length, lightboxIndex])
 
   function resetCreateFolderState() {
     setNewFolderName('')
@@ -869,7 +879,7 @@ export default function PhotographerWorkspaceClient() {
   }
 
   function openLightbox(photo: PortalPhoto) {
-    const index = photos.findIndex((item) => item.id === photo.id)
+    const index = filteredPhotos.findIndex((item) => item.id === photo.id)
     setLightboxIndex(index >= 0 ? index : 0)
   }
 
@@ -879,15 +889,15 @@ export default function PhotographerWorkspaceClient() {
 
   function showPreviousLightboxPhoto() {
     setLightboxIndex((current) => {
-      if (current == null || photos.length === 0) return current
-      return (current - 1 + photos.length) % photos.length
+      if (current == null || filteredPhotos.length === 0) return current
+      return (current - 1 + filteredPhotos.length) % filteredPhotos.length
     })
   }
 
   function showNextLightboxPhoto() {
     setLightboxIndex((current) => {
-      if (current == null || photos.length === 0) return current
-      return (current + 1) % photos.length
+      if (current == null || filteredPhotos.length === 0) return current
+      return (current + 1) % filteredPhotos.length
     })
   }
 
@@ -1450,14 +1460,32 @@ export default function PhotographerWorkspaceClient() {
 
                     {photos.length > 0 ? (
                       <div>
-                        <div className="mb-4 flex items-center justify-between gap-3">
+                        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                           <h3 className="text-base font-semibold text-[#10233f]">Uploaded media</h3>
                           <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-                            {photos.length} item{photos.length === 1 ? '' : 's'}
+                            {photoSearch.trim()
+                              ? `${filteredPhotos.length} of ${photos.length}`
+                              : `${photos.length} item${photos.length === 1 ? '' : 's'}`}
                           </span>
                         </div>
+                        <div className="relative mb-4">
+                          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                          <input
+                            className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#c6603d] focus:ring-2 focus:ring-[#c6603d]/15"
+                            onChange={(e) => setPhotoSearch(e.target.value)}
+                            placeholder="Search photos and videos by file name..."
+                            type="search"
+                            value={photoSearch}
+                          />
+                        </div>
+                        {filteredPhotos.length === 0 ? (
+                          <div className="flex min-h-[160px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 px-6 py-10 text-center text-slate-500">
+                            <Search className="mb-2 h-7 w-7 opacity-40" />
+                            <p className="text-sm font-medium text-slate-600">No files match your search</p>
+                          </div>
+                        ) : (
                         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-                          {photos.map((photo) => (
+                          {filteredPhotos.map((photo) => (
                             <div
                               className="group overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm transition hover:shadow-md"
                               key={photo.id}
@@ -1522,6 +1550,7 @@ export default function PhotographerWorkspaceClient() {
                             </div>
                           ))}
                         </div>
+                        )}
                       </div>
                     ) : null}
                   </>
@@ -1547,7 +1576,7 @@ export default function PhotographerWorkspaceClient() {
             <X className="h-5 w-5" />
           </button>
 
-          {photos.length > 1 ? (
+          {filteredPhotos.length > 1 ? (
             <>
               <button
                 aria-label="Previous photo"
@@ -1579,9 +1608,9 @@ export default function PhotographerWorkspaceClient() {
               <p className="truncate text-sm font-medium text-white">
                 {currentLightboxPhoto.original_file_name}
               </p>
-              {photos.length > 1 ? (
+              {filteredPhotos.length > 1 ? (
                 <span className="shrink-0 rounded-full bg-white/10 px-2.5 py-1 text-xs text-white/80">
-                  {(lightboxIndex ?? 0) + 1} / {photos.length}
+                  {(lightboxIndex ?? 0) + 1} / {filteredPhotos.length}
                 </span>
               ) : null}
             </div>

@@ -17,6 +17,7 @@ import {
 
 import FolderTree from '@/components/portals/FolderTree'
 import PortalFrame from '@/components/portals/PortalFrame'
+import { filterPortalPhotosByFileName } from '@/lib/portals/filter-photos'
 import type { PortalFolder, PortalFolderNode, PortalPhotoPreview } from '@/lib/portals/types'
 
 function isVideoFileName(name: string) {
@@ -87,6 +88,7 @@ export default function PublicWorkspaceClient() {
   const [tree, setTree] = useState<PortalFolderNode[]>([])
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
   const [folderSearch, setFolderSearch] = useState('')
+  const [photoSearch, setPhotoSearch] = useState('')
   const [photos, setPhotos] = useState<PortalPhotoPreview[]>([])
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
   const [foldersPanelOpen, setFoldersPanelOpen] = useState(false)
@@ -97,7 +99,13 @@ export default function PublicWorkspaceClient() {
     [folders, selectedFolderId],
   )
 
-  const currentLightboxPhoto = lightboxIndex != null ? photos[lightboxIndex] ?? null : null
+  const filteredPhotos = useMemo(
+    () => filterPortalPhotosByFileName(photos, photoSearch),
+    [photos, photoSearch],
+  )
+
+  const currentLightboxPhoto =
+    lightboxIndex != null ? filteredPhotos[lightboxIndex] ?? null : null
 
   const loadSharedFolder = useCallback(async (folderId: string) => {
     setError('')
@@ -175,6 +183,10 @@ export default function PublicWorkspaceClient() {
   }, [loadFolders])
 
   useEffect(() => {
+    setPhotoSearch('')
+  }, [selectedFolderId])
+
+  useEffect(() => {
     if (isSharedFolderView || !selectedFolderId) {
       if (!isSharedFolderView) {
         setPhotos([])
@@ -193,24 +205,35 @@ export default function PublicWorkspaceClient() {
         setLightboxIndex(null)
         return
       }
-      if (photos.length <= 1) return
+      if (filteredPhotos.length <= 1) return
       if (event.key === 'ArrowLeft') {
         setLightboxIndex((current) => {
           if (current == null) return current
-          return (current - 1 + photos.length) % photos.length
+          return (current - 1 + filteredPhotos.length) % filteredPhotos.length
         })
       }
       if (event.key === 'ArrowRight') {
         setLightboxIndex((current) => {
           if (current == null) return current
-          return (current + 1) % photos.length
+          return (current + 1) % filteredPhotos.length
         })
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [lightboxIndex, photos.length])
+  }, [lightboxIndex, filteredPhotos.length])
+
+  useEffect(() => {
+    if (lightboxIndex == null) return
+    if (filteredPhotos.length === 0) {
+      setLightboxIndex(null)
+      return
+    }
+    if (lightboxIndex >= filteredPhotos.length) {
+      setLightboxIndex(filteredPhotos.length - 1)
+    }
+  }, [filteredPhotos.length, lightboxIndex])
 
   const filteredTree = useMemo(() => {
     const q = folderSearch.trim().toLowerCase()
@@ -235,7 +258,7 @@ export default function PublicWorkspaceClient() {
   }
 
   function openLightbox(photo: PortalPhotoPreview) {
-    const index = photos.findIndex((item) => item.id === photo.id)
+    const index = filteredPhotos.findIndex((item) => item.id === photo.id)
     setLightboxIndex(index >= 0 ? index : 0)
   }
 
@@ -245,15 +268,15 @@ export default function PublicWorkspaceClient() {
 
   function showPreviousLightboxPhoto() {
     setLightboxIndex((current) => {
-      if (current == null || photos.length === 0) return current
-      return (current - 1 + photos.length) % photos.length
+      if (current == null || filteredPhotos.length === 0) return current
+      return (current - 1 + filteredPhotos.length) % filteredPhotos.length
     })
   }
 
   function showNextLightboxPhoto() {
     setLightboxIndex((current) => {
-      if (current == null || photos.length === 0) return current
-      return (current + 1) % photos.length
+      if (current == null || filteredPhotos.length === 0) return current
+      return (current + 1) % filteredPhotos.length
     })
   }
 
@@ -478,14 +501,33 @@ export default function PublicWorkspaceClient() {
                   </div>
                 ) : (
                   <div>
-                    <div className="mb-4 flex items-center justify-between gap-3">
+                    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <h3 className="text-sm font-semibold text-[#10233f]">Media preview</h3>
                       <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-                        {photos.length} item{photos.length === 1 ? '' : 's'}
+                        {photoSearch.trim()
+                          ? `${filteredPhotos.length} of ${photos.length}`
+                          : `${photos.length} item${photos.length === 1 ? '' : 's'}`}
                       </span>
                     </div>
+                    <div className="relative mb-4">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                      <input
+                        className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
+                        onChange={(e) => setPhotoSearch(e.target.value)}
+                        placeholder="Search photos and videos by file name..."
+                        type="search"
+                        value={photoSearch}
+                      />
+                    </div>
+                    {filteredPhotos.length === 0 ? (
+                      <div className="flex min-h-[160px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 px-6 py-10 text-center text-slate-500">
+                        <Search className="mb-2 h-7 w-7 opacity-40" />
+                        <p className="text-sm font-medium text-slate-600">No files match your search</p>
+                        <p className="mt-1 text-xs text-slate-400">Try a different file name.</p>
+                      </div>
+                    ) : (
                     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-                      {photos.map((photo) => (
+                      {filteredPhotos.map((photo) => (
                         <article
                           className="overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-sm transition hover:shadow-md"
                           key={photo.id}
@@ -513,6 +555,7 @@ export default function PublicWorkspaceClient() {
                         </article>
                       ))}
                     </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -535,7 +578,7 @@ export default function PublicWorkspaceClient() {
             <X className="h-5 w-5" />
           </button>
 
-          {photos.length > 1 ? (
+          {filteredPhotos.length > 1 ? (
             <>
               <button
                 aria-label="Previous photo"
@@ -570,9 +613,9 @@ export default function PublicWorkspaceClient() {
               {currentLightboxPhoto.subfolder_name ? (
                 <p className="text-xs text-white/70">{currentLightboxPhoto.subfolder_name}</p>
               ) : null}
-              {photos.length > 1 ? (
+              {filteredPhotos.length > 1 ? (
                 <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs text-white/80">
-                  {(lightboxIndex ?? 0) + 1} / {photos.length}
+                  {(lightboxIndex ?? 0) + 1} / {filteredPhotos.length}
                 </span>
               ) : null}
               <button

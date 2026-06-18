@@ -27,6 +27,7 @@ import {
   PUBLIC_PORTAL_CODE,
 } from './constants'
 import type { PortalFolder, PortalFolderNode, PortalPhoto, PortalPhotoPreview } from './types'
+import { buildFolderTree } from './folder-tree'
 import { sortPortalPhotosByFileName } from './sort-photos'
 
 import {
@@ -36,15 +37,18 @@ import {
 } from './upload-file-utils'
 
 const PORTAL_FOLDER_SELECT =
-  'id, parent_folder_id, uploader_code, uploader_name, folder_name, created_at, is_public_visible'
+  'id, parent_folder_id, uploader_code, uploader_name, folder_name, created_at, is_public_visible, sort_order'
 
 type PortalFolderRow = Omit<PortalFolder, 'photo_count'>
 
-function mapPortalFolderRow(row: PortalFolderRow & { is_public_visible?: boolean }): PortalFolderRow {
+function mapPortalFolderRow(
+  row: PortalFolderRow & { is_public_visible?: boolean; sort_order?: number },
+): PortalFolderRow {
   return {
     ...row,
     parent_folder_id: row.parent_folder_id ?? null,
     is_public_visible: row.is_public_visible ?? true,
+    sort_order: row.sort_order ?? 0,
   }
 }
 
@@ -107,7 +111,8 @@ export async function listPortalFoldersForAdmin(): Promise<PortalFolder[]> {
     .from('albums_folders')
     .select(PORTAL_FOLDER_SELECT)
     .in('uploader_code', [...PORTAL_UPLOADER_CODES])
-    .order('created_at', { ascending: false })
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: true })
 
   if (error) throw new Error(error.message)
   const rows = (data ?? []).map((row) => mapPortalFolderRow(row as PortalFolderRow))
@@ -124,7 +129,8 @@ export async function listPortalFoldersForUploader(uploaderCode: string): Promis
     .from('albums_folders')
     .select(PORTAL_FOLDER_SELECT)
     .eq('uploader_code', uploaderCode)
-    .order('created_at', { ascending: false })
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: true })
 
   if (error) throw new Error(error.message)
   const rows = (data ?? []).map((row) => mapPortalFolderRow(row as PortalFolderRow))
@@ -141,42 +147,60 @@ export async function listPortalFoldersForPublic(): Promise<PortalFolder[]> {
   return folders.filter((folder) => isFolderPubliclyVisible(folder.id, byId))
 }
 
-export function buildFolderTree(folders: PortalFolder[]): PortalFolderNode[] {
-  const byId = new Map<string, PortalFolderNode>()
-  for (const folder of folders) {
-    byId.set(folder.id, { ...folder, children: [] })
+export { buildFolderTree }
+
+async function getNextPortalFolderSortOrder(
+  supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>,
+  uploaderCode: string,
+  parentFolderId: string | null,
+) {
+  let query = supabaseAdmin
+    .from('albums_folders')
+    .select('sort_order')
+    .eq('uploader_code', uploaderCode)
+    .order('sort_order', { ascending: false })
+    .limit(1)
+
+  query =
+    parentFolderId === null
+      ? query.is('parent_folder_id', null)
+      : query.eq('parent_folder_id', parentFolderId)
+
+  const { data, error } = await query
+  if (error) throw new Error(error.message)
+  return (data?.[0]?.sort_order ?? -1) + 1
+}
+
+export async function reorderPortalFolders(params: {
+  parentFolderId: string | null
+  folderIds: string[]
+}) {
+  const allFolders = await listPortalFoldersForAdmin()
+  const siblings = allFolders.filter(
+    (folder) => (folder.parent_folder_id ?? null) === (params.parentFolderId ?? null),
+  )
+  const siblingIds = new Set(siblings.map((folder) => folder.id))
+
+  if (params.folderIds.length !== siblings.length) {
+    throw new Error('Invalid folder order.')
+  }
+  if (!params.folderIds.every((id) => siblingIds.has(id))) {
+    throw new Error('Invalid folder order.')
   }
 
-  const roots: PortalFolderNode[] = []
-  for (const node of byId.values()) {
-    if (node.parent_folder_id && byId.has(node.parent_folder_id)) {
-      byId.get(node.parent_folder_id)!.children.push(node)
-    } else {
-      roots.push(node)
-    }
-  }
-
-  // Aggregate photo_count so parent folders show totals of their children.
-  // (Leaf folders still show their direct counts.)
-  const aggregateCounts = (node: PortalFolderNode): number => {
-    let total = node.photo_count ?? 0
-    for (const child of node.children) {
-      total += aggregateCounts(child)
-    }
-    node.photo_count = total
-    return total
-  }
-
-  const sortNodes = (nodes: PortalFolderNode[]) => {
-    nodes.sort((a, b) => b.created_at.localeCompare(a.created_at))
-    nodes.forEach((n) => sortNodes(n.children))
-  }
-  sortNodes(roots)
-
-  for (const root of roots) {
-    aggregateCounts(root)
-  }
-  return roots
+  const supabaseAdmin = createSupabaseAdminClient()
+  await Promise.all(
+    params.folderIds.map((folderId, index) =>
+      supabaseAdmin
+        .from('albums_folders')
+        .update({ sort_order: index })
+        .eq('id', folderId)
+        .in('uploader_code', [...PORTAL_UPLOADER_CODES])
+        .then(({ error }) => {
+          if (error) throw new Error(error.message)
+        }),
+    ),
+  )
 }
 
 export async function createPortalFolder(params: {
@@ -208,6 +232,13 @@ export async function createPortalFolder(params: {
     ? `${params.folderName.trim()} · ${params.labelSuffix.trim()}`
     : params.folderName.trim()
 
+  const parentFolderId = params.parentFolderId ?? null
+  const sortOrder = await getNextPortalFolderSortOrder(
+    supabaseAdmin,
+    params.uploaderCode,
+    parentFolderId,
+  )
+
   const { data, error } = await supabaseAdmin
     .from('albums_folders')
     .insert({
@@ -215,7 +246,8 @@ export async function createPortalFolder(params: {
       uploader_code: user.code,
       uploader_name: user.full_name,
       folder_name: folderName,
-      parent_folder_id: params.parentFolderId ?? null,
+      parent_folder_id: parentFolderId,
+      sort_order: sortOrder,
       type_of_place: params.uploaderCode === PUBLIC_PORTAL_CODE ? ['Public submission'] : ['Photographer portal'],
       tags:
         params.uploaderCode === PUBLIC_PORTAL_CODE
