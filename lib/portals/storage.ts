@@ -27,11 +27,39 @@ import {
   PUBLIC_PORTAL_CODE,
 } from './constants'
 import type { PortalFolder, PortalFolderNode, PortalPhoto, PortalPhotoPreview } from './types'
+import { sortPortalPhotosByFileName } from './sort-photos'
+
 import {
   inferPortalContentType,
   isAllowedPortalUpload,
   isPortalVideoFile,
 } from './upload-file-utils'
+
+const PORTAL_FOLDER_SELECT =
+  'id, parent_folder_id, uploader_code, uploader_name, folder_name, created_at, is_public_visible'
+
+type PortalFolderRow = Omit<PortalFolder, 'photo_count'>
+
+function mapPortalFolderRow(row: PortalFolderRow & { is_public_visible?: boolean }): PortalFolderRow {
+  return {
+    ...row,
+    parent_folder_id: row.parent_folder_id ?? null,
+    is_public_visible: row.is_public_visible ?? true,
+  }
+}
+
+export function isFolderPubliclyVisible(
+  folderId: string,
+  byId: Map<string, PortalFolderRow>,
+): boolean {
+  let cursor: string | null = folderId
+  while (cursor) {
+    const folder = byId.get(cursor)
+    if (!folder || !folder.is_public_visible) return false
+    cursor = folder.parent_folder_id
+  }
+  return true
+}
 
 export async function requirePortalAdmin(adminCode: string) {
   return requireAdminByCode(adminCode)
@@ -77,16 +105,15 @@ export async function listPortalFoldersForAdmin(): Promise<PortalFolder[]> {
   const supabaseAdmin = createSupabaseAdminClient()
   const { data, error } = await supabaseAdmin
     .from('albums_folders')
-    .select('id, parent_folder_id, uploader_code, uploader_name, folder_name, created_at')
+    .select(PORTAL_FOLDER_SELECT)
     .in('uploader_code', [...PORTAL_UPLOADER_CODES])
     .order('created_at', { ascending: false })
 
   if (error) throw new Error(error.message)
-  const rows = (data ?? []) as Omit<PortalFolder, 'photo_count'>[]
+  const rows = (data ?? []).map((row) => mapPortalFolderRow(row as PortalFolderRow))
   const counts = await countPhotosByFolderIds(rows.map((r) => r.id))
   return rows.map((row) => ({
     ...row,
-    parent_folder_id: row.parent_folder_id ?? null,
     photo_count: counts.get(row.id) ?? 0,
   }))
 }
@@ -95,18 +122,23 @@ export async function listPortalFoldersForUploader(uploaderCode: string): Promis
   const supabaseAdmin = createSupabaseAdminClient()
   const { data, error } = await supabaseAdmin
     .from('albums_folders')
-    .select('id, parent_folder_id, uploader_code, uploader_name, folder_name, created_at')
+    .select(PORTAL_FOLDER_SELECT)
     .eq('uploader_code', uploaderCode)
     .order('created_at', { ascending: false })
 
   if (error) throw new Error(error.message)
-  const rows = (data ?? []) as Omit<PortalFolder, 'photo_count'>[]
+  const rows = (data ?? []).map((row) => mapPortalFolderRow(row as PortalFolderRow))
   const counts = await countPhotosByFolderIds(rows.map((r) => r.id))
   return rows.map((row) => ({
     ...row,
-    parent_folder_id: row.parent_folder_id ?? null,
     photo_count: counts.get(row.id) ?? 0,
   }))
+}
+
+export async function listPortalFoldersForPublic(): Promise<PortalFolder[]> {
+  const folders = await listPortalFoldersForUploader(PHOTOGRAPHER_PORTAL_CODE)
+  const byId = new Map(folders.map((folder) => [folder.id, folder]))
+  return folders.filter((folder) => isFolderPubliclyVisible(folder.id, byId))
 }
 
 export function buildFolderTree(folders: PortalFolder[]): PortalFolderNode[] {
@@ -190,26 +222,41 @@ export async function createPortalFolder(params: {
           ? ['public-upload', 'temp-portal']
           : ['photographer-portal', 'temp-portal'],
     })
-    .select('id, parent_folder_id, uploader_code, uploader_name, folder_name, created_at')
+    .select(PORTAL_FOLDER_SELECT)
     .single()
 
   if (error) throw new Error(error.message)
-  return { ...(data as Omit<PortalFolder, 'photo_count'>), photo_count: 0 }
+  return { ...mapPortalFolderRow(data as PortalFolderRow), photo_count: 0 }
 }
 
-export async function renamePortalFolder(id: string, folderName: string) {
+export async function updatePortalFolder(
+  id: string,
+  updates: { folderName?: string; isPublicVisible?: boolean },
+) {
+  const patch: Record<string, unknown> = {}
+  if (updates.folderName !== undefined) patch.folder_name = updates.folderName.trim()
+  if (updates.isPublicVisible !== undefined) patch.is_public_visible = updates.isPublicVisible
+
+  if (Object.keys(patch).length === 0) {
+    throw new Error('No folder updates provided.')
+  }
+
   const supabaseAdmin = createSupabaseAdminClient()
   const { data, error } = await supabaseAdmin
     .from('albums_folders')
-    .update({ folder_name: folderName.trim() })
+    .update(patch)
     .eq('id', id)
     .in('uploader_code', [...PORTAL_UPLOADER_CODES])
-    .select('id, parent_folder_id, uploader_code, uploader_name, folder_name, created_at')
+    .select(PORTAL_FOLDER_SELECT)
     .maybeSingle()
 
   if (error) throw new Error(error.message)
   if (!data) throw new Error('Folder not found.')
-  return { ...(data as Omit<PortalFolder, 'photo_count'>), photo_count: 0 }
+  return { ...mapPortalFolderRow(data as PortalFolderRow), photo_count: 0 }
+}
+
+export async function renamePortalFolder(id: string, folderName: string) {
+  return updatePortalFolder(id, { folderName })
 }
 
 export async function deletePortalFolder(id: string) {
@@ -342,11 +389,27 @@ export async function getPhotographerFolderTreeContext(rootFolderId: string) {
   return { root, byId, folderIds, childrenByParent }
 }
 
-export async function listPortalPhotosForFolderTree(rootFolderId: string): Promise<{
+export async function getPublicPhotographerFolderTreeContext(rootFolderId: string) {
+  const context = await getPhotographerFolderTreeContext(rootFolderId)
+  if (!context) return null
+  if (!isFolderPubliclyVisible(rootFolderId, context.byId)) return null
+
+  return {
+    ...context,
+    folderIds: context.folderIds.filter((id) => isFolderPubliclyVisible(id, context.byId)),
+  }
+}
+
+export async function listPortalPhotosForFolderTree(
+  rootFolderId: string,
+  options?: { publicOnly?: boolean },
+): Promise<{
   folder: PortalFolder
   photos: PortalPhotoPreview[]
 }> {
-  const context = await getPhotographerFolderTreeContext(rootFolderId)
+  const context = options?.publicOnly
+    ? await getPublicPhotographerFolderTreeContext(rootFolderId)
+    : await getPhotographerFolderTreeContext(rootFolderId)
   if (!context) throw new Error('Folder not found.')
 
   const supabaseAdmin = createSupabaseAdminClient()
@@ -354,17 +417,18 @@ export async function listPortalPhotosForFolderTree(rootFolderId: string): Promi
     .from('albums_photos')
     .select('id, folder_id, image_url, original_file_name, file_size_bytes, created_at')
     .in('folder_id', context.folderIds)
-    .order('created_at', { ascending: true })
 
   if (error) throw new Error(error.message)
 
-  const photos = (data ?? []).map((photo) => ({
-    ...(photo as PortalPhoto),
-    subfolder_name:
-      photo.folder_id && photo.folder_id !== rootFolderId
-        ? (context.byId.get(photo.folder_id)?.folder_name ?? null)
-        : null,
-  }))
+  const photos = sortPortalPhotosByFileName(
+    (data ?? []).map((photo) => ({
+      ...(photo as PortalPhoto),
+      subfolder_name:
+        photo.folder_id && photo.folder_id !== rootFolderId
+          ? (context.byId.get(photo.folder_id)?.folder_name ?? null)
+          : null,
+    })),
+  )
 
   return { folder: context.root, photos }
 }
@@ -375,10 +439,9 @@ export async function listPortalPhotos(folderId: string): Promise<PortalPhoto[]>
     .from('albums_photos')
     .select('id, folder_id, image_url, original_file_name, file_size_bytes, created_at')
     .eq('folder_id', folderId)
-    .order('created_at', { ascending: false })
 
   if (error) throw new Error(error.message)
-  return (data ?? []) as PortalPhoto[]
+  return sortPortalPhotosByFileName((data ?? []) as PortalPhoto[])
 }
 
 type PortalPhotoFile = {
@@ -398,10 +461,9 @@ export async function listPortalPhotoFilesByFolderIds(folderIds: string[]): Prom
     .from('albums_photos')
     .select('id, folder_id, bucket_name, storage_path, original_file_name, created_at')
     .in('folder_id', folderIds)
-    .order('created_at', { ascending: true })
 
   if (error) throw new Error(error.message)
-  return (data ?? []) as PortalPhotoFile[]
+  return sortPortalPhotosByFileName((data ?? []) as PortalPhotoFile[])
 }
 
 export async function downloadPortalPhotoObject(params: {
@@ -439,7 +501,7 @@ export async function getPortalPhotoForPublicDownload(photoId: string) {
   const supabaseAdmin = createSupabaseAdminClient()
   const { data, error } = await supabaseAdmin
     .from('albums_photos')
-    .select('id, bucket_name, storage_path, original_file_name, file_type, uploader_code')
+    .select('id, folder_id, bucket_name, storage_path, original_file_name, file_type, uploader_code')
     .eq('id', photoId)
     .maybeSingle()
 
@@ -449,6 +511,14 @@ export async function getPortalPhotoForPublicDownload(photoId: string) {
   const uploaderCode = String(data.uploader_code ?? '')
   if (!PORTAL_UPLOADER_CODES.includes(uploaderCode)) {
     throw new Error('Photo not found.')
+  }
+
+  if (uploaderCode === PHOTOGRAPHER_PORTAL_CODE && data.folder_id) {
+    const folders = await listPortalFoldersForUploader(PHOTOGRAPHER_PORTAL_CODE)
+    const byId = new Map(folders.map((folder) => [folder.id, folder]))
+    if (!isFolderPubliclyVisible(data.folder_id, byId)) {
+      throw new Error('Photo not found.')
+    }
   }
 
   if (!data.bucket_name || !data.storage_path) {

@@ -6,6 +6,7 @@ export type PortalFolder = {
   folder_name: string
   created_at: string
   photo_count: number
+  is_public_visible: boolean
 }
 
 export type PortalPhoto = {

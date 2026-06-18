@@ -3,8 +3,8 @@ import { NextResponse } from 'next/server'
 import {
   deletePortalFolder,
   listPortalPhotos,
-  renamePortalFolder,
   requirePortalAdmin,
+  updatePortalFolder,
 } from '@/lib/portals/storage'
 
 export const runtime = 'nodejs'
@@ -39,17 +39,30 @@ export async function PATCH(
     const { id } = await context.params
     const body = await request.json().catch(() => null)
     const adminCode = typeof body?.adminCode === 'string' ? body.adminCode.trim() : ''
-    const folderName = typeof body?.folderName === 'string' ? body.folderName.trim() : ''
+    const folderName = typeof body?.folderName === 'string' ? body.folderName.trim() : undefined
+    const isPublicVisible =
+      typeof body?.isPublicVisible === 'boolean' ? body.isPublicVisible : undefined
 
-    if (!adminCode || !folderName) {
-      return NextResponse.json({ error: 'Missing adminCode or folderName.' }, { status: 400 })
+    if (!adminCode) {
+      return NextResponse.json({ error: 'Missing adminCode.' }, { status: 400 })
+    }
+
+    if (folderName === undefined && isPublicVisible === undefined) {
+      return NextResponse.json(
+        { error: 'Provide folderName and/or isPublicVisible.' },
+        { status: 400 },
+      )
+    }
+
+    if (folderName !== undefined && !folderName) {
+      return NextResponse.json({ error: 'Folder name cannot be empty.' }, { status: 400 })
     }
 
     await requirePortalAdmin(adminCode)
-    const folder = await renamePortalFolder(id, folderName)
+    const folder = await updatePortalFolder(id, { folderName, isPublicVisible })
     return NextResponse.json({ folder })
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unable to rename folder.'
+    const message = error instanceof Error ? error.message : 'Unable to update folder.'
     const status = /forbidden|not active|not found/i.test(message) ? 403 : 500
     return NextResponse.json({ error: message }, { status })
   }

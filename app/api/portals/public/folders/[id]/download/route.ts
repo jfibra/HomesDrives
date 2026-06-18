@@ -3,7 +3,7 @@ import JSZip from 'jszip'
 
 import {
   downloadPortalPhotoObject,
-  getPhotographerFolderTreeContext,
+  getPublicPhotographerFolderTreeContext,
   listPortalPhotoFilesByFolderIds,
 } from '@/lib/portals/storage'
 
@@ -22,7 +22,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     const { id } = await context.params
     if (!id) return NextResponse.json({ error: 'Missing folder id.' }, { status: 400 })
 
-    const folderContext = await getPhotographerFolderTreeContext(id)
+    const folderContext = await getPublicPhotographerFolderTreeContext(id)
     if (!folderContext) return NextResponse.json({ error: 'Folder not found.' }, { status: 404 })
 
     const { root, byId, folderIds } = folderContext

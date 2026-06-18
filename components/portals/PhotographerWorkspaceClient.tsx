@@ -46,6 +46,7 @@ import {
   shouldPortalFileUseServerUploadFirst,
 } from '@/lib/portals/upload-client-utils'
 import type { PortalFolder, PortalFolderNode, PortalPhoto } from '@/lib/portals/types'
+import { sortPortalPhotosByFileName } from '@/lib/portals/sort-photos'
 import {
   inferPortalContentType,
   isAllowedPortalUpload,
@@ -699,7 +700,10 @@ export default function PhotographerWorkspaceClient() {
         uploadedCount += nextPhotos.length
         setPhotos((current) => {
           const incomingIds = new Set(nextPhotos.map((photo) => photo.id))
-          return [...nextPhotos, ...current.filter((photo) => !incomingIds.has(photo.id))]
+          return sortPortalPhotosByFileName([
+            ...nextPhotos,
+            ...current.filter((photo) => !incomingIds.has(photo.id)),
+          ])
         })
       }
 

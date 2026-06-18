@@ -15,8 +15,10 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { getSubFolderCardColorByIndex } from '@/components/portals/sub-folder-card-colors'
-import { PORTAL_ADMIN_SESSION_KEY } from '@/lib/portals/constants'
+import { Switch } from '@/components/ui/switch'
+import { PHOTOGRAPHER_PORTAL_CODE, PORTAL_ADMIN_SESSION_KEY } from '@/lib/portals/constants'
 import type { PortalFolder, PortalFolderNode, PortalPhoto } from '@/lib/portals/types'
+import { sortPortalPhotosByFileName } from '@/lib/portals/sort-photos'
 
 function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback
@@ -97,6 +99,7 @@ export default function AdminWorkspaceClient() {
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
   const [photos, setPhotos] = useState<PortalPhoto[]>([])
   const [folderNameDraft, setFolderNameDraft] = useState('')
+  const [folderPublicVisibleDraft, setFolderPublicVisibleDraft] = useState(true)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(true)
@@ -174,7 +177,9 @@ export default function AdminWorkspaceClient() {
   }, [])
 
   const updatePhotoInState = useCallback((photo: PortalPhoto) => {
-    setPhotos((current) => current.map((item) => (item.id === photo.id ? photo : item)))
+    setPhotos((current) =>
+      sortPortalPhotosByFileName(current.map((item) => (item.id === photo.id ? photo : item))),
+    )
   }, [])
 
   useEffect(() => {
@@ -201,6 +206,7 @@ export default function AdminWorkspaceClient() {
 
   useEffect(() => {
     setFolderNameDraft(selectedFolder?.folder_name ?? '')
+    setFolderPublicVisibleDraft(selectedFolder?.is_public_visible ?? true)
     setFolderManageOpen(false)
     setFolderManageDeleteConfirm(false)
   }, [selectedFolder])
@@ -282,7 +288,7 @@ export default function AdminWorkspaceClient() {
     })
   }
 
-  async function saveFolderName() {
+  async function saveFolderSettings() {
     if (!adminCode || !selectedFolderId || !folderNameDraft.trim()) return
     clearMessages()
     setIsSavingFolderName(true)
@@ -290,13 +296,17 @@ export default function AdminWorkspaceClient() {
       const res = await fetch(`/api/portals/admin/folders/${selectedFolderId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ adminCode, folderName: folderNameDraft.trim() }),
+        body: JSON.stringify({
+          adminCode,
+          folderName: folderNameDraft.trim(),
+          isPublicVisible: folderPublicVisibleDraft,
+        }),
       })
       const data = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(data?.error || 'Unable to rename folder.')
+      if (!res.ok) throw new Error(data?.error || 'Unable to update folder.')
       await loadFolders(adminCode)
       closeFolderManage()
-      setSuccess('Folder name updated.')
+      setSuccess('Folder updated.')
     } finally {
       setIsSavingFolderName(false)
     }
@@ -305,12 +315,14 @@ export default function AdminWorkspaceClient() {
   function openFolderManage() {
     clearMessages()
     setFolderNameDraft(selectedFolder?.folder_name ?? '')
+    setFolderPublicVisibleDraft(selectedFolder?.is_public_visible ?? true)
     setFolderManageDeleteConfirm(false)
     setFolderManageOpen(true)
   }
 
   function closeFolderManage() {
     setFolderNameDraft(selectedFolder?.folder_name ?? '')
+    setFolderPublicVisibleDraft(selectedFolder?.is_public_visible ?? true)
     setFolderManageDeleteConfirm(false)
     setFolderManageOpen(false)
   }
@@ -502,6 +514,7 @@ export default function AdminWorkspaceClient() {
                 nodes={filteredTree}
                 onSelect={handleFolderSelect}
                 selectedId={selectedFolderId}
+                showPublicVisibility
               />
             )}
           </aside>
@@ -604,34 +617,54 @@ export default function AdminWorkspaceClient() {
                         <DialogHeader>
                           <DialogTitle className="text-[#10233f]">Manage folder</DialogTitle>
                           <DialogDescription>
-                            Rename this folder or delete it and all of its photos.
+                            Rename this folder, control public visibility, or delete it and all of its
+                            photos.
                           </DialogDescription>
                         </DialogHeader>
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium text-slate-700" htmlFor="folder-manage-name">
-                            Folder name
-                          </label>
-                          <input
-                            autoFocus
-                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold outline-none transition focus:border-[#10233f] focus:ring-2 focus:ring-[#10233f]/10"
-                            id="folder-manage-name"
-                            onChange={(e) => setFolderNameDraft(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                void saveFolderName().catch((err) =>
-                                  setError(getErrorMessage(err, 'Unable to save.')),
-                                )
-                              }
-                            }}
-                            value={folderNameDraft}
-                          />
+                        <div className="space-y-4">
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium text-slate-700" htmlFor="folder-manage-name">
+                              Folder name
+                            </label>
+                            <input
+                              autoFocus
+                              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold outline-none transition focus:border-[#10233f] focus:ring-2 focus:ring-[#10233f]/10"
+                              id="folder-manage-name"
+                              onChange={(e) => setFolderNameDraft(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  void saveFolderSettings().catch((err) =>
+                                    setError(getErrorMessage(err, 'Unable to save.')),
+                                  )
+                                }
+                              }}
+                              value={folderNameDraft}
+                            />
+                          </div>
+                          {selectedFolder.uploader_code === PHOTOGRAPHER_PORTAL_CODE ? (
+                            <div className="flex items-start justify-between gap-4 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium text-slate-700">
+                                  Visible on public page
+                                </p>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  Hidden folders stay in admin and photographer portals, but won&apos;t
+                                  appear on the public download page.
+                                </p>
+                              </div>
+                              <Switch
+                                checked={folderPublicVisibleDraft}
+                                onCheckedChange={setFolderPublicVisibleDraft}
+                              />
+                            </div>
+                          ) : null}
                         </div>
                         <DialogFooter className="flex-col gap-2 sm:flex-col sm:items-stretch">
                           <button
                             className="inline-flex min-h-[44px] w-full items-center justify-center rounded-xl bg-[#10233f] px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-[#10233f]/15 transition hover:bg-[#1a3358] disabled:cursor-not-allowed disabled:opacity-60"
                             disabled={isSavingFolderName || !folderNameDraft.trim()}
                             onClick={() =>
-                              void saveFolderName().catch((e) =>
+                              void saveFolderSettings().catch((e) =>
                                 setError(getErrorMessage(e, 'Unable to save.')),
                               )
                             }

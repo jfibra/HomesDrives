@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { PortalFolderNode } from '@/lib/portals/types'
-import { ChevronRight, Folder, FolderOpen } from 'lucide-react'
+import { ChevronRight, EyeOff, Folder, FolderOpen } from 'lucide-react'
 
 type FolderTreeProps = {
   nodes: PortalFolderNode[]
@@ -10,6 +10,7 @@ type FolderTreeProps = {
   onSelect: (id: string) => void
   depth?: number
   variant?: 'default' | 'photographer'
+  showPublicVisibility?: boolean
 }
 
 type FolderTreeListProps = FolderTreeProps & {
@@ -40,6 +41,7 @@ function FolderTreeList({
   variant = 'default',
   expandedIds,
   onToggleExpand,
+  showPublicVisibility = false,
 }: FolderTreeListProps) {
   const isPhotographer = variant === 'photographer'
 
@@ -88,6 +90,12 @@ function FolderTreeList({
               )}
               <Icon className="h-4 w-4 shrink-0" />
               <span className="min-w-0 flex-1 truncate">{node.folder_name}</span>
+              {showPublicVisibility && !node.is_public_visible ? (
+                <EyeOff
+                  aria-label="Hidden from public"
+                  className="h-3.5 w-3.5 shrink-0 text-slate-400"
+                />
+              ) : null}
               <span
                 className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
                   isSelected
@@ -108,6 +116,7 @@ function FolderTreeList({
                 onSelect={onSelect}
                 onToggleExpand={onToggleExpand}
                 selectedId={selectedId}
+                showPublicVisibility={showPublicVisibility}
                 variant={variant}
               />
             ) : null}

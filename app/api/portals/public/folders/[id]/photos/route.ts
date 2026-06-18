@@ -11,7 +11,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       return NextResponse.json({ error: 'Missing folder id.' }, { status: 400 })
     }
 
-    const result = await listPortalPhotosForFolderTree(id)
+    const result = await listPortalPhotosForFolderTree(id, { publicOnly: true })
     return NextResponse.json(result)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to load photos.'
