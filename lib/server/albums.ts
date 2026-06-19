@@ -881,7 +881,7 @@ export async function listAllAlbumUsers(): Promise<AdminUserRow[]> {
   }))
 }
 
-function generateUserCode(firstName: string, lastName: string) {
+export function generateUserCode(firstName: string, lastName: string) {
   const sanitize = (v: string) =>
     v
       .normalize('NFKD')
@@ -1354,6 +1354,7 @@ export type AdminFolderCreatedDayRow = {
   full_address: string | null
   created_at: string
   status: string
+  photo_count: number
 }
 
 /** Folders created on a Manila calendar day for an uploader (matches heatmap cell). */
@@ -1382,7 +1383,17 @@ export async function listFoldersCreatedByUploaderManilaDay(params: {
   if (uploaderCode === '—') {
     const { data, error } = await run().is('uploader_code', null)
     if (error) throw new Error(error.message)
-    return (data ?? []) as AdminFolderCreatedDayRow[]
+    const rows = (data ?? []) as AdminFolderCreatedDayRow[]
+    const { countByFolder } = await aggregatePhotosForFolderIds(
+      supabaseAdmin,
+      rows.map((row) => row.id),
+    )
+    return rows
+      .map((row) => ({
+        ...row,
+        photo_count: countByFolder.get(row.id) ?? 0,
+      }))
+      .filter((row) => row.photo_count > 0)
   }
 
   if (albumUserId != null && Number.isFinite(albumUserId)) {
@@ -1396,14 +1407,34 @@ export async function listFoldersCreatedByUploaderManilaDay(params: {
     for (const r of [...(byCode.data ?? []), ...(byUserId.data ?? [])]) {
       byId.set(r.id, r as AdminFolderCreatedDayRow)
     }
-    return Array.from(byId.values()).sort(
+    const rows = Array.from(byId.values()).sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
     )
+    const { countByFolder } = await aggregatePhotosForFolderIds(
+      supabaseAdmin,
+      rows.map((row) => row.id),
+    )
+    return rows
+      .map((row) => ({
+        ...row,
+        photo_count: countByFolder.get(row.id) ?? 0,
+      }))
+      .filter((row) => row.photo_count > 0)
   }
 
   const { data, error } = await run().eq('uploader_code', uploaderCode)
   if (error) throw new Error(error.message)
-  return (data ?? []) as AdminFolderCreatedDayRow[]
+  const rows = (data ?? []) as AdminFolderCreatedDayRow[]
+  const { countByFolder } = await aggregatePhotosForFolderIds(
+    supabaseAdmin,
+    rows.map((row) => row.id),
+  )
+  return rows
+    .map((row) => ({
+      ...row,
+      photo_count: countByFolder.get(row.id) ?? 0,
+    }))
+    .filter((row) => row.photo_count > 0)
 }
 
 export async function deleteAdminAlbumUser(params: { id: number }) {
@@ -1538,7 +1569,7 @@ export async function getAdminStats(): Promise<AdminStats> {
     // 30-day heatmap: folders created per user per day (wider window so users can filter any 14-day slice)
     supabaseAdmin
       .from('albums_folders')
-      .select('created_at, uploader_code, uploader_name, album_user_id')
+      .select('id, created_at, uploader_code, uploader_name, album_user_id')
       .gte('created_at', folderWindowStartIso)
       .order('created_at', { ascending: true })
       .limit(50000),
@@ -1620,17 +1651,30 @@ export async function getAdminStats(): Promise<AdminStats> {
 
   const folderDaySet = new Set(folderDayKeys)
 
+  const folderChartIds = [
+    ...new Set(
+      (folderChartRows as { id: string }[]).map((row) => row.id).filter(Boolean),
+    ),
+  ]
+  const { countByFolder: folderPhotoCounts } = await aggregatePhotosForFolderIds(
+    supabaseAdmin,
+    folderChartIds,
+  )
+
   const perUserFolderByDay = new Map<
     string,
     { code: string; name: string; days: Map<string, number> }
   >()
 
   for (const row of folderChartRows as {
+    id: string
     created_at: string
     uploader_code: string | null
     uploader_name: string | null
     album_user_id: number | null
   }[]) {
+    if ((folderPhotoCounts.get(row.id) ?? 0) === 0) continue
+
     const day = row.created_at
       ? formatDateKeyInTimeZone(row.created_at, ADMIN_STATS_TIMEZONE)
       : null
@@ -1734,7 +1778,7 @@ export async function getHeatmapData(
     supabaseAdmin.from('album_users').select('id, code, full_name'),
     supabaseAdmin
       .from('albums_folders')
-      .select('created_at, uploader_code, uploader_name, album_user_id')
+      .select('id, created_at, uploader_code, uploader_name, album_user_id')
       .gte('created_at', windowStart)
       .lt('created_at', windowEnd)
       .order('created_at', { ascending: true })
@@ -1747,6 +1791,14 @@ export async function getHeatmapData(
   const userRows = usersRes.data ?? []
   const folderRows = folderRes.data ?? []
 
+  const folderIds = [
+    ...new Set((folderRows as { id: string }[]).map((row) => row.id).filter(Boolean)),
+  ]
+  const { countByFolder: folderPhotoCounts } = await aggregatePhotosForFolderIds(
+    supabaseAdmin,
+    folderIds,
+  )
+
   const albumUserIdToCode = new Map<number, string>()
   for (const u of userRows as { id: number; code: string | null }[]) {
     const c = u.code?.trim()
@@ -1756,11 +1808,14 @@ export async function getHeatmapData(
   const perUser = new Map<string, { code: string; name: string; days: Map<string, number> }>()
 
   for (const row of folderRows as {
+    id: string
     created_at: string
     uploader_code: string | null
     uploader_name: string | null
     album_user_id: number | null
   }[]) {
+    if ((folderPhotoCounts.get(row.id) ?? 0) === 0) continue
+
     const day = row.created_at ? formatDateKeyInTimeZone(row.created_at, ADMIN_STATS_TIMEZONE) : null
     if (!day || !heatDaySet.has(day)) continue
     const trimmedCode = row.uploader_code?.trim()

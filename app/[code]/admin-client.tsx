@@ -274,7 +274,14 @@ export default function AdminClient({ user }: { user: AdminUser }) {
     userId: number | null
   } | null>(null)
   const [heatmapDayFolders, setHeatmapDayFolders] = useState<
-    { id: string; folder_name: string; full_address: string | null; created_at: string; status: string }[]
+    {
+      id: string
+      folder_name: string
+      full_address: string | null
+      created_at: string
+      status: string
+      photo_count: number
+    }[]
   >([])
   const [heatmapDayLoading, setHeatmapDayLoading] = useState(false)
   const [heatmapDayError, setHeatmapDayError] = useState('')
@@ -1395,9 +1402,10 @@ export default function AdminClient({ user }: { user: AdminUser }) {
                     }
                   >
                     <p className="-mt-1 mb-3 text-[11px] leading-snug" style={{ color: 'var(--ds-on-surface-variant)' }}>
-                      Each cell is <span className="font-semibold">new folders created</span> on that calendar day in{' '}
-                      <span className="font-semibold">Philippines time (PHT)</span>. The bar chart above still shows{' '}
-                      <span className="font-semibold">photo uploads</span> per day.
+                      Each cell counts <span className="font-semibold">new folders with at least one photo</span> created
+                      on that calendar day in <span className="font-semibold">Philippines time (PHT)</span>. Empty folders
+                      are excluded. The bar chart above still shows <span className="font-semibold">photo uploads</span>{' '}
+                      per day.
                     </p>
                     <UploadsByUserHeatmap
                       adminCode={user.code}
@@ -2525,21 +2533,38 @@ export default function AdminClient({ user }: { user: AdminUser }) {
           {heatmapDayContext ? (
             <>
               <DialogHeader className="shrink-0 border-b px-6 py-4 text-left">
-                <DialogTitle className="text-base">
-                  {heatmapDayContext.name}{' '}
+                <div className="flex flex-wrap items-start justify-between gap-3 pr-8">
+                  <div className="min-w-0 flex-1">
+                    <DialogTitle className="text-base leading-snug">
+                      {heatmapDayContext.name}{' '}
+                      <span
+                        className="font-mono text-sm font-normal"
+                        style={{ color: 'var(--ds-on-surface-variant)' }}
+                      >
+                        ({heatmapDayContext.code})
+                      </span>
+                    </DialogTitle>
+                    <DialogDescription
+                      className="mt-1 text-sm"
+                      style={{ color: 'var(--ds-on-surface-variant)' }}
+                    >
+                      Folders created on this day (PHT), newest first. Select a folder to open it in
+                      the browser.
+                    </DialogDescription>
+                  </div>
                   <span
-                    className="font-mono text-sm font-normal"
-                    style={{ color: 'var(--ds-on-surface-variant)' }}
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold"
+                    style={{
+                      backgroundColor: 'var(--ds-primary-container)',
+                      color: 'var(--ds-on-primary-container, #fff)',
+                    }}
                   >
-                    ({heatmapDayContext.code})
+                    <CalendarDays className="h-3.5 w-3.5" />
+                    {formatDay(heatmapDayContext.day)}
                   </span>
-                </DialogTitle>
-                <DialogDescription className="text-sm" style={{ color: 'var(--ds-on-surface-variant)' }}>
-                  Folders created on {formatDay(heatmapDayContext.day)} (PHT), newest first. Click a folder to open it in
-                  the browser.
-                </DialogDescription>
+                </div>
               </DialogHeader>
-              <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+              <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/80 px-4 py-4 sm:px-6">
                 {heatmapDayError ? (
                   <div
                     className="rounded-lg border px-3 py-2 text-sm"
@@ -2552,36 +2577,95 @@ export default function AdminClient({ user }: { user: AdminUser }) {
                     {heatmapDayError}
                   </div>
                 ) : heatmapDayLoading ? (
-                  <div
-                    className="flex h-40 items-center justify-center text-sm"
-                    style={{ color: 'var(--ds-on-surface-variant)' }}
-                  >
-                    Loading folders…
+                  <div className="space-y-3 py-2">
+                    <div className="grid grid-cols-2 gap-3">
+                      {[0, 1].map((key) => (
+                        <div
+                          key={key}
+                          className="h-[76px] animate-pulse rounded-2xl border bg-white"
+                          style={{ borderColor: 'var(--ds-outline-variant)' }}
+                        />
+                      ))}
+                    </div>
+                    {[0, 1, 2, 3].map((key) => (
+                      <div
+                        key={key}
+                        className="h-[88px] animate-pulse rounded-2xl border bg-white"
+                        style={{ borderColor: 'var(--ds-outline-variant)' }}
+                      />
+                    ))}
                   </div>
                 ) : heatmapDayFolders.length === 0 ? (
                   <div
-                    className="flex h-40 flex-col items-center justify-center gap-2 rounded-lg border border-dashed text-center"
+                    className="flex h-48 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed bg-white text-center"
                     style={{
                       borderColor: 'var(--ds-outline-variant)',
                       color: 'var(--ds-on-surface-variant)',
                     }}
                   >
-                    <Folder className="h-7 w-7 opacity-50" />
-                    <div className="text-sm font-semibold">No folders for this day.</div>
+                    <div
+                      className="flex h-12 w-12 items-center justify-center rounded-2xl"
+                      style={{ backgroundColor: 'var(--ds-surface-container)' }}
+                    >
+                      <Folder className="h-6 w-6 opacity-60" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold" style={{ color: 'var(--ds-on-surface)' }}>
+                        No folders for this day
+                      </div>
+                      <p className="mt-1 text-xs">
+                        Only folders that contain photos are counted. Try another date on the activity heatmap.
+                      </p>
+                    </div>
                   </div>
                 ) : (
                   <>
-                    <div
-                      className="mb-3 text-[11px] font-semibold uppercase tracking-wider"
-                      style={{ color: 'var(--ds-on-surface-variant)' }}
-                    >
-                      {heatmapDayFolders.length} folder{heatmapDayFolders.length === 1 ? '' : 's'}
+                    <div className="mb-4 grid grid-cols-2 gap-3">
+                      <div
+                        className="rounded-2xl border bg-white px-4 py-3 shadow-sm"
+                        style={{ borderColor: 'var(--ds-outline-variant)' }}
+                      >
+                        <div
+                          className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider"
+                          style={{ color: 'var(--ds-on-surface-variant)' }}
+                        >
+                          <Folder className="h-3.5 w-3.5" />
+                          Folders
+                        </div>
+                        <div
+                          className="mt-1 text-2xl font-bold tabular-nums"
+                          style={{ color: 'var(--ds-on-surface)' }}
+                        >
+                          {heatmapDayFolders.length}
+                        </div>
+                      </div>
+                      <div
+                        className="rounded-2xl border bg-white px-4 py-3 shadow-sm"
+                        style={{ borderColor: 'var(--ds-outline-variant)' }}
+                      >
+                        <div
+                          className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider"
+                          style={{ color: 'var(--ds-on-surface-variant)' }}
+                        >
+                          <ImageIcon className="h-3.5 w-3.5" />
+                          Photos
+                        </div>
+                        <div
+                          className="mt-1 text-2xl font-bold tabular-nums"
+                          style={{ color: 'var(--ds-primary)' }}
+                        >
+                          {heatmapDayFolders.reduce((sum, folder) => sum + folder.photo_count, 0)}
+                        </div>
+                      </div>
                     </div>
-                    <ul className="flex flex-col gap-2">
-                      {heatmapDayFolders.map((folder) => (
+                    <ul className="flex flex-col gap-2.5">
+                      {heatmapDayFolders.map((folder) => {
+                        const isArchived = (folder.status ?? 'active') === 'archived'
+
+                        return (
                         <li key={folder.id}>
                           <button
-                            className="w-full rounded-xl border bg-white px-3 py-2.5 text-left text-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                            className="group flex w-full items-stretch gap-3 rounded-2xl border bg-white p-3 text-left shadow-sm transition-all hover:-translate-y-px hover:border-slate-300 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50 sm:p-3.5"
                             disabled={heatmapDayContext.userId == null}
                             onClick={() => {
                               if (heatmapDayContext.userId == null) return
@@ -2598,26 +2682,88 @@ export default function AdminClient({ user }: { user: AdminUser }) {
                             style={{ borderColor: 'var(--ds-outline-variant)' }}
                             type="button"
                           >
-                            <div className="font-semibold">{folder.folder_name}</div>
-                            {folder.full_address ? (
+                            <div
+                              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl"
+                              style={{
+                                backgroundColor: folder.photo_count > 0
+                                  ? 'var(--ds-primary-container)'
+                                  : 'var(--ds-surface-container)',
+                                color: folder.photo_count > 0
+                                  ? 'var(--ds-on-primary-container, #fff)'
+                                  : 'var(--ds-on-surface-variant)',
+                              }}
+                            >
+                              <FolderOpen className="h-5 w-5" />
+                            </div>
+
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-start justify-between gap-3">
+                                <h3
+                                  className="min-w-0 flex-1 text-sm font-semibold leading-snug sm:text-[15px]"
+                                  style={{ color: 'var(--ds-on-surface)' }}
+                                >
+                                  {folder.folder_name}
+                                </h3>
+                                <span
+                                  className="shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold tabular-nums"
+                                  style={{
+                                    backgroundColor:
+                                      folder.photo_count > 0
+                                        ? 'var(--ds-primary)'
+                                        : 'var(--ds-surface-container-high)',
+                                    color:
+                                      folder.photo_count > 0
+                                        ? 'var(--ds-on-primary)'
+                                        : 'var(--ds-on-surface-variant)',
+                                  }}
+                                >
+                                  {folder.photo_count}{' '}
+                                  {folder.photo_count === 1 ? 'photo' : 'photos'}
+                                </span>
+                              </div>
+
+                              {folder.full_address ? (
+                                <div
+                                  className="mt-1.5 flex items-start gap-1.5 text-xs leading-relaxed"
+                                  style={{ color: 'var(--ds-on-surface-variant)' }}
+                                >
+                                  <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                  <span className="line-clamp-2">{folder.full_address}</span>
+                                </div>
+                              ) : null}
+
                               <div
-                                className="mt-1 flex items-start gap-1 text-xs"
+                                className="mt-2 flex flex-wrap items-center gap-2 text-[11px]"
                                 style={{ color: 'var(--ds-on-surface-variant)' }}
                               >
-                                <MapPin className="mt-0.5 h-3 w-3 shrink-0" />
-                                <span>{folder.full_address}</span>
+                                <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 tabular-nums">
+                                  <Calendar className="h-3 w-3" />
+                                  {formatDate(folder.created_at)}
+                                </span>
+                                {isArchived ? (
+                                  <span
+                                    className="rounded-full px-2 py-0.5 font-semibold"
+                                    style={{
+                                      backgroundColor: 'var(--ds-surface-container-high)',
+                                      color: 'var(--ds-on-surface-variant)',
+                                    }}
+                                  >
+                                    Archived
+                                  </span>
+                                ) : null}
                               </div>
-                            ) : null}
-                            <div
-                              className="mt-1 text-[10px] tabular-nums"
-                              style={{ color: 'var(--ds-on-surface-variant)' }}
-                            >
-                              {formatDate(folder.created_at)}
-                              {(folder.status ?? 'active') === 'archived' ? ' · Archived' : ''}
+                            </div>
+
+                            <div className="flex shrink-0 items-center self-center pl-1">
+                              <ChevronRight
+                                className="h-4 w-4 opacity-30 transition-opacity group-hover:opacity-100"
+                                style={{ color: 'var(--ds-primary)' }}
+                              />
                             </div>
                           </button>
                         </li>
-                      ))}
+                        )
+                      })}
                     </ul>
                   </>
                 )}
