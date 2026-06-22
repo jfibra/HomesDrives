@@ -4123,7 +4123,8 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                 </h1>
                 <p className="max-w-2xl text-base" style={{ color: 'var(--ds-on-surface-variant)' }}>
                   Your official Homes.ph media identification card. The QR code on the back links to
-                  your public profile so clients can access your forms.
+                  your public profile so clients can access your forms. You can also download the front
+                  and back as PNG images for printing or sharing.
                 </p>
               </div>
 
