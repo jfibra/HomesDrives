@@ -60,12 +60,24 @@ export default function MediaSignupClient() {
           email: email.trim().toLowerCase(),
           phoneNumber: phoneNumber.trim(),
           areaFocused: areaFocused.trim(),
+          password,
         }),
       })
-      const data = (await res.json().catch(() => null)) as { error?: string; success?: boolean } | null
+      const data = (await res.json().catch(() => null)) as {
+        error?: string
+        success?: boolean
+        skipVerification?: boolean
+        user?: { dashboardUrl?: string }
+      } | null
 
       if (!res.ok || !data?.success) {
         throw new Error(data?.error || 'Unable to send verification code.')
+      }
+
+      if (data.skipVerification) {
+        setDashboardUrl(data.user?.dashboardUrl ?? '')
+        setStep('done')
+        return
       }
 
       setStep('verify')

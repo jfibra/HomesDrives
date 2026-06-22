@@ -52,6 +52,103 @@ function isPendingMediaRegistration(user: PendingMediaUserRow) {
   )
 }
 
+async function findAuthUserByEmail(email: string) {
+  const supabase = createSupabaseAdminClient()
+  const { data, error } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 })
+
+  if (error) {
+    throw new Error(`Auth: ${error.message}`)
+  }
+
+  return (
+    data.users.find((user) => user.email?.trim().toLowerCase() === email) ?? null
+  )
+}
+
+async function completeExistingMediaRegistration(params: {
+  existing: PendingMediaUserRow
+  email: string
+  firstName: string
+  lastName: string
+  phoneNumber: string
+  areaFocused: string
+  password: string
+}) {
+  const { existing, email, firstName, lastName, phoneNumber, areaFocused, password } = params
+  const supabase = createSupabaseAdminClient()
+  const fullName = `${firstName} ${lastName}`.trim()
+
+  const { error: updateError } = await supabase
+    .from('album_users')
+    .update({
+      first_name: firstName,
+      last_name: lastName,
+      full_name: fullName,
+      phone_number: phoneNumber,
+      area_focused: areaFocused,
+      role: 'media',
+      status: 'active',
+      email_verification_code: null,
+      email_verification_expires_at: null,
+    })
+    .eq('id', existing.id)
+
+  if (updateError) {
+    throw new Error(updateError.message)
+  }
+
+  const authUser = await findAuthUserByEmail(email)
+
+  if (authUser) {
+    const { error: authErr } = await supabase.auth.admin.updateUserById(authUser.id, {
+      password,
+      user_metadata: {
+        full_name: fullName,
+        code: existing.code,
+        role: 'media',
+      },
+    })
+
+    if (authErr) {
+      throw new Error(`Auth: ${authErr.message}`)
+    }
+  } else {
+    const { error: authErr } = await supabase.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { full_name: fullName, code: existing.code, role: 'media' },
+    })
+
+    if (authErr) {
+      throw new Error(`Auth: ${authErr.message}`)
+    }
+  }
+
+  const origin = getPublicAppOrigin()
+  const dashboardUrl = `${origin}/${encodeURIComponent(existing.code)}`
+  const loginUrl = `${origin}/login`
+
+  await sendMediaWelcomeEmail({
+    to: email,
+    firstName,
+    password,
+    dashboardUrl,
+    loginUrl,
+    userCode: existing.code,
+  })
+
+  return {
+    success: true as const,
+    skipVerification: true as const,
+    user: {
+      email,
+      code: existing.code,
+      dashboardUrl,
+    },
+  }
+}
+
 async function getPendingMediaUser(email: string) {
   const supabase = createSupabaseAdminClient()
   const { data, error } = await supabase
@@ -80,6 +177,7 @@ export async function requestMediaRegistrationCode(params: {
   email: string
   phoneNumber: string
   areaFocused: string
+  password?: string
 }) {
   const email = params.email.trim().toLowerCase()
   const firstName = params.firstName.trim()
@@ -87,10 +185,27 @@ export async function requestMediaRegistrationCode(params: {
   const phoneNumber = params.phoneNumber.trim()
   const areaFocused = params.areaFocused.trim() || 'Not specified'
   const fullName = `${firstName} ${lastName}`.trim()
+  const password = params.password?.trim() ?? ''
 
   const existing = await getPendingMediaUser(email)
-  if (existing && isActiveOrSuspendedUser(existing)) {
-    throw new Error('An account with this email already exists. Try signing in instead.')
+  if (existing?.status === 'suspended') {
+    throw new Error('This account is suspended. Contact support to restore access.')
+  }
+
+  if (existing?.status === 'active') {
+    if (!password || password.length < 8) {
+      throw new Error('Password must be at least 8 characters.')
+    }
+
+    return completeExistingMediaRegistration({
+      existing,
+      email,
+      firstName,
+      lastName,
+      phoneNumber,
+      areaFocused,
+      password,
+    })
   }
 
   if (existing && existing.status === 'inactive' && !isPendingMediaRegistration(existing)) {

@@ -14,6 +14,7 @@ export async function POST(request: Request) {
     const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : ''
     const phoneNumber = typeof body?.phoneNumber === 'string' ? body.phoneNumber.trim() : ''
     const areaFocused = typeof body?.areaFocused === 'string' ? body.areaFocused.trim() : ''
+    const password = typeof body?.password === 'string' ? body.password : ''
 
     if (!firstName || !lastName) {
       return NextResponse.json(
@@ -33,13 +34,23 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Please enter your phone number.' }, { status: 400 })
     }
 
-    await requestMediaRegistrationCode({
+    const result = await requestMediaRegistrationCode({
       firstName,
       lastName,
       email,
       phoneNumber,
       areaFocused,
+      password,
     })
+
+    if (result.skipVerification) {
+      return NextResponse.json({
+        success: true,
+        skipVerification: true,
+        message: 'Your account is ready. Check your email for your dashboard link and login details.',
+        user: result.user,
+      })
+    }
 
     return NextResponse.json({
       success: true,

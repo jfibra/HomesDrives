@@ -1,10 +1,21 @@
 import { spawn } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+import path from 'node:path'
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
 
-const child = spawn('npx', ['next', 'dev'], {
+const nextBin = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..',
+  'node_modules',
+  'next',
+  'dist',
+  'bin',
+  'next',
+)
+
+const child = spawn(process.execPath, [nextBin, 'dev'], {
   stdio: 'inherit',
-  shell: true,
   env: process.env,
 })
 

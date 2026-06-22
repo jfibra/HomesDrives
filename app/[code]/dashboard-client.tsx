@@ -17,6 +17,7 @@ import {
   Folder,
   FolderOpen,
   Grid3X3,
+  IdCard,
   ImageIcon,
   List,
   LogOut,
@@ -39,13 +40,14 @@ import {
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import AdminMapView from '@/components/admin/AdminMapView'
 import type { MapFolder } from '@/components/admin/AdminMapView'
+import MediaIdCard from '@/components/media/MediaIdCard'
 import { MAX_AVATAR_UPLOAD_BYTES, MAX_PHOTO_UPLOAD_BYTES } from '@/lib/photo-upload-limits'
 import { cn } from '@/lib/utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type UploadStatus = 'uploading' | 'uploaded' | 'error' | 'deleting'
-type DashboardView = 'upload' | 'my-photos' | 'all-folders' | 'map'
+type DashboardView = 'upload' | 'my-photos' | 'all-folders' | 'map' | 'my-id'
 
 /** System-wide folder row for media directory (read-only). */
 type MediaDirectoryFolderRow = {
@@ -799,6 +801,13 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
 
   const initialsRaw = `${liveUser.firstName?.[0] ?? ''}${liveUser.lastName?.[0] ?? ''}`.trim()
   const initials = (initialsRaw || '?').toUpperCase()
+  const mediaProfileUrl = useMemo(() => {
+    if (typeof window === 'undefined') {
+      return `/media/${encodeURIComponent(liveUser.code)}`
+    }
+
+    return `${window.location.origin}/media/${encodeURIComponent(liveUser.code)}`
+  }, [liveUser.code])
   const authStorageKey = `homes-albums-auth:${user.code}`
 
   const [isAuthChecked, setIsAuthChecked] = useState(false)
@@ -2656,6 +2665,17 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                 label="My Photos"
                 onClick={() => { setActiveView('my-photos'); setIsSidebarOpen(false) }}
               />
+              {liveUser.role === 'media' ? (
+                <SidebarNavItem
+                  active={activeView === 'my-id'}
+                  icon={<IdCard className="h-5 w-5" />}
+                  label="View my ID"
+                  onClick={() => {
+                    setActiveView('my-id')
+                    setIsSidebarOpen(false)
+                  }}
+                />
+              ) : null}
             </nav>
 
             <div className="my-4 mx-6 border-t" style={{ borderColor: 'var(--ds-outline-variant)' }} />
@@ -2744,8 +2764,14 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                     className="text-display-xl font-headline mb-3"
                     style={{ color: 'var(--ds-primary)' }}
                   >
-                    Upload Studio
+                    Do You Have News To Upload?
                   </h1>
+                  <h2
+                    className="text-headline-md font-headline mb-3"
+                    style={{ color: 'var(--ds-primary)' }}
+                  >
+                    Upload Studio
+                  </h2>
                   <p className="max-w-2xl text-base" style={{ color: 'var(--ds-on-surface-variant)' }}>
                     Manage your professional architectural portfolios. Organise assets by project, client, or location to maintain a curated high-end editorial workflow.
                   </p>
@@ -4082,6 +4108,30 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                   </div>
                 </>
               )}
+            </section>
+          ) : null}
+
+          {/* Media ID view */}
+          {liveUser.role === 'media' && activeView === 'my-id' ? (
+            <section className="mx-auto flex max-w-6xl flex-col gap-8 px-4 py-8 sm:px-8 lg:px-16 lg:py-12">
+              <div>
+                <h1
+                  className="text-display-xl font-headline mb-3"
+                  style={{ color: 'var(--ds-primary)' }}
+                >
+                  My Media ID
+                </h1>
+                <p className="max-w-2xl text-base" style={{ color: 'var(--ds-on-surface-variant)' }}>
+                  Your official Homes.ph media identification card. The QR code on the back links to
+                  your public profile so clients can access your forms.
+                </p>
+              </div>
+
+              <MediaIdCard
+                avatarUrl={liveUser.avatarUrl}
+                fullName={liveUser.fullName}
+                profileUrl={mediaProfileUrl}
+              />
             </section>
           ) : null}
 

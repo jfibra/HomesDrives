@@ -1,0 +1,327 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+
+.cardShell {
+  font-family: 'Outfit', system-ui, sans-serif;
+}
+
+.cardPair {
+  display: grid;
+  gap: 2rem;
+  justify-items: center;
+}
+
+@media (min-width: 900px) {
+  .cardPair {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+}
+
+.artboardWrap {
+  width: 100%;
+  max-width: 480px;
+}
+
+.artboardSizer {
+  position: relative;
+  width: 100%;
+}
+
+.artboard {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 595px;
+  height: 842px;
+  transform-origin: top left;
+  overflow: hidden;
+  border-radius: 30px;
+  box-shadow: 0 24px 60px rgba(0, 32, 69, 0.16);
+}
+
+/* ─── Front (Figma: Photographer ID Front — 595 × 842) ─────────────────── */
+
+.front,
+.back {
+  position: relative;
+  width: 595px;
+  height: 842px;
+}
+
+.front {
+  background: #ffffff;
+  border-radius: 30px;
+}
+
+/* Rectangle 13124 — top-left */
+.cornerTop {
+  position: absolute;
+  width: 395px;
+  height: 167px;
+  left: -105.99px;
+  top: -112.62px;
+  background: #1428ae;
+  transform: rotate(-39.17deg);
+  z-index: 0;
+}
+
+/* Rectangle 13123 — bottom-right (mirrors top-left corner inset) */
+.cornerBottom {
+  position: absolute;
+  width: 395px;
+  height: 167px;
+  right: -105.99px;
+  bottom: -112.62px;
+  left: auto;
+  top: auto;
+  background: #1428ae;
+  transform: rotate(-39.17deg);
+  z-index: 0;
+}
+
+/* homesph logo */
+.frontLogo {
+  position: absolute;
+  width: 358px;
+  height: 99px;
+  left: calc(50% - 358px / 2 - 0.5px);
+  top: 79px;
+  object-fit: contain;
+  z-index: 1;
+}
+
+/* Media */
+.mediaLabel {
+  position: absolute;
+  width: 193px;
+  left: calc(50% - 193px / 2 - 1px);
+  top: 151px;
+  margin: 0;
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 55px;
+  text-align: center;
+  color: #1428ae;
+  z-index: 1;
+}
+
+/* Ellipse 995 */
+.photoRing {
+  position: absolute;
+  width: 339px;
+  height: 339px;
+  left: 128px;
+  top: 230px;
+  border: 5px solid #1428ae;
+  border-radius: 9999px;
+  box-sizing: border-box;
+  z-index: 1;
+}
+
+/* Ellipse 996 */
+.photoInner {
+  position: absolute;
+  width: 330px;
+  height: 330px;
+  left: 132px;
+  top: 235px;
+  border-radius: 9999px;
+  overflow: hidden;
+  background: #d9d9d9;
+  z-index: 1;
+}
+
+.photoInner img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.photoInitials {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-size: 96px;
+  font-weight: 700;
+  line-height: 1;
+  color: #1428ae;
+}
+
+/* Media Name */
+.mediaName {
+  position: absolute;
+  width: 512px;
+  left: calc(50% - 512px / 2 - 0.5px);
+  top: 602px;
+  margin: 0;
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-size: 50px;
+  font-weight: 700;
+  line-height: 55px;
+  text-align: center;
+  color: #1428ae;
+  word-break: break-word;
+  z-index: 1;
+}
+
+/* Rectangle 13125 */
+.goldLine {
+  position: absolute;
+  width: 464px;
+  height: 2px;
+  left: calc(50% - 464px / 2 - 0.5px);
+  top: 675px;
+  background: linear-gradient(
+    90deg,
+    rgba(244, 170, 29, 0) 0%,
+    #f4aa1d 50%,
+    rgba(244, 170, 29, 0) 100%
+  );
+  z-index: 1;
+}
+
+/* DIGITAL MEDIA TEAM */
+.teamLabel {
+  position: absolute;
+  width: 331px;
+  left: calc(50% - 331px / 2);
+  top: 697px;
+  margin: 0;
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 30px;
+  text-align: center;
+  color: #002143;
+  z-index: 1;
+}
+
+/* ─── Back ──────────────────────────────────────────────────────────────── */
+
+.back {
+  background: #1428ae;
+  border-radius: 30px;
+}
+
+.watermark {
+  position: absolute;
+  width: 595px;
+  height: 927.28px;
+  left: calc(50% - 595px / 2);
+  top: calc(50% - 927.28px / 2 - 0.36px);
+  background-image: url('/abstract%20bg.png');
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  background-position: center;
+  pointer-events: none;
+}
+
+.backLogo {
+  position: absolute;
+  width: 446px;
+  height: auto;
+  left: 74px;
+  top: 42px;
+  object-fit: contain;
+}
+
+.qrFrame {
+  position: absolute;
+  width: 390px;
+  height: 390px;
+  left: 101.84px;
+  top: 203px;
+  border: 5px solid #ffffff;
+  border-radius: 15px;
+  box-sizing: border-box;
+  padding: 16px;
+  background: transparent;
+}
+
+.qrFrame img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #ffffff;
+  border-radius: 8px;
+}
+
+.scanText {
+  position: absolute;
+  width: 433px;
+  left: 81px;
+  top: 623px;
+  margin: 0;
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-size: 40px;
+  font-weight: 400;
+  line-height: 40px;
+  text-align: center;
+  color: #ffffff;
+}
+
+.socialRow {
+  position: absolute;
+  inset: 0;
+}
+
+.socialItem {
+  position: absolute;
+  top: 717px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #ffffff;
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-size: 20px;
+  font-weight: 300;
+  line-height: 15px;
+  white-space: nowrap;
+}
+
+.socialItemFacebook {
+  left: 50px;
+}
+
+.socialItemInstagram {
+  left: 205px;
+}
+
+.socialItemYoutube {
+  left: 419px;
+}
+
+.socialIcon {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  color: #ffe9a2;
+}
+
+.contactCall {
+  position: absolute;
+  left: 50px;
+  top: 771px;
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 20px;
+  color: #ffe9a2;
+  white-space: nowrap;
+}
+
+.contactEmail {
+  position: absolute;
+  left: 322px;
+  top: 771px;
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 20px;
+  color: #ffe9a2;
+  white-space: nowrap;
+}
