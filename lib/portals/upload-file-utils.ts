@@ -1,3 +1,5 @@
+import { MAX_PHOTO_UPLOAD_BYTES, MAX_VIDEO_UPLOAD_BYTES } from '@/lib/photo-upload-limits'
+
 const VIDEO_EXTENSIONS = /\.(mp4|webm|mov|m4v|mkv|avi)$/i
 const IMAGE_EXTENSIONS = /\.(jpe?g|png|gif|webp|bmp|heic|heif|avif|tiff?)$/i
 
@@ -55,4 +57,22 @@ export function inferPortalContentType(fileName: string, contentType: string) {
 
   const extension = getFileExtension(fileName)
   return EXTENSION_CONTENT_TYPES[extension] || 'application/octet-stream'
+}
+
+export function getPortalUploadMaxBytes(fileName: string, contentType: string) {
+  return isPortalVideoFile(fileName, contentType) ? MAX_VIDEO_UPLOAD_BYTES : MAX_PHOTO_UPLOAD_BYTES
+}
+
+export function isPortalFileOverUploadLimit(file: File) {
+  const contentType = inferPortalContentType(file.name, file.type)
+  return file.size > getPortalUploadMaxBytes(file.name, contentType)
+}
+
+export function formatPortalUploadLimitLabel(fileName: string, contentType: string) {
+  const maxBytes = getPortalUploadMaxBytes(fileName, contentType)
+  if (maxBytes >= 1024 * 1024 * 1024 && maxBytes % (1024 * 1024 * 1024) === 0) {
+    return `${maxBytes / (1024 * 1024 * 1024)} GB`
+  }
+
+  return `${maxBytes / (1024 * 1024)} MB`
 }

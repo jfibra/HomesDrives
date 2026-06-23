@@ -1,8 +1,10 @@
+import { compressImageForTransport } from '@/lib/client/compress-upload-image'
 import {
   MAX_SERVER_PROXY_UPLOAD_BYTES,
   PORTAL_PRESIGN_BATCH_SIZE,
   PORTAL_UPLOAD_CONCURRENCY,
 } from '@/lib/photo-upload-limits'
+import { inferPortalContentType, isPortalImageFile, isPortalFileOverUploadLimit, formatPortalUploadLimitLabel } from '@/lib/portals/upload-file-utils'
 
 /** Phones/tablets — direct browser→S3 uploads often fail (CORS / "Load failed"). */
 export function isMobilePortalUploadClient() {
@@ -55,6 +57,29 @@ export function canPortalFileUseServerUpload(file: File) {
   return file.size <= MAX_SERVER_PROXY_UPLOAD_BYTES
 }
 
-export function shouldPortalFileUseServerUploadFirst(file: File) {
-  return prefersPortalServerUpload() && canPortalFileUseServerUpload(file)
+/** Always use presigned direct-to-S3 first; server proxy is fallback only for small files. */
+export function shouldPortalFileUseServerUploadFirst(_file: File) {
+  return false
+}
+
+export async function preparePortalFileForServerUpload(file: File): Promise<File> {
+  if (isPortalFileOverUploadLimit(file)) {
+    const contentType = inferPortalContentType(file.name, file.type)
+    throw new Error(
+      `"${file.name}" exceeds the ${formatPortalUploadLimitLabel(file.name, contentType)} limit.`,
+    )
+  }
+
+  if (canPortalFileUseServerUpload(file)) {
+    return file
+  }
+
+  const contentType = inferPortalContentType(file.name, file.type)
+  if (!isPortalImageFile(file.name, contentType)) {
+    throw new Error(
+      `"${file.name}" is too large for server upload. Direct storage upload failed — try Wi‑Fi or a desktop browser.`,
+    )
+  }
+
+  return compressImageForTransport(file)
 }

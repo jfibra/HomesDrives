@@ -19,6 +19,9 @@ import {
   X,
 } from 'lucide-react'
 
+import {
+  assertPortalFileFitsServerProxy,
+} from '@/lib/client/compress-upload-image'
 import FolderTree from '@/components/portals/FolderTree'
 import PortalFrame from '@/components/portals/PortalFrame'
 import {
@@ -43,9 +46,8 @@ import {
   getPortalPresignBatchSize,
   getPortalUploadConcurrency,
   isDirectStorageFetchError,
-  prefersPortalServerUpload,
+  preparePortalFileForServerUpload,
   shouldFallbackPortalUploadToServer,
-  shouldPortalFileUseServerUploadFirst,
 } from '@/lib/portals/upload-client-utils'
 import type { PortalEvent, PortalFolder, PortalFolderNode, PortalPhoto } from '@/lib/portals/types'
 import { filterPortalPhotosByFileName } from '@/lib/portals/filter-photos'
@@ -53,8 +55,11 @@ import { sortPortalPhotosByFileName } from '@/lib/portals/sort-photos'
 import {
   inferPortalContentType,
   isAllowedPortalUpload,
+  isPortalFileOverUploadLimit,
+  isPortalImageFile,
   isPortalImageFileName,
   isPortalVideoFileName,
+  formatPortalUploadLimitLabel,
 } from '@/lib/portals/upload-file-utils'
 
 const MAX_IMAGE_PREVIEW_COUNT = 20
@@ -213,6 +218,8 @@ async function uploadMediaFileViaServer(
   file: File,
   eventSlug: string,
 ): Promise<PortalPhoto> {
+  assertPortalFileFitsServerProxy(file)
+
   const formData = new FormData()
   formData.append('files', file, file.name)
   formData.append('eventSlug', eventSlug)
@@ -270,21 +277,25 @@ async function uploadPortalFileDirect(
   return photo
 }
 
+async function uploadMediaFileViaServerPrepared(
+  folderId: string,
+  file: File,
+  eventSlug: string,
+): Promise<PortalPhoto> {
+  const prepared = await preparePortalFileForServerUpload(file)
+  return uploadMediaFileViaServer(folderId, prepared, eventSlug)
+}
+
 async function uploadPortalFileResolved(
   folderId: string,
   file: File,
   eventSlug: string,
 ): Promise<PortalPhoto> {
-  if (shouldPortalFileUseServerUploadFirst(file)) {
-    try {
-      return await uploadMediaFileViaServer(folderId, file, eventSlug)
-    } catch (serverError) {
-      try {
-        return await uploadPortalFileDirect(folderId, file, eventSlug)
-      } catch {
-        throw serverError
-      }
-    }
+  if (isPortalFileOverUploadLimit(file)) {
+    const contentType = inferPortalContentType(file.name, file.type)
+    throw new Error(
+      `"${file.name}" exceeds the ${formatPortalUploadLimitLabel(file.name, contentType)} limit.`,
+    )
   }
 
   return uploadPortalFileWithFallback(folderId, file, eventSlug)
@@ -384,10 +395,11 @@ async function uploadPortalFileWithFallback(
   try {
     return await uploadPortalFileDirect(folderId, file, eventSlug)
   } catch (error) {
-    if (shouldFallbackToServerUpload(error) || isDirectStorageUploadError(error)) {
-      return uploadMediaFileViaServer(folderId, file, eventSlug)
+    if (!shouldFallbackToServerUpload(error) && !isDirectStorageUploadError(error)) {
+      throw error
     }
-    throw error
+
+    return uploadMediaFileViaServerPrepared(folderId, file, eventSlug)
   }
 }
 
@@ -664,19 +676,16 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
       return
     }
 
-    const oversized = validFiles.filter((file) => {
-      const isVideo = isPortalVideoFileName(file.name) || file.type.startsWith('video/')
-      const maxBytes = isVideo ? MAX_VIDEO_UPLOAD_BYTES : MAX_PHOTO_UPLOAD_BYTES
-      return file.size > maxBytes
-    })
+    const oversized = validFiles.filter((file) => isPortalFileOverUploadLimit(file))
     const filesToUpload = validFiles.filter((file) => !oversized.includes(file))
 
     if (filesToUpload.length === 0) {
       const first = oversized[0] ?? invalidFiles[0]
       if (first) {
-        const isVideo = isPortalVideoFileName(first.name) || first.type.startsWith('video/')
-        const maxBytes = isVideo ? MAX_VIDEO_UPLOAD_BYTES : MAX_PHOTO_UPLOAD_BYTES
-        setError(`File "${first.name}" is too large. Max allowed is ${formatMaxUploadLabel(maxBytes)}.`)
+        const contentType = inferPortalContentType(first.name, first.type)
+        setError(
+          `File "${first.name}" is too large. Max allowed is ${formatPortalUploadLimitLabel(first.name, contentType)}.`,
+        )
       } else {
         setError('Only image and video files are allowed.')
       }
@@ -761,15 +770,7 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
 
       const uploadConcurrency = getPortalUploadConcurrency()
       const presignBatchSize = getPortalPresignBatchSize()
-      const useServerUploadOnly =
-        prefersPortalServerUpload() &&
-        uploadQueue.every((file) => shouldPortalFileUseServerUploadFirst(file))
 
-      if (useServerUploadOnly) {
-        await runWithConcurrency(uploadQueue, uploadConcurrency, async (file) => {
-          await uploadOne(file)
-        })
-      } else {
       for (let offset = 0; offset < uploadQueue.length; offset += presignBatchSize) {
         const batch = uploadQueue.slice(offset, offset + presignBatchSize)
         let batchStorageDone = 0
@@ -794,11 +795,6 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
           const storageFailed: File[] = []
 
           await runWithConcurrency(jobs, uploadConcurrency, async ({ file, upload }) => {
-            if (shouldPortalFileUseServerUploadFirst(file)) {
-              storageFailed.push(file)
-              return
-            }
-
             setActiveFile(file)
             try {
               readyToComplete.push({
@@ -808,7 +804,11 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
               })
               reportStorageProgress(file)
             } catch (error) {
-              if (canPortalFileUseServerUpload(file)) {
+              const contentType = inferPortalContentType(file.name, file.type)
+              const canRetryViaServer =
+                canPortalFileUseServerUpload(file) || isPortalImageFile(file.name, contentType)
+
+              if (canRetryViaServer) {
                 storageFailed.push(file)
               } else {
                 failures.push(
@@ -851,7 +851,7 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
 
               setActiveFile(file)
               try {
-                mergePhotos([await uploadMediaFileViaServer(selectedFolderId, file, eventSlug)])
+                mergePhotos([await uploadMediaFileViaServerPrepared(selectedFolderId, file, eventSlug)])
               } catch (error) {
                 failures.push(
                   `${file.name}: ${error instanceof Error ? error.message : 'Upload failed.'}`,
@@ -866,7 +866,6 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
             await uploadOne(file)
           })
         }
-      }
       }
 
       if (uploadedCount > 0) {
@@ -932,7 +931,47 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
 
   function handleSelectedFiles(fileList: FileList | null) {
     if (!fileList?.length) return
-    setFiles(Array.from(fileList))
+
+    setSuccess('')
+    const incoming = Array.from(fileList)
+    const accepted: File[] = []
+    const rejected: string[] = []
+
+    for (const file of incoming) {
+      if (!isAllowedPortalUpload(file.name, file.type)) {
+        rejected.push(`"${file.name}" is not an image or video.`)
+        continue
+      }
+
+      if (isPortalFileOverUploadLimit(file)) {
+        const contentType = inferPortalContentType(file.name, file.type)
+        rejected.push(
+          `"${file.name}" is too large (${formatFileSize(file.size)}). Max ${formatPortalUploadLimitLabel(file.name, contentType)}.`,
+        )
+        continue
+      }
+
+      accepted.push(file)
+    }
+
+    if (rejected.length > 0) {
+      const preview = rejected.slice(0, 2).join(' ')
+      setError(
+        rejected.length > 2 ? `${preview} (+${rejected.length - 2} more rejected)` : preview,
+      )
+    } else {
+      setError('')
+    }
+
+    if (accepted.length === 0) return
+
+    setFiles((current) => {
+      const seen = new Set(current.map((file) => `${file.name}:${file.size}:${file.lastModified}`))
+      return [
+        ...current,
+        ...accepted.filter((file) => !seen.has(`${file.name}:${file.size}:${file.lastModified}`)),
+      ]
+    })
   }
 
   async function deleteSelectedFolder() {
@@ -1402,7 +1441,7 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
                           Drop files here or click to browse
                         </p>
                         <p className="mt-1 text-xs text-slate-500">
-                          Photos up to {formatMaxUploadLabel(MAX_PHOTO_UPLOAD_BYTES)} · Videos up to{' '}
+                          Photos up to {formatMaxUploadLabel(MAX_PHOTO_UPLOAD_BYTES)} each · Videos up to{' '}
                           {formatMaxUploadLabel(MAX_VIDEO_UPLOAD_BYTES)} · Up to {PORTAL_UPLOAD_CONCURRENCY}{' '}
                           files upload at once
                         </p>
