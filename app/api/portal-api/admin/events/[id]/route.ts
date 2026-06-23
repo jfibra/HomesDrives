@@ -20,6 +20,12 @@ export async function PATCH(
         : typeof body?.coverImageUrl === 'string'
           ? body.coverImageUrl
           : undefined
+    const qrLogoUrl =
+      body?.qrLogoUrl === null
+        ? null
+        : typeof body?.qrLogoUrl === 'string'
+          ? body.qrLogoUrl
+          : undefined
 
     if (!adminCode) {
       return NextResponse.json({ error: 'Missing adminCode.' }, { status: 400 })
@@ -29,7 +35,7 @@ export async function PATCH(
     }
 
     await requirePortalAdmin(adminCode)
-    const event = await updatePortalEvent(id, { name, coverImageUrl })
+    const event = await updatePortalEvent(id, { name, coverImageUrl, qrLogoUrl })
     return NextResponse.json({ event })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to update event.'

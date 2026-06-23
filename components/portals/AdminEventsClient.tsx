@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 
 import PortalFrame from '@/components/portals/PortalFrame'
+import EventQrCode from '@/components/portals/EventQrCode'
 import {
   Dialog,
   DialogContent,
@@ -46,27 +47,10 @@ import {
   PORTAL_API_BASE,
 } from '@/lib/portals/constants'
 import type { PortalEventWithStats } from '@/lib/portals/types'
+import { downloadPortalQrCode } from '@/lib/client/portal-qr-code'
 
 function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback
-}
-
-function getQrCodeImageUrl(url: string, size = 120) {
-  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(url)}`
-}
-
-async function downloadQrCodeImage(url: string, filename: string) {
-  const response = await fetch(getQrCodeImageUrl(url, 512))
-  if (!response.ok) throw new Error('Unable to download QR code.')
-  const blob = await response.blob()
-  const objectUrl = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = objectUrl
-  link.download = filename
-  document.body.appendChild(link)
-  link.click()
-  link.remove()
-  URL.revokeObjectURL(objectUrl)
 }
 
 export default function AdminEventsClient() {
@@ -83,6 +67,7 @@ export default function AdminEventsClient() {
   const [deleteTarget, setDeleteTarget] = useState<PortalEventWithStats | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [uploadingCoverId, setUploadingCoverId] = useState<string | null>(null)
+  const [uploadingQrLogoId, setUploadingQrLogoId] = useState<string | null>(null)
 
   const loadEvents = useCallback(async (code: string) => {
     const res = await fetch(`${PORTAL_API_BASE}/admin/events?adminCode=${encodeURIComponent(code)}`)
@@ -192,6 +177,49 @@ export default function AdminEventsClient() {
     }
   }
 
+  async function handleQrLogoUpload(eventId: string, file: File) {
+    if (!adminCode) return
+    setUploadingQrLogoId(eventId)
+    setError('')
+    try {
+      const formData = new FormData()
+      formData.append('adminCode', adminCode)
+      formData.append('file', file)
+
+      const res = await fetch(`${PORTAL_API_BASE}/admin/events/${eventId}/qr-logo`, {
+        method: 'POST',
+        body: formData,
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(data?.error || 'Unable to upload QR logo.')
+      await loadEvents(adminCode)
+    } catch (err) {
+      setError(getErrorMessage(err, 'Unable to upload QR logo.'))
+    } finally {
+      setUploadingQrLogoId(null)
+    }
+  }
+
+  async function handleRemoveQrLogo(eventId: string) {
+    if (!adminCode) return
+    setUploadingQrLogoId(eventId)
+    setError('')
+    try {
+      const res = await fetch(`${PORTAL_API_BASE}/admin/events/${eventId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminCode, qrLogoUrl: null }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(data?.error || 'Unable to remove QR logo.')
+      await loadEvents(adminCode)
+    } catch (err) {
+      setError(getErrorMessage(err, 'Unable to remove QR logo.'))
+    } finally {
+      setUploadingQrLogoId(null)
+    }
+  }
+
   async function handleDeleteEvent() {
     if (!adminCode || !deleteTarget) return
     setIsDeleting(true)
@@ -223,9 +251,9 @@ export default function AdminEventsClient() {
     }
   }
 
-  async function handleDownloadQr(url: string, filename: string) {
+  async function handleDownloadQr(url: string, filename: string, logoUrl?: string | null) {
     try {
-      await downloadQrCodeImage(url, filename)
+      await downloadPortalQrCode(url, filename, { logoUrl })
     } catch {
       setError('Unable to download QR code.')
     }
@@ -328,8 +356,12 @@ export default function AdminEventsClient() {
                 const isEditing = editingId === portalEvent.id
                 const isDefaultEvent = portalEvent.slug === DEFAULT_PORTAL_EVENT_SLUG
                 const hasCover = Boolean(portalEvent.cover_image_url)
+                const hasQrLogo = Boolean(portalEvent.qr_logo_url)
                 const isUploadingCover = uploadingCoverId === portalEvent.id
+                const isUploadingQrLogo = uploadingQrLogoId === portalEvent.id
+                const isUploadingAssets = isUploadingCover || isUploadingQrLogo
                 const coverInputId = `event-cover-${portalEvent.id}`
+                const qrLogoInputId = `event-qr-logo-${portalEvent.id}`
 
                 return (
                   <article
@@ -427,7 +459,7 @@ export default function AdminEventsClient() {
                         <input
                           accept="image/*"
                           className="hidden"
-                          disabled={isUploadingCover}
+                          disabled={isUploadingAssets}
                           id={coverInputId}
                           onChange={(e) => {
                             const file = e.target.files?.[0]
@@ -436,13 +468,25 @@ export default function AdminEventsClient() {
                           }}
                           type="file"
                         />
+                        <input
+                          accept="image/*"
+                          className="hidden"
+                          disabled={isUploadingAssets}
+                          id={qrLogoInputId}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0]
+                            e.target.value = ''
+                            if (file) void handleQrLogoUpload(portalEvent.id, file)
+                          }}
+                          type="file"
+                        />
                         <DropdownMenu>
                           <DropdownMenuTrigger
-                            className={`inline-flex items-center gap-2 rounded-xl border border-[#D51C39] bg-[#D51C39] px-4 py-2 text-sm font-semibold text-white transition outline-none hover:bg-[#b81832] focus-visible:ring-2 focus-visible:ring-[#D51C39]/30 ${isUploadingCover ? 'pointer-events-none opacity-60' : ''}`}
-                            disabled={isUploadingCover}
+                            className={`inline-flex items-center gap-2 rounded-xl border border-[#D51C39] bg-[#D51C39] px-4 py-2 text-sm font-semibold text-white transition outline-none hover:bg-[#b81832] focus-visible:ring-2 focus-visible:ring-[#D51C39]/30 ${isUploadingAssets ? 'pointer-events-none opacity-60' : ''}`}
+                            disabled={isUploadingAssets}
                           >
                             <Settings2 className="h-4 w-4" />
-                            {isUploadingCover ? 'Uploading…' : 'Manage'}
+                            {isUploadingAssets ? 'Uploading…' : 'Manage'}
                             <ChevronDown className="h-4 w-4 opacity-70" />
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-48 rounded-xl">
@@ -463,6 +507,25 @@ export default function AdminEventsClient() {
                                 Remove photo
                               </DropdownMenuItem>
                             ) : null}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onSelect={(e) => {
+                                e.preventDefault()
+                                document.getElementById(qrLogoInputId)?.click()
+                              }}
+                            >
+                              <QrCode className="h-4 w-4" />
+                              {hasQrLogo ? 'Change QR logo' : 'Add QR logo'}
+                            </DropdownMenuItem>
+                            {hasQrLogo ? (
+                              <DropdownMenuItem
+                                onSelect={() => void handleRemoveQrLogo(portalEvent.id)}
+                              >
+                                <QrCode className="h-4 w-4" />
+                                Remove QR logo
+                              </DropdownMenuItem>
+                            ) : null}
+                            <DropdownMenuSeparator />
                             {!isEditing ? (
                               <DropdownMenuItem
                                 onSelect={() => {
@@ -506,6 +569,9 @@ export default function AdminEventsClient() {
                               Photographer link
                             </div>
                             <p className="break-all text-sm text-slate-600">{photographerUrl}</p>
+                            {hasQrLogo ? (
+                              <p className="mt-2 text-xs text-slate-500">QR codes include your event logo.</p>
+                            ) : null}
                             <div className="mt-3 flex flex-wrap gap-2">
                               <button
                                 className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
@@ -521,6 +587,7 @@ export default function AdminEventsClient() {
                                   void handleDownloadQr(
                                     photographerUrl,
                                     `${portalEvent.slug}-photographer-qr.png`,
+                                    portalEvent.qr_logo_url,
                                   )
                                 }
                                 type="button"
@@ -531,11 +598,11 @@ export default function AdminEventsClient() {
                             </div>
                           </div>
                           <div className="shrink-0 rounded-xl border border-white/70 bg-white p-2 shadow-sm">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
+                            <EventQrCode
                               alt={`QR code for ${portalEvent.name} photographer link`}
                               className="h-20 w-20"
-                              src={getQrCodeImageUrl(photographerUrl)}
+                              logoUrl={portalEvent.qr_logo_url}
+                              targetUrl={photographerUrl}
                             />
                           </div>
                         </div>
@@ -549,6 +616,9 @@ export default function AdminEventsClient() {
                               Public download link
                             </div>
                             <p className="break-all text-sm text-slate-600">{publicUrl}</p>
+                            {hasQrLogo ? (
+                              <p className="mt-2 text-xs text-slate-500">QR codes include your event logo.</p>
+                            ) : null}
                             <div className="mt-3 flex flex-wrap gap-2">
                               <button
                                 className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
@@ -561,7 +631,11 @@ export default function AdminEventsClient() {
                               <button
                                 className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
                                 onClick={() =>
-                                  void handleDownloadQr(publicUrl, `${portalEvent.slug}-public-qr.png`)
+                                  void handleDownloadQr(
+                                    publicUrl,
+                                    `${portalEvent.slug}-public-qr.png`,
+                                    portalEvent.qr_logo_url,
+                                  )
                                 }
                                 type="button"
                               >
@@ -571,11 +645,11 @@ export default function AdminEventsClient() {
                             </div>
                           </div>
                           <div className="shrink-0 rounded-xl border border-white/70 bg-white p-2 shadow-sm">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
+                            <EventQrCode
                               alt={`QR code for ${portalEvent.name} public download link`}
                               className="h-20 w-20"
-                              src={getQrCodeImageUrl(publicUrl)}
+                              logoUrl={portalEvent.qr_logo_url}
+                              targetUrl={publicUrl}
                             />
                           </div>
                         </div>
