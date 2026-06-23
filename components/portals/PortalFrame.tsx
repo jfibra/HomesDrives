@@ -85,7 +85,7 @@ export default function PortalFrame({
               ) : null}
             </div>
           </div>
-          <div className="flex w-full shrink-0 flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+          <div className="flex w-full shrink-0 flex-row flex-wrap items-center justify-end gap-2 sm:w-auto">
             {actions}
             {styles.showExit ? (
               <Link
@@ -98,7 +98,7 @@ export default function PortalFrame({
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-7xl px-4 py-5 sm:px-8 sm:py-8">{children}</main>
+      <main className="mx-auto max-w-7xl overflow-x-hidden px-4 py-4 sm:px-8 sm:py-8">{children}</main>
     </div>
   )
 }

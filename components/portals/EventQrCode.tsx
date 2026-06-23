@@ -53,10 +53,10 @@ export default function EventQrCode({
   }, [targetUrl, logoUrl, previewSize])
 
   return (
-    <div className="relative">
+    <div className="relative inline-block">
       {loading ? <div className="absolute inset-0 animate-pulse rounded-lg bg-slate-100" /> : null}
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img alt={alt} className={className} src={src} />
+      <img alt={alt} className={`block ${className}`} src={src} />
     </div>
   )
 }
