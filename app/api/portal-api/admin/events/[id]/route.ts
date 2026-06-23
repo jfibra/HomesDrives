@@ -14,6 +14,12 @@ export async function PATCH(
     const body = await request.json().catch(() => null)
     const adminCode = typeof body?.adminCode === 'string' ? body.adminCode.trim() : ''
     const name = typeof body?.name === 'string' ? body.name : undefined
+    const coverImageUrl =
+      body?.coverImageUrl === null
+        ? null
+        : typeof body?.coverImageUrl === 'string'
+          ? body.coverImageUrl
+          : undefined
 
     if (!adminCode) {
       return NextResponse.json({ error: 'Missing adminCode.' }, { status: 400 })
@@ -23,7 +29,7 @@ export async function PATCH(
     }
 
     await requirePortalAdmin(adminCode)
-    const event = await updatePortalEvent(id, { name })
+    const event = await updatePortalEvent(id, { name, coverImageUrl })
     return NextResponse.json({ event })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to update event.'

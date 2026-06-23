@@ -6,6 +6,7 @@ create table if not exists portal_events (
   name text not null,
   slug text not null unique,
   status text not null default 'active' check (status in ('active', 'archived')),
+  cover_image_url text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -24,3 +25,6 @@ update albums_folders
 set portal_event_id = (select id from portal_events where slug = 'homes-ph-event' limit 1)
 where uploader_code in ('PHOTOGRAPHER-PORTAL', 'PUBLIC-SUBMISSIONS')
   and portal_event_id is null;
+
+alter table portal_events
+  add column if not exists cover_image_url text;

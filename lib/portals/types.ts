@@ -16,6 +16,7 @@ export type PortalEvent = {
   name: string
   slug: string
   status: string
+  cover_image_url: string | null
   created_at: string
   updated_at: string
 }

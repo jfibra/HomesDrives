@@ -4,7 +4,7 @@ import type { PortalEvent, PortalEventWithStats } from './types'
 
 export const DEFAULT_PORTAL_EVENT_SLUG = 'homes-ph-event'
 
-const PORTAL_EVENT_SELECT = 'id, name, slug, status, created_at, updated_at'
+const PORTAL_EVENT_SELECT = 'id, name, slug, status, cover_image_url, created_at, updated_at'
 
 function mapPortalEvent(row: Record<string, unknown>): PortalEvent {
   return {
@@ -12,6 +12,10 @@ function mapPortalEvent(row: Record<string, unknown>): PortalEvent {
     name: String(row.name),
     slug: String(row.slug),
     status: String(row.status ?? 'active'),
+    cover_image_url:
+      typeof row.cover_image_url === 'string' && row.cover_image_url.trim()
+        ? row.cover_image_url.trim()
+        : null,
     created_at: String(row.created_at),
     updated_at: String(row.updated_at ?? row.created_at),
   }
@@ -151,7 +155,7 @@ export async function createPortalEvent(name: string): Promise<PortalEvent> {
 
 export async function updatePortalEvent(
   id: string,
-  updates: { name?: string; slug?: string },
+  updates: { name?: string; slug?: string; coverImageUrl?: string | null },
 ): Promise<PortalEvent> {
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
 
@@ -165,6 +169,11 @@ export async function updatePortalEvent(
     const trimmedSlug = slugifyPortalEventName(updates.slug)
     if (!trimmedSlug) throw new Error('Event slug is required.')
     patch.slug = trimmedSlug
+  }
+
+  if (updates.coverImageUrl !== undefined) {
+    const trimmed = updates.coverImageUrl?.trim()
+    patch.cover_image_url = trimmed || null
   }
 
   if (Object.keys(patch).length === 1) {
