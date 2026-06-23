@@ -3,6 +3,7 @@ import JSZip from 'jszip'
 
 import { MAX_PHOTO_UPLOAD_BYTES } from '@/lib/photo-upload-limits'
 import { PUBLIC_PORTAL_CODE } from '@/lib/portals/constants'
+import { requirePortalEventBySlug } from '@/lib/portals/events'
 import { createPortalFolder, uploadPortalPhoto } from '@/lib/portals/storage'
 import { inferPortalContentType } from '@/lib/portals/upload-file-utils'
 
@@ -52,6 +53,8 @@ async function extractImagesFromZip(file: File): Promise<File[]> {
 export async function POST(request: Request) {
   try {
     const formData = await request.formData()
+    const eventSlug =
+      typeof formData.get('eventSlug') === 'string' ? String(formData.get('eventSlug')).trim() : ''
     const folderName =
       typeof formData.get('folderName') === 'string' ? formData.get('folderName')?.toString().trim() : ''
     const contactName =
@@ -59,6 +62,9 @@ export async function POST(request: Request) {
         ? formData.get('contactName')?.toString().trim() || 'Public visitor'
         : 'Public visitor'
 
+    if (!eventSlug) {
+      return NextResponse.json({ error: 'Missing eventSlug.' }, { status: 400 })
+    }
     if (!folderName) {
       return NextResponse.json({ error: 'Folder name is required.' }, { status: 400 })
     }
@@ -91,10 +97,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: `${file.name} is not a supported image or zip file.` }, { status: 400 })
     }
 
+    const event = await requirePortalEventBySlug(eventSlug)
     const folder = await createPortalFolder({
       uploaderCode: PUBLIC_PORTAL_CODE,
       folderName,
       labelSuffix: contactName,
+      eventId: event.id,
     })
 
     let uploadedCount = 0
@@ -106,6 +114,7 @@ export async function POST(request: Request) {
         fileName: file.name,
         fileBuffer: buffer,
         contentType: inferPortalContentType(file.name, file.type || ''),
+        eventId: event.id,
       })
       uploadedCount += 1
     }

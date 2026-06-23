@@ -19,6 +19,7 @@ import {
   Grid3X3,
   IdCard,
   ImageIcon,
+  LayoutDashboard,
   List,
   LogOut,
   Map as MapIcon,
@@ -26,6 +27,7 @@ import {
   Maximize2,
   Menu,
   MoreHorizontal,
+  Newspaper,
   Pencil,
   Search,
   Share2,
@@ -41,13 +43,41 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import AdminMapView from '@/components/admin/AdminMapView'
 import type { MapFolder } from '@/components/admin/AdminMapView'
 import MediaIdCard from '@/components/media/MediaIdCard'
+import MediaDashboard from '@/components/media/MediaDashboard'
+import MediaNewsCategoryRecords from '@/components/media/MediaNewsCategoryRecords'
+import NewsToUploadPage from '@/components/media/NewsToUploadPage'
+import {
+  buildNewsCategoryTag,
+  folderMatchesNewsCategory,
+  getNewsCategoryForFolder,
+  NEWS_UPLOAD_CATEGORIES,
+  type NewsUploadCategory,
+} from '@/lib/media/news-upload-categories'
 import { MAX_AVATAR_UPLOAD_BYTES, MAX_PHOTO_UPLOAD_BYTES } from '@/lib/photo-upload-limits'
 import { cn } from '@/lib/utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type UploadStatus = 'uploading' | 'uploaded' | 'error' | 'deleting'
-type DashboardView = 'upload' | 'my-photos' | 'all-folders' | 'map' | 'my-id'
+type DashboardView =
+  | 'upload'
+  | 'my-photos'
+  | 'all-folders'
+  | 'map'
+  | 'my-id'
+  | 'media-dashboard'
+  | 'news-upload'
+
+const MEDIA_DASHBOARD_LANDING_KEY = 'homes-media-dashboard-landing'
+
+function getDefaultDashboardView(role: DashboardUser['role']): DashboardView {
+  return role === 'media' ? 'media-dashboard' : 'upload'
+}
+
+function landMediaUserOnDashboard(code: string, role: DashboardUser['role']) {
+  if (role !== 'media') return
+  sessionStorage.setItem(MEDIA_DASHBOARD_LANDING_KEY, code)
+}
 
 /** System-wide folder row for media directory (read-only). */
 type MediaDirectoryFolderRow = {
@@ -686,7 +716,9 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
 
   // Layout
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
-  const [activeView, setActiveView] = useState<DashboardView>('upload')
+  const [pendingNewsCategory, setPendingNewsCategory] = useState<NewsUploadCategory | null>(null)
+  const [newsCategoryFilter, setNewsCategoryFilter] = useState<string | null>(null)
+  const [activeView, setActiveView] = useState<DashboardView>(() => getDefaultDashboardView(user.role))
   const [searchQuery, setSearchQuery] = useState('')
   const [mediaDirectoryFolders, setMediaDirectoryFolders] = useState<MediaDirectoryFolderRow[]>([])
   const [mediaDirectoryFolderCount, setMediaDirectoryFolderCount] = useState<number | null>(null)
@@ -860,6 +892,9 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
       }
 
       localStorage.setItem(authStorageKey, '1')
+      landMediaUserOnDashboard(user.code, liveUser.role)
+      setActiveView(getDefaultDashboardView(liveUser.role))
+      setActiveFolderId(null)
       setIsAuthenticated(true)
       setEmailInput('')
       setPasswordInput('')
@@ -980,6 +1015,14 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
     setIsAuthenticated(isLoggedIn)
     setIsAuthChecked(true)
   }, [authStorageKey])
+
+  useEffect(() => {
+    if (!isAuthenticated || liveUser.role !== 'media') return
+    if (sessionStorage.getItem(MEDIA_DASHBOARD_LANDING_KEY) !== user.code) return
+    sessionStorage.removeItem(MEDIA_DASHBOARD_LANDING_KEY)
+    setActiveView('media-dashboard')
+    setActiveFolderId(null)
+  }, [isAuthenticated, liveUser.role, user.code])
 
   useEffect(() => {
     let cancelled = false
@@ -1679,6 +1722,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
     setFolderStatusMessage('')
     setFolderModalMode('create')
     setEditingFolderId(null)
+    setPendingNewsCategory(null)
     if (folderMapRef.current && folderMarkerRef.current) {
       folderMarkerRef.current.setVisible(false)
       folderMapRef.current.setCenter(DEFAULT_MAP_CENTER)
@@ -1686,11 +1730,30 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
     }
   }
 
+  function openNewsUploadWithCategory(category: NewsUploadCategory) {
+    setActiveView('upload')
+    setIsSidebarOpen(false)
+    resetFolderModalState()
+    setPendingNewsCategory(category)
+    setFolderTypeOfPlace([category.placeType])
+    setFolderTagValues([buildNewsCategoryTag(category.slug)])
+    setIsFolderModalOpen(true)
+  }
+
   async function handleCreateFolder() {
     const trimmedName = folderName.trim()
     if (!trimmedName) return
     setIsSavingFolder(true)
     setFolderStatusMessage('')
+    const typeOfPlace =
+      folderTypeOfPlace.length > 0
+        ? folderTypeOfPlace
+        : pendingNewsCategory
+          ? [pendingNewsCategory.placeType]
+          : []
+    const tags = pendingNewsCategory
+      ? mergeChipValues(folderTagValues, [buildNewsCategoryTag(pendingNewsCategory.slug)])
+      : folderTagValues
     try {
       const r = await fetch('/api/folders', {
         method: 'POST',
@@ -1707,8 +1770,8 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
           country: folderLocationDetails.country,
           latitude: folderLocationDetails.latitude,
           longitude: folderLocationDetails.longitude,
-          typeOfPlace: folderTypeOfPlace,
-          tags: folderTagValues,
+          typeOfPlace,
+          tags,
         }),
       })
       const data = await r.json()
@@ -2202,6 +2265,39 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
     return acc
   }, {})
 
+  const newsCategoryRecords = useMemo(() => {
+    if (liveUser.role !== 'media') return []
+
+    return NEWS_UPLOAD_CATEGORIES.map((category) => {
+      const matchingFolders = activeFolders.filter((folder) =>
+        folderMatchesNewsCategory(folder, category),
+      )
+      const photoCount = matchingFolders.reduce(
+        (sum, folder) => sum + (folderPhotoCountById[folder.id] ?? 0),
+        0,
+      )
+
+      return {
+        category,
+        folderCount: matchingFolders.length,
+        photoCount,
+      }
+    }).filter((record) => record.folderCount > 0 || record.photoCount > 0)
+  }, [activeFolders, folderPhotoCountById, liveUser.role])
+
+  const foldersForFolderGrid = useMemo(() => {
+    if (!newsCategoryFilter) return displayedFolders
+
+    const category = NEWS_UPLOAD_CATEGORIES.find((item) => item.slug === newsCategoryFilter)
+    if (!category) return displayedFolders
+
+    return displayedFolders.filter((folder) => folderMatchesNewsCategory(folder, category))
+  }, [displayedFolders, newsCategoryFilter])
+
+  const activeNewsCategoryFilter = newsCategoryFilter
+    ? NEWS_UPLOAD_CATEGORIES.find((item) => item.slug === newsCategoryFilter) ?? null
+    : null
+
   useEffect(() => {
     setSelectedFolderPhotoIds(new Set())
     setIsFolderBulkMode(false)
@@ -2568,40 +2664,54 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                 className="font-headline text-lg font-semibold"
                 style={{ color: 'var(--ds-primary)' }}
               >
-                Studio Workspace
+                {liveUser.role === 'media' ? 'Media Dashboard' : 'Studio Workspace'}
               </h2>
               <p className="text-xs font-ui mt-0.5" style={{ color: 'var(--ds-on-surface-variant)' }}>
-                Professional Mode
+                {liveUser.role === 'media' ? 'Your Homes.ph media hub' : 'Professional Mode'}
               </p>
             </div>
 
-            {/* New upload button */}
-            <div className="px-6 mb-6">
-              <button
-                className="flex items-center gap-2.5 rounded-lg border px-5 py-3.5 text-sm font-medium transition-all hover:opacity-80 w-full"
-                style={{
-                  backgroundColor: 'var(--ds-surface-container-lowest)',
-                  borderColor: 'rgba(0,32,69,0.2)',
-                  color: 'var(--ds-primary)',
-                }}
-                onClick={() => {
-                  setActiveView('upload')
-                  setIsSidebarOpen(false)
-                  resetFolderModalState()
-                  setIsFolderModalOpen(true)
-                }}
-                type="button"
-              >
-                <CloudUpload className="h-5 w-5" />
-                <span>New Upload</span>
-              </button>
-              <p className="mt-2 text-[10px] leading-snug" style={{ color: 'var(--ds-on-surface-variant)' }}>
-                Max {MAX_PHOTO_UPLOAD_BYTES / (1024 * 1024)} MB per photo · Saved in high-quality JPEG
-              </p>
-            </div>
+            {liveUser.role === 'media' ? (
+              <div className="px-6 mb-6">
+                <button
+                  className="flex w-full items-center gap-2.5 rounded-lg border px-5 py-3.5 text-sm font-medium transition-all hover:opacity-80"
+                  onClick={() => {
+                    setActiveView('news-upload')
+                    setIsSidebarOpen(false)
+                  }}
+                  style={{
+                    backgroundColor:
+                      activeView === 'news-upload'
+                        ? 'var(--ds-primary)'
+                        : 'var(--ds-surface-container-lowest)',
+                    borderColor: 'rgba(0,32,69,0.2)',
+                    color:
+                      activeView === 'news-upload' ? 'var(--ds-on-primary)' : 'var(--ds-primary)',
+                  }}
+                  type="button"
+                >
+                  <Newspaper className="h-5 w-5" />
+                  <span>News to Upload</span>
+                </button>
+                <p className="mt-2 text-[10px] leading-snug" style={{ color: 'var(--ds-on-surface-variant)' }}>
+                  Max {MAX_PHOTO_UPLOAD_BYTES / (1024 * 1024)} MB per photo · Saved in high-quality JPEG
+                </p>
+              </div>
+            ) : null}
 
             {/* Nav */}
             <nav>
+              {liveUser.role === 'media' ? (
+                <SidebarNavItem
+                  active={activeView === 'media-dashboard'}
+                  icon={<LayoutDashboard className="h-5 w-5" />}
+                  label="Media Dashboard"
+                  onClick={() => {
+                    setActiveView('media-dashboard')
+                    setIsSidebarOpen(false)
+                  }}
+                />
+              ) : null}
               <SidebarNavItem
                 active={
                   activeView === 'upload' &&
@@ -2648,6 +2758,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                     onClick={() => {
                       setActiveView('upload')
                       setActiveFolderId(null)
+                      setNewsCategoryFilter(null)
                       setIsSidebarOpen(false)
                       window.requestAnimationFrame(() => {
                         document
@@ -2760,12 +2871,6 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
               {/* ── Dashboard header ─────────────────────────────────── */}
               <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
                 <div>
-                  <h1
-                    className="text-display-xl font-headline mb-3"
-                    style={{ color: 'var(--ds-primary)' }}
-                  >
-                    Do You Have News To Upload?
-                  </h1>
                   <h2
                     className="text-headline-md font-headline mb-3"
                     style={{ color: 'var(--ds-primary)' }}
@@ -2813,12 +2918,56 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                       </div>
                     ) : null}
 
+                    {liveUser.role === 'media' ? (
+                      <div className="mb-8">
+                        <MediaNewsCategoryRecords
+                          activeSlug={newsCategoryFilter}
+                          onSelectCategory={(slug) => {
+                            setNewsCategoryFilter((current) => (current === slug ? null : slug))
+                            window.requestAnimationFrame(() => {
+                              document
+                                .getElementById('media-folder-grid')
+                                ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                            })
+                          }}
+                          records={newsCategoryRecords}
+                        />
+                      </div>
+                    ) : null}
+
+                    {activeNewsCategoryFilter ? (
+                      <div className="flex flex-wrap items-center gap-3">
+                        <span
+                          className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold"
+                          style={{
+                            backgroundColor: 'var(--ds-primary-fixed)',
+                            color: 'var(--ds-primary)',
+                          }}
+                        >
+                          Showing {activeNewsCategoryFilter.label}
+                        </span>
+                        <button
+                          className="text-xs font-semibold underline-offset-4 hover:underline"
+                          onClick={() => setNewsCategoryFilter(null)}
+                          style={{ color: 'var(--ds-primary)' }}
+                          type="button"
+                        >
+                          Clear filter
+                        </button>
+                      </div>
+                    ) : null}
+
                     {/* ── Folder card grid ─────────────────────────────── */}
-                    {displayedFolders.length > 0 ? (
-                      <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                        {displayedFolders.map((folder) => {
+                    {foldersForFolderGrid.length > 0 ? (
+                      <div
+                        className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+                        id="media-folder-grid"
+                      >
+                        {foldersForFolderGrid.map((folder) => {
                           const isArchived = (folder.status ?? 'active') === 'archived'
                           const photoCount = folderPhotoCountById[folder.id] ?? 0
+                          const newsCategory =
+                            liveUser.role === 'media' ? getNewsCategoryForFolder(folder) : null
                           // Use the most recent photo in this folder as the cover
                           const coverPhoto = dbPhotos.find((p) => p.folder_id === folder.id && p.image_url)
                           return (
@@ -2864,7 +3013,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                                     style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.45) 0%, transparent 60%)' }}
                                   />
                                   {/* Status badge */}
-                                  <div className="absolute left-3 top-3">
+                                  <div className="absolute left-3 top-3 flex flex-wrap gap-2">
                                     <span
                                       className="text-label-caps rounded px-2 py-1 text-white"
                                       style={{
@@ -2874,6 +3023,17 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                                     >
                                       {isArchived ? 'Archived' : 'Active'}
                                     </span>
+                                    {newsCategory ? (
+                                      <span
+                                        className="text-label-caps rounded px-2 py-1 text-white"
+                                        style={{
+                                          backgroundColor: 'rgba(20,40,174,0.92)',
+                                          fontSize: '10px',
+                                        }}
+                                      >
+                                        {newsCategory.label}
+                                      </span>
+                                    ) : null}
                                   </div>
                                   {/* Folder name on image */}
                                   <div className="absolute bottom-3 left-4 right-4">
@@ -3001,6 +3161,33 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                           <span className="text-sm font-bold transition-colors group-hover:text-primary" style={{ color: 'var(--ds-on-surface-variant)' }}>
                             Create New Project
                           </span>
+                        </button>
+                      </div>
+                    ) : newsCategoryFilter ? (
+                      <div className="flex flex-col items-center gap-4 py-16 text-center">
+                        <p className="font-headline text-lg font-semibold" style={{ color: 'var(--ds-on-surface)' }}>
+                          No folders in {activeNewsCategoryFilter?.label ?? 'this category'} yet
+                        </p>
+                        <p className="max-w-md text-sm" style={{ color: 'var(--ds-on-surface-variant)' }}>
+                          Upload news for this category and your folder will appear here.
+                        </p>
+                        <button
+                          className="inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:opacity-90"
+                          onClick={() => {
+                            const category =
+                              NEWS_UPLOAD_CATEGORIES.find((item) => item.slug === newsCategoryFilter) ?? null
+                            if (category) {
+                              openNewsUploadWithCategory(category)
+                              return
+                            }
+                            setActiveView('news-upload')
+                            setIsSidebarOpen(false)
+                          }}
+                          style={{ backgroundColor: 'var(--ds-primary)' }}
+                          type="button"
+                        >
+                          <Newspaper className="h-4 w-4" />
+                          News to Upload
                         </button>
                       </div>
                     ) : (
@@ -4109,6 +4296,61 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
                 </>
               )}
             </section>
+          ) : null}
+
+          {liveUser.role === 'media' && activeView === 'news-upload' ? (
+            <NewsToUploadPage onSelectCategory={openNewsUploadWithCategory} />
+          ) : null}
+
+          {liveUser.role === 'media' && activeView === 'media-dashboard' ? (
+            <MediaDashboard
+              allFoldersCount={mediaDirectoryFolderCount ?? mediaDirectoryFolders.length}
+              areaFocused={liveUser.areaFocused}
+              avatarUrl={liveUser.avatarUrl}
+              fullName={liveUser.fullName}
+              geotaggedCount={photosWithGps}
+              initials={initials}
+              myFoldersCount={activeFolders.length}
+              onAllFolders={() => {
+                setActiveView('all-folders')
+                setIsSidebarOpen(false)
+              }}
+              onMapView={() => {
+                setActiveView('map')
+                setIsSidebarOpen(false)
+              }}
+              onMyFolders={() => {
+                setActiveView('upload')
+                setActiveFolderId(null)
+                setNewsCategoryFilter(null)
+                setIsSidebarOpen(false)
+                window.requestAnimationFrame(() => {
+                  document.getElementById('media-folders')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                })
+              }}
+              onMyPhotos={() => {
+                setActiveView('my-photos')
+                setIsSidebarOpen(false)
+              }}
+              onNewUpload={() => {
+                setActiveView('upload')
+                resetFolderModalState()
+                setIsFolderModalOpen(true)
+                setIsSidebarOpen(false)
+              }}
+              onPublicProfile={() => router.push(`/media/${encodeURIComponent(liveUser.code)}`)}
+              onUploadStudio={() => {
+                setActiveView('upload')
+                setIsSidebarOpen(false)
+              }}
+              onViewId={() => {
+                setActiveView('my-id')
+                setIsSidebarOpen(false)
+              }}
+              photosCount={dbPhotos.length}
+              recentPhotos={dbPhotos.slice(0, 4)}
+              storageLabel={formatBytes(totalStorageBytes)}
+            />
           ) : null}
 
           {/* Media ID view */}

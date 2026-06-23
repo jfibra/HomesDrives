@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 
+import { assertPortalFolderInEvent, requirePortalEventBySlug } from '@/lib/portals/events'
 import {
   deletePortalFolder,
   listPortalPhotos,
@@ -17,11 +18,17 @@ export async function GET(
     const { id } = await context.params
     const { searchParams } = new URL(request.url)
     const adminCode = searchParams.get('adminCode')?.trim() ?? ''
+    const eventSlug = searchParams.get('eventSlug')?.trim() ?? ''
     if (!adminCode) {
       return NextResponse.json({ error: 'Missing adminCode.' }, { status: 400 })
     }
+    if (!eventSlug) {
+      return NextResponse.json({ error: 'Missing eventSlug.' }, { status: 400 })
+    }
 
     await requirePortalAdmin(adminCode)
+    const event = await requirePortalEventBySlug(eventSlug)
+    await assertPortalFolderInEvent(id, event.id)
     const photos = await listPortalPhotos(id)
     return NextResponse.json({ photos })
   } catch (error) {
@@ -39,12 +46,16 @@ export async function PATCH(
     const { id } = await context.params
     const body = await request.json().catch(() => null)
     const adminCode = typeof body?.adminCode === 'string' ? body.adminCode.trim() : ''
+    const eventSlug = typeof body?.eventSlug === 'string' ? body.eventSlug.trim() : ''
     const folderName = typeof body?.folderName === 'string' ? body.folderName.trim() : undefined
     const isPublicVisible =
       typeof body?.isPublicVisible === 'boolean' ? body.isPublicVisible : undefined
 
     if (!adminCode) {
       return NextResponse.json({ error: 'Missing adminCode.' }, { status: 400 })
+    }
+    if (!eventSlug) {
+      return NextResponse.json({ error: 'Missing eventSlug.' }, { status: 400 })
     }
 
     if (folderName === undefined && isPublicVisible === undefined) {
@@ -59,6 +70,8 @@ export async function PATCH(
     }
 
     await requirePortalAdmin(adminCode)
+    const event = await requirePortalEventBySlug(eventSlug)
+    await assertPortalFolderInEvent(id, event.id)
     const folder = await updatePortalFolder(id, { folderName, isPublicVisible })
     return NextResponse.json({ folder })
   } catch (error) {
@@ -76,11 +89,17 @@ export async function DELETE(
     const { id } = await context.params
     const { searchParams } = new URL(request.url)
     const adminCode = searchParams.get('adminCode')?.trim() ?? ''
+    const eventSlug = searchParams.get('eventSlug')?.trim() ?? ''
     if (!adminCode) {
       return NextResponse.json({ error: 'Missing adminCode.' }, { status: 400 })
     }
+    if (!eventSlug) {
+      return NextResponse.json({ error: 'Missing eventSlug.' }, { status: 400 })
+    }
 
     await requirePortalAdmin(adminCode)
+    const event = await requirePortalEventBySlug(eventSlug)
+    await assertPortalFolderInEvent(id, event.id)
     await deletePortalFolder(id)
     return NextResponse.json({ success: true })
   } catch (error) {

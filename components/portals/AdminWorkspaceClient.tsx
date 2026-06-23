@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Check, ChevronLeft, ChevronRight, Folder, ImageIcon, PanelLeft, Pencil, RefreshCw, Search, Settings2, Trash2, Upload, X, AlertCircle, CheckCircle2 } from 'lucide-react'
@@ -19,6 +20,8 @@ import {
 import { getSubFolderCardColorByIndex } from '@/components/portals/sub-folder-card-colors'
 import { Switch } from '@/components/ui/switch'
 import { PHOTOGRAPHER_PORTAL_CODE, PORTAL_ADMIN_SESSION_KEY } from '@/lib/portals/constants'
+import { withEventQuery } from '@/lib/portals/event-query'
+import type { PortalEvent } from '@/lib/portals/types'
 import type { PortalFolder, PortalFolderNode, PortalPhoto } from '@/lib/portals/types'
 import { sortPortalPhotosByFileName } from '@/lib/portals/sort-photos'
 
@@ -88,9 +91,10 @@ function PortalPhotoThumbnail({
   )
 }
 
-export default function AdminWorkspaceClient() {
+export default function AdminWorkspaceClient({ eventSlug }: { eventSlug: string }) {
   const router = useRouter()
   const replaceInputRef = useRef<HTMLInputElement>(null)
+  const [eventInfo, setEventInfo] = useState<PortalEvent | null>(null)
   const [adminCode, setAdminCode] = useState(() => {
     if (typeof window === 'undefined') return ''
     return localStorage.getItem(PORTAL_ADMIN_SESSION_KEY) ?? ''
@@ -139,21 +143,24 @@ export default function AdminWorkspaceClient() {
 
   const hasChildFolders = childFolders.length > 0
 
-  const currentLightboxPhoto =
-    lightboxIndex != null ? filteredPhotos[lightboxIndex] ?? null : null
-
   const filteredPhotos = useMemo(
     () => filterPortalPhotosByFileName(photos, photoSearch),
     [photos, photoSearch],
   )
 
+  const currentLightboxPhoto =
+    lightboxIndex != null ? filteredPhotos[lightboxIndex] ?? null : null
+
   const loadFolders = useCallback(async (code: string) => {
-    const res = await fetch(`/api/portals/admin/folders?adminCode=${encodeURIComponent(code)}`)
+    const res = await fetch(
+      withEventQuery('/api/portals/admin/folders', eventSlug, { adminCode: code }),
+    )
     const data = await res.json().catch(() => null)
     if (!res.ok) throw new Error(data?.error || 'Unable to load folders.')
+    setEventInfo(data.event ?? null)
     setFolders(Array.isArray(data.folders) ? data.folders : [])
     setTree(Array.isArray(data.tree) ? data.tree : [])
-  }, [])
+  }, [eventSlug])
 
   const filteredTree = useMemo(() => {
     const q = folderSearch.trim().toLowerCase()
@@ -179,7 +186,7 @@ export default function AdminWorkspaceClient() {
     if (showLoading) setPhotosLoading(true)
     try {
       const res = await fetch(
-        `/api/portals/admin/folders/${folderId}?adminCode=${encodeURIComponent(code)}`,
+        withEventQuery(`/api/portals/admin/folders/${folderId}`, eventSlug, { adminCode: code }),
       )
       const data = await res.json().catch(() => null)
       if (!res.ok) throw new Error(data?.error || 'Unable to load photos.')
@@ -187,7 +194,7 @@ export default function AdminWorkspaceClient() {
     } finally {
       if (showLoading) setPhotosLoading(false)
     }
-  }, [])
+  }, [eventSlug])
 
   const updatePhotoInState = useCallback((photo: PortalPhoto) => {
     setPhotos((current) =>
@@ -304,7 +311,7 @@ export default function AdminWorkspaceClient() {
         const res = await fetch('/api/portals/admin/folders/reorder', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ adminCode, parentFolderId, folderIds }),
+          body: JSON.stringify({ adminCode, parentFolderId, folderIds, eventSlug }),
         })
         const data = await res.json().catch(() => null)
         if (!res.ok) throw new Error(data?.error || 'Unable to reorder folders.')
@@ -317,7 +324,7 @@ export default function AdminWorkspaceClient() {
         setIsReorderingFolders(false)
       }
     },
-    [adminCode, folderSearch, folders, tree],
+    [adminCode, eventSlug, folderSearch, folders, tree],
   )
 
   function clearMessages() {
@@ -358,6 +365,7 @@ export default function AdminWorkspaceClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           adminCode,
+          eventSlug,
           folderName: folderNameDraft.trim(),
           isPublicVisible: folderPublicVisibleDraft,
         }),
@@ -393,7 +401,9 @@ export default function AdminWorkspaceClient() {
     setDeletingFolder(true)
     try {
       const res = await fetch(
-        `/api/portals/admin/folders/${selectedFolderId}?adminCode=${encodeURIComponent(adminCode)}`,
+        withEventQuery(`/api/portals/admin/folders/${selectedFolderId}`, eventSlug, {
+          adminCode,
+        }),
         { method: 'DELETE' },
       )
       const data = await res.json().catch(() => null)
@@ -492,8 +502,18 @@ export default function AdminWorkspaceClient() {
 
   return (
     <PortalFrame
+      actions={
+        <Link
+          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+          href="/admin/events"
+        >
+          <ChevronLeft className="h-4 w-4" />
+          All events
+        </Link>
+      }
       badge="Admin Portal"
-      title="Admin dashboard"
+      subtitle={eventInfo ? `Managing folders and photos for ${eventInfo.name}.` : undefined}
+      title={eventInfo?.name ?? 'Event workspace'}
       variant="admin"
     >
       {error ? (

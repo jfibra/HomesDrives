@@ -1,15 +1,8 @@
-import PublicWorkspaceClient from '@/components/portals/PublicWorkspaceClient'
-import { Suspense } from 'react'
+import { redirect } from 'next/navigation'
 
-export const metadata = {
-  title: 'Public Download · Temporary Portal',
-  description: 'Temporary public download portal.',
-}
+import { getPublicPortalPath } from '@/lib/portals/constants'
+import { DEFAULT_PORTAL_EVENT_SLUG } from '@/lib/portals/events'
 
-export default function PublicPortalPage() {
-  return (
-    <Suspense fallback={null}>
-      <PublicWorkspaceClient />
-    </Suspense>
-  )
+export default function PublicPortalRedirectPage() {
+  redirect(getPublicPortalPath(DEFAULT_PORTAL_EVENT_SLUG))
 }

@@ -18,7 +18,8 @@ import {
 import FolderTree from '@/components/portals/FolderTree'
 import PortalFrame from '@/components/portals/PortalFrame'
 import { filterPortalPhotosByFileName } from '@/lib/portals/filter-photos'
-import type { PortalFolder, PortalFolderNode, PortalPhotoPreview } from '@/lib/portals/types'
+import { withEventQuery } from '@/lib/portals/event-query'
+import type { PortalEvent, PortalFolder, PortalFolderNode, PortalPhotoPreview } from '@/lib/portals/types'
 
 function isVideoFileName(name: string) {
   return /\.(mp4|webm|mov|m4v|mkv|avi)$/i.test(name)
@@ -76,10 +77,11 @@ function PublicPhotoThumbnail({
   )
 }
 
-export default function PublicWorkspaceClient() {
+export default function PublicWorkspaceClient({ eventSlug }: { eventSlug: string }) {
   const searchParams = useSearchParams()
   const folderIdFromUrl = searchParams.get('folder')
   const isSharedFolderView = Boolean(folderIdFromUrl)
+  const [eventInfo, setEventInfo] = useState<PortalEvent | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [photosLoading, setPhotosLoading] = useState(false)
@@ -112,9 +114,12 @@ export default function PublicWorkspaceClient() {
     setLoading(true)
     setPhotosLoading(true)
     try {
-      const res = await fetch(`/api/portals/public/folders/${folderId}/photos`)
+      const res = await fetch(
+        withEventQuery(`/api/portals/public/folders/${folderId}/photos`, eventSlug),
+      )
       const data = await res.json().catch(() => null)
       if (!res.ok) throw new Error(data?.error || 'Unable to load folder.')
+      setEventInfo(data.event ?? null)
       const folder = data?.folder as PortalFolder | undefined
       if (!folder?.id) throw new Error('Folder not found.')
       setFolders([folder])
@@ -132,7 +137,7 @@ export default function PublicWorkspaceClient() {
       setLoading(false)
       setPhotosLoading(false)
     }
-  }, [])
+  }, [eventSlug])
 
   const loadFolders = useCallback(async () => {
     if (folderIdFromUrl) {
@@ -143,9 +148,10 @@ export default function PublicWorkspaceClient() {
     setError('')
     setLoading(true)
     try {
-      const res = await fetch('/api/portals/public/folders')
+      const res = await fetch(withEventQuery('/api/portals/public/folders', eventSlug))
       const data = await res.json().catch(() => null)
       if (!res.ok) throw new Error(data?.error || 'Unable to load folders.')
+      setEventInfo(data.event ?? null)
       const nextFolders = Array.isArray(data.folders) ? data.folders : []
       setFolders(nextFolders)
       setTree(Array.isArray(data.tree) ? data.tree : [])
@@ -160,12 +166,14 @@ export default function PublicWorkspaceClient() {
     } finally {
       setLoading(false)
     }
-  }, [folderIdFromUrl, loadSharedFolder])
+  }, [eventSlug, folderIdFromUrl, loadSharedFolder])
 
   const loadPhotos = useCallback(async (folderId: string) => {
     setPhotosLoading(true)
     try {
-      const res = await fetch(`/api/portals/public/folders/${folderId}/photos`)
+      const res = await fetch(
+        withEventQuery(`/api/portals/public/folders/${folderId}/photos`, eventSlug),
+      )
       const data = await res.json().catch(() => null)
       if (!res.ok) throw new Error(data?.error || 'Unable to load photos.')
       setPhotos(Array.isArray(data.photos) ? data.photos : [])
@@ -176,7 +184,7 @@ export default function PublicWorkspaceClient() {
     } finally {
       setPhotosLoading(false)
     }
-  }, [])
+  }, [eventSlug])
 
   useEffect(() => {
     void loadFolders()
@@ -285,7 +293,9 @@ export default function PublicWorkspaceClient() {
     setError('')
     setDownloadingPhotoId(photo.id)
     try {
-      const res = await fetch(`/api/portals/public/photos/${photo.id}/download`)
+      const res = await fetch(
+        withEventQuery(`/api/portals/public/photos/${photo.id}/download`, eventSlug),
+      )
       if (!res.ok) {
         const data = await res.json().catch(() => null)
         throw new Error(data?.error || 'Unable to download file.')
@@ -311,7 +321,9 @@ export default function PublicWorkspaceClient() {
     setError('')
     setDownloading(true)
     try {
-      const res = await fetch(`/api/portals/public/folders/${selectedFolderId}/download`)
+      const res = await fetch(
+        withEventQuery(`/api/portals/public/folders/${selectedFolderId}/download`, eventSlug),
+      )
       if (!res.ok) {
         const data = await res.json().catch(() => null)
         throw new Error(data?.error || 'Unable to download zip.')
@@ -336,7 +348,8 @@ export default function PublicWorkspaceClient() {
   return (
     <PortalFrame
       badge="Public Download"
-      title="Public download"
+      subtitle={eventInfo ? `Downloads for ${eventInfo.name}.` : undefined}
+      title={eventInfo?.name ?? 'Public download'}
       variant="public"
     >
       {error ? (

@@ -37,6 +37,7 @@ import {
   PORTAL_UPLOAD_CONCURRENCY,
 } from '@/lib/photo-upload-limits'
 import { getPublicPortalFolderUrl } from '@/lib/portals/constants'
+import { withEventQuery } from '@/lib/portals/event-query'
 import {
   canPortalFileUseServerUpload,
   getPortalPresignBatchSize,
@@ -46,7 +47,7 @@ import {
   shouldFallbackPortalUploadToServer,
   shouldPortalFileUseServerUploadFirst,
 } from '@/lib/portals/upload-client-utils'
-import type { PortalFolder, PortalFolderNode, PortalPhoto } from '@/lib/portals/types'
+import type { PortalEvent, PortalFolder, PortalFolderNode, PortalPhoto } from '@/lib/portals/types'
 import { filterPortalPhotosByFileName } from '@/lib/portals/filter-photos'
 import { sortPortalPhotosByFileName } from '@/lib/portals/sort-photos'
 import {
@@ -103,14 +104,14 @@ function formatFileSize(bytes: number) {
   return `${bytes} B`
 }
 
-function buildFolderShareUrl(folderId: string) {
+function buildFolderShareUrl(folderId: string, eventSlug: string) {
   if (typeof window !== 'undefined') {
-    const url = new URL('/public', window.location.origin)
+    const url = new URL(`/public/${eventSlug}`, window.location.origin)
     url.searchParams.set('folder', folderId)
     return url.toString()
   }
 
-  return getPublicPortalFolderUrl(folderId)
+  return getPublicPortalFolderUrl(folderId, eventSlug)
 }
 
 async function uploadMultipartParts(
@@ -207,9 +208,14 @@ async function fetchWithTimeout(
   }
 }
 
-async function uploadMediaFileViaServer(folderId: string, file: File): Promise<PortalPhoto> {
+async function uploadMediaFileViaServer(
+  folderId: string,
+  file: File,
+  eventSlug: string,
+): Promise<PortalPhoto> {
   const formData = new FormData()
   formData.append('files', file, file.name)
+  formData.append('eventSlug', eventSlug)
 
   const res = await fetchWithTimeout(`/api/portals/photographers/folders/${folderId}/photos`, {
     method: 'POST',
@@ -250,30 +256,38 @@ function shouldFallbackToServerUpload(error: unknown) {
   return shouldFallbackPortalUploadToServer(error)
 }
 
-async function uploadPortalFileDirect(folderId: string, file: File): Promise<PortalPhoto> {
-  const [upload] = await presignPortalFiles(folderId, [file])
+async function uploadPortalFileDirect(
+  folderId: string,
+  file: File,
+  eventSlug: string,
+): Promise<PortalPhoto> {
+  const [upload] = await presignPortalFiles(folderId, [file], eventSlug)
   const multipart = await uploadFileToStorage(file, upload)
-  const [photo] = await completePresignedPortalBatch(folderId, [{ file, upload, multipart }])
+  const [photo] = await completePresignedPortalBatch(folderId, [{ file, upload, multipart }], eventSlug)
   if (!photo) {
     throw new Error(`Upload failed for "${file.name}".`)
   }
   return photo
 }
 
-async function uploadPortalFileResolved(folderId: string, file: File): Promise<PortalPhoto> {
+async function uploadPortalFileResolved(
+  folderId: string,
+  file: File,
+  eventSlug: string,
+): Promise<PortalPhoto> {
   if (shouldPortalFileUseServerUploadFirst(file)) {
     try {
-      return await uploadMediaFileViaServer(folderId, file)
+      return await uploadMediaFileViaServer(folderId, file, eventSlug)
     } catch (serverError) {
       try {
-        return await uploadPortalFileDirect(folderId, file)
+        return await uploadPortalFileDirect(folderId, file, eventSlug)
       } catch {
         throw serverError
       }
     }
   }
 
-  return uploadPortalFileWithFallback(folderId, file)
+  return uploadPortalFileWithFallback(folderId, file, eventSlug)
 }
 
 async function runWithConcurrency<T>(
@@ -297,11 +311,16 @@ async function runWithConcurrency<T>(
   )
 }
 
-async function presignPortalFiles(folderId: string, files: File[]): Promise<PresignedPortalUpload[]> {
+async function presignPortalFiles(
+  folderId: string,
+  files: File[],
+  eventSlug: string,
+): Promise<PresignedPortalUpload[]> {
   const presignRes = await fetchWithTimeout(`/api/portals/photographers/folders/${folderId}/photos/presign`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
+      eventSlug,
       files: files.map((file) => ({
         fileName: file.name,
         contentType: inferPortalContentType(file.name, file.type),
@@ -330,6 +349,7 @@ async function completePresignedPortalBatch(
     multipart: CompletedMultipartUpload | null
     upload: PresignedPortalUpload
   }>,
+  eventSlug: string,
 ): Promise<PortalPhoto[]> {
   if (items.length === 0) return []
 
@@ -337,6 +357,7 @@ async function completePresignedPortalBatch(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
+      eventSlug,
       uploads: items.map(({ file, upload, multipart }) => ({
         fileName: upload.fileName,
         contentType: upload.contentType,
@@ -355,18 +376,23 @@ async function completePresignedPortalBatch(
   return Array.isArray(completeData?.photos) ? (completeData.photos as PortalPhoto[]) : []
 }
 
-async function uploadPortalFileWithFallback(folderId: string, file: File): Promise<PortalPhoto> {
+async function uploadPortalFileWithFallback(
+  folderId: string,
+  file: File,
+  eventSlug: string,
+): Promise<PortalPhoto> {
   try {
-    return await uploadPortalFileDirect(folderId, file)
+    return await uploadPortalFileDirect(folderId, file, eventSlug)
   } catch (error) {
     if (shouldFallbackToServerUpload(error) || isDirectStorageUploadError(error)) {
-      return uploadMediaFileViaServer(folderId, file)
+      return uploadMediaFileViaServer(folderId, file, eventSlug)
     }
     throw error
   }
 }
 
-export default function PhotographerWorkspaceClient() {
+export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: string }) {
+  const [eventInfo, setEventInfo] = useState<PortalEvent | null>(null)
   const [tree, setTree] = useState<PortalFolderNode[]>([])
   const [folders, setFolders] = useState<PortalFolder[]>([])
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
@@ -442,7 +468,7 @@ export default function PhotographerWorkspaceClient() {
   async function copySelectedFolderLink() {
     if (!selectedFolderId) return
 
-    const url = buildFolderShareUrl(selectedFolderId)
+    const url = buildFolderShareUrl(selectedFolderId, eventSlug)
     try {
       await navigator.clipboard.writeText(url)
       setLinkCopied(true)
@@ -453,21 +479,24 @@ export default function PhotographerWorkspaceClient() {
   }
 
   const loadFolders = useCallback(async () => {
-    const res = await fetch('/api/portals/photographers/folders')
+    const res = await fetch(withEventQuery('/api/portals/photographers/folders', eventSlug))
     const data = await res.json().catch(() => null)
     if (!res.ok) throw new Error(data?.error || 'Unable to load folders.')
+    setEventInfo(data.event ?? null)
     const nextFolders = Array.isArray(data.folders) ? data.folders : []
     setFolders(nextFolders)
     setTree(Array.isArray(data.tree) ? data.tree : [])
     return nextFolders as PortalFolder[]
-  }, [])
+  }, [eventSlug])
 
   const loadPhotos = useCallback(async (folderId: string) => {
-    const res = await fetch(`/api/portals/photographers/folders/${folderId}/photos`)
+    const res = await fetch(
+      withEventQuery(`/api/portals/photographers/folders/${folderId}/photos`, eventSlug),
+    )
     const data = await res.json().catch(() => null)
     if (!res.ok) throw new Error(data?.error || 'Unable to load photos.')
     setPhotos(Array.isArray(data.photos) ? data.photos : [])
-  }, [])
+  }, [eventSlug])
 
   useEffect(() => {
     void loadFolders()
@@ -585,7 +614,7 @@ export default function PhotographerWorkspaceClient() {
       const res = await fetch('/api/portals/photographers/folders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ folderName, parentFolderId: parentFolderId ?? null }),
+        body: JSON.stringify({ folderName, parentFolderId: parentFolderId ?? null, eventSlug }),
       })
       const data = await res.json().catch(() => null)
       if (!res.ok) throw new Error(data?.error || 'Unable to create folder.')
@@ -720,7 +749,7 @@ export default function PhotographerWorkspaceClient() {
       const uploadOne = async (file: File) => {
         setActiveFile(file)
         try {
-          mergePhotos([await uploadPortalFileResolved(selectedFolderId, file)])
+          mergePhotos([await uploadPortalFileResolved(selectedFolderId, file, eventSlug)])
         } catch (error) {
           failures.push(
             `${file.name}: ${error instanceof Error ? error.message : 'Upload failed.'}`,
@@ -755,7 +784,7 @@ export default function PhotographerWorkspaceClient() {
         }
 
         try {
-          const presigns = await presignPortalFiles(selectedFolderId, batch)
+          const presigns = await presignPortalFiles(selectedFolderId, batch, eventSlug)
           const jobs = batch.map((file, index) => ({ file, upload: presigns[index] }))
           const readyToComplete: Array<{
             file: File
@@ -794,7 +823,7 @@ export default function PhotographerWorkspaceClient() {
 
           if (readyToComplete.length > 0) {
             try {
-              mergePhotos(await completePresignedPortalBatch(selectedFolderId, readyToComplete))
+              mergePhotos(await completePresignedPortalBatch(selectedFolderId, readyToComplete, eventSlug))
               for (const item of readyToComplete) {
                 batchCompletedKeys.add(fileProgressKey(item.file))
                 finishFileProgress(item.file)
@@ -822,7 +851,7 @@ export default function PhotographerWorkspaceClient() {
 
               setActiveFile(file)
               try {
-                mergePhotos([await uploadMediaFileViaServer(selectedFolderId, file)])
+                mergePhotos([await uploadMediaFileViaServer(selectedFolderId, file, eventSlug)])
               } catch (error) {
                 failures.push(
                   `${file.name}: ${error instanceof Error ? error.message : 'Upload failed.'}`,
@@ -913,9 +942,10 @@ export default function PhotographerWorkspaceClient() {
     setDeletingFolder(true)
     try {
       const parentId = selectedFolder?.parent_folder_id ?? null
-      const res = await fetch(`/api/portals/photographers/folders/${selectedFolderId}`, {
-        method: 'DELETE',
-      })
+      const res = await fetch(
+        withEventQuery(`/api/portals/photographers/folders/${selectedFolderId}`, eventSlug),
+        { method: 'DELETE' },
+      )
       const data = await res.json().catch(() => null)
       if (!res.ok) throw new Error(data?.error || 'Unable to delete folder.')
 
@@ -940,9 +970,10 @@ export default function PhotographerWorkspaceClient() {
     setSuccess('')
     setDeletingPhotoId(photoId)
     try {
-      const res = await fetch(`/api/portals/photographers/photos/${photoId}`, {
-        method: 'DELETE',
-      })
+      const res = await fetch(
+        withEventQuery(`/api/portals/photographers/photos/${photoId}`, eventSlug),
+        { method: 'DELETE' },
+      )
       const data = await res.json().catch(() => null)
       if (!res.ok) throw new Error(data?.error || 'Unable to delete photo.')
 
@@ -980,7 +1011,8 @@ export default function PhotographerWorkspaceClient() {
   return (
     <PortalFrame
       badge="Photographer Portal"
-      title="Upload workspace"
+      subtitle={eventInfo ? `Uploads for ${eventInfo.name}.` : undefined}
+      title={eventInfo?.name ?? 'Upload workspace'}
       variant="photographer"
     >
       {error ? (

@@ -32,7 +32,7 @@ export default function AdminPortalLogin() {
       }
 
       localStorage.setItem(PORTAL_ADMIN_SESSION_KEY, data.adminCode)
-      router.push('/admin/workspace')
+      router.push('/admin/events')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to sign in.')
     } finally {

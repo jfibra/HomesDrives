@@ -55,6 +55,10 @@ function LoginInner() {
       const code = data.user.code
       window.localStorage.setItem(`homes-albums-auth:${code}`, '1')
 
+      if (data.user.role === 'media') {
+        window.sessionStorage.setItem('homes-media-dashboard-landing', code)
+      }
+
       // If the user is an admin, also seed the global admin context so the
       // admin shell on /questionnaires etc. picks them up immediately.
       if (data.user.role === 'admin') {

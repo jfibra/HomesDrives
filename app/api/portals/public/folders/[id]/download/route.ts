@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import JSZip from 'jszip'
 
+import { requirePortalEventBySlug } from '@/lib/portals/events'
 import {
   downloadPortalPhotoObject,
   getPublicPhotographerFolderTreeContext,
@@ -17,12 +18,18 @@ function sanitizeSegment(input: string) {
     .slice(0, 80)
 }
 
-export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
+export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await context.params
+    const { searchParams } = new URL(request.url)
+    const eventSlug = searchParams.get('eventSlug')?.trim() ?? ''
     if (!id) return NextResponse.json({ error: 'Missing folder id.' }, { status: 400 })
+    if (!eventSlug) {
+      return NextResponse.json({ error: 'Missing eventSlug.' }, { status: 400 })
+    }
 
-    const folderContext = await getPublicPhotographerFolderTreeContext(id)
+    const event = await requirePortalEventBySlug(eventSlug)
+    const folderContext = await getPublicPhotographerFolderTreeContext(id, event.id)
     if (!folderContext) return NextResponse.json({ error: 'Folder not found.' }, { status: 404 })
 
     const { root, byId, folderIds } = folderContext
@@ -39,7 +46,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
         parts.unshift(sanitizeSegment(folder.folder_name))
         cursor = folder.parent_folder_id
       }
-      const result = parts.join('/') // empty for root folder
+      const result = parts.join('/')
       folderPathCache.set(folderId, result)
       return result
     }
@@ -75,4 +82,3 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }
-

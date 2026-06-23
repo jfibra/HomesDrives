@@ -1,10 +1,7 @@
-import AdminWorkspaceClient from '@/components/portals/AdminWorkspaceClient'
+import { redirect } from 'next/navigation'
 
-export const metadata = {
-  title: 'Admin Dashboard · Temporary Portal',
-  description: 'Temporary admin dashboard for portal uploads.',
-}
+import { PORTAL_PATHS } from '@/lib/portals/constants'
 
-export default function AdminWorkspacePage() {
-  return <AdminWorkspaceClient />
+export default function AdminWorkspaceRedirectPage() {
+  redirect(PORTAL_PATHS.adminEvents)
 }

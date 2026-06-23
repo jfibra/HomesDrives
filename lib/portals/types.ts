@@ -8,6 +8,16 @@ export type PortalFolder = {
   photo_count: number
   is_public_visible: boolean
   sort_order: number
+  portal_event_id?: string | null
+}
+
+export type PortalEvent = {
+  id: string
+  name: string
+  slug: string
+  status: string
+  created_at: string
+  updated_at: string
 }
 
 export type PortalPhoto = {

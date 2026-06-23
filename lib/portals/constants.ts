@@ -1,7 +1,10 @@
 import { getPublicAppOrigin } from '@/lib/app-url'
 
+import { DEFAULT_PORTAL_EVENT_SLUG } from './events'
+
 export const PORTAL_PATHS = {
   admin: '/admin',
+  adminEvents: '/admin/events',
   adminWorkspace: '/admin/workspace',
   photographers: '/photographers',
   public: '/public',
@@ -32,10 +35,34 @@ export function getAllPortalUrls() {
   }
 }
 
-export function getPublicPortalFolderUrl(folderId: string, origin = getPublicAppOrigin()) {
-  const url = new URL(PORTAL_PATHS.public, origin)
+export function getPublicPortalFolderUrl(
+  folderId: string,
+  eventSlug = DEFAULT_PORTAL_EVENT_SLUG,
+  origin = getPublicAppOrigin(),
+) {
+  const url = new URL(getPublicPortalPath(eventSlug), origin)
   url.searchParams.set('folder', folderId)
   return url.toString()
+}
+
+export function getPhotographerPortalPath(eventSlug: string) {
+  return `${PORTAL_PATHS.photographers}/${encodeURIComponent(eventSlug)}`
+}
+
+export function getPublicPortalPath(eventSlug: string) {
+  return `${PORTAL_PATHS.public}/${encodeURIComponent(eventSlug)}`
+}
+
+export function getAdminEventWorkspacePath(eventSlug: string) {
+  return `${PORTAL_PATHS.adminEvents}/${encodeURIComponent(eventSlug)}/workspace`
+}
+
+export function getPhotographerPortalUrl(eventSlug: string, origin = getPublicAppOrigin()) {
+  return `${origin}${getPhotographerPortalPath(eventSlug)}`
+}
+
+export function getPublicPortalUrl(eventSlug: string, origin = getPublicAppOrigin()) {
+  return `${origin}${getPublicPortalPath(eventSlug)}`
 }
 
 export function getFacebookShareUrl(shareUrl: string) {

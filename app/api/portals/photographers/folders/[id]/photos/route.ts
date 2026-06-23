@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { PHOTOGRAPHER_PORTAL_CODE } from '@/lib/portals/constants'
+import { assertPortalFolderInEvent, requirePortalEventBySlug } from '@/lib/portals/events'
 import { listPortalPhotos, uploadPortalPhoto } from '@/lib/portals/storage'
 import { inferPortalContentType } from '@/lib/portals/upload-file-utils'
 
@@ -8,11 +9,19 @@ export const runtime = 'nodejs'
 export const maxDuration = 300
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
   try {
     const { id } = await context.params
+    const { searchParams } = new URL(request.url)
+    const eventSlug = searchParams.get('eventSlug')?.trim() ?? ''
+    if (!eventSlug) {
+      return NextResponse.json({ error: 'Missing eventSlug.' }, { status: 400 })
+    }
+
+    const event = await requirePortalEventBySlug(eventSlug)
+    await assertPortalFolderInEvent(id, event.id)
     const photos = await listPortalPhotos(id)
     return NextResponse.json({ photos })
   } catch (error) {
@@ -30,11 +39,19 @@ export async function POST(
   try {
     const { id } = await context.params
     const formData = await request.formData()
+    const eventSlug =
+      typeof formData.get('eventSlug') === 'string' ? String(formData.get('eventSlug')).trim() : ''
     const files = formData.getAll('files').filter((entry): entry is File => entry instanceof File)
 
+    if (!eventSlug) {
+      return NextResponse.json({ error: 'Missing eventSlug.' }, { status: 400 })
+    }
     if (files.length === 0) {
       return NextResponse.json({ error: 'Choose at least one file.' }, { status: 400 })
     }
+
+    const event = await requirePortalEventBySlug(eventSlug)
+    await assertPortalFolderInEvent(id, event.id)
 
     const uploaded = []
     const errors: Array<{ fileName: string; error: string }> = []
@@ -48,6 +65,7 @@ export async function POST(
           fileName: file.name,
           fileBuffer: buffer,
           contentType: inferPortalContentType(file.name, file.type || ''),
+          eventId: event.id,
         })
         uploaded.push(photo)
       } catch (error) {

@@ -21,7 +21,6 @@ import { getHomesFormUrl } from '@/lib/app-url'
 import {
   buildCategoryPhotoBackground,
   CATEGORY_PHOTO_OVERLAY,
-  CATEGORY_PREVIEW_PHOTO_LIST,
   CATEGORY_PREVIEW_PHOTOS,
 } from '@/lib/category-preview-photos'
 import { cn } from '@/lib/utils'
@@ -80,6 +79,9 @@ const DESTINATIONS = [
     previewTint: 'linear-gradient(135deg, rgba(5,150,105,0.18), rgba(15,23,42,0.08))',
   },
 ] as const
+
+const PROFILE_HEADER_BG = '/drive%20bg.jpg'
+const PROFILE_HEADER_LOGO = '/media-1%201.png'
 
 function ProfileAvatar({
   avatarUrl,
@@ -169,25 +171,20 @@ export default function MediaProfileClient({ profileUrl, user }: MediaProfileCli
     <main className="min-h-screen bg-[linear-gradient(180deg,#f4f0e8_0%,#fcfbf7_36%,#eef3f8_100%)] text-slate-900">
       <section className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-5 py-8 sm:px-8 sm:py-10 lg:py-14">
         <div className="overflow-hidden rounded-[2rem] border border-white/70 bg-white/85 shadow-[0_24px_80px_rgba(15,23,42,0.08)] backdrop-blur">
-          <div className="relative overflow-hidden bg-[radial-gradient(circle_at_top_left,#dfeaf6_0,#f6efe5_38%,#ffffff_72%)]">
+          <div className="relative overflow-hidden">
             <div className="relative h-44 overflow-hidden sm:h-52">
-              <div className="absolute inset-0 grid scale-105 grid-cols-3 grid-rows-2 gap-px bg-[#1428AE]/50">
-                {CATEGORY_PREVIEW_PHOTO_LIST.map((photoUrl) => (
-                  <div
-                    key={photoUrl}
-                    className="bg-cover bg-center"
-                    style={{ backgroundImage: buildCategoryPhotoBackground(photoUrl) }}
-                  />
-                ))}
-              </div>
-              <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(20,40,174,0.78)_0%,rgba(20,40,174,0.86)_48%,rgba(20,40,174,0.92)_100%)]" />
+              <div
+                className="absolute inset-0 bg-cover bg-center"
+                style={{ backgroundImage: `url("${PROFILE_HEADER_BG}")` }}
+              />
+              <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(8,36,61,0.52)_0%,rgba(8,36,61,0.68)_48%,rgba(8,36,61,0.78)_100%)]" />
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,#ffffff24_0%,#ffffff00_62%)]" />
               <div className="absolute inset-x-0 top-1/2 z-10 flex -translate-y-1/2 justify-center px-6">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  alt="Homes.ph"
+                  alt="Homes.ph Media"
                   className="max-h-20 w-full max-w-3xl object-contain opacity-95 drop-shadow-[0_12px_35px_rgba(0,0,0,0.35)] sm:max-h-24"
-                  src="/media-profile-logo-white.png"
+                  src={PROFILE_HEADER_LOGO}
                 />
               </div>
             </div>

@@ -1,10 +1,8 @@
-import PhotographerWorkspaceClient from '@/components/portals/PhotographerWorkspaceClient'
+import { redirect } from 'next/navigation'
 
-export const metadata = {
-  title: 'Photographer Portal · Temporary',
-  description: 'Temporary open photographer workspace.',
-}
+import { DEFAULT_PORTAL_EVENT_SLUG } from '@/lib/portals/events'
+import { getPhotographerPortalPath } from '@/lib/portals/constants'
 
-export default function PhotographersPortalPage() {
-  return <PhotographerWorkspaceClient />
+export default function PhotographersPortalRedirectPage() {
+  redirect(getPhotographerPortalPath(DEFAULT_PORTAL_EVENT_SLUG))
 }
