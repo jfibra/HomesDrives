@@ -14,6 +14,7 @@ import {
   LogOut,
   Pencil,
   Plus,
+  QrCode,
   RefreshCw,
   Settings2,
   Shield,
@@ -48,6 +49,24 @@ import type { PortalEventWithStats } from '@/lib/portals/types'
 
 function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback
+}
+
+function getQrCodeImageUrl(url: string, size = 120) {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(url)}`
+}
+
+async function downloadQrCodeImage(url: string, filename: string) {
+  const response = await fetch(getQrCodeImageUrl(url, 512))
+  if (!response.ok) throw new Error('Unable to download QR code.')
+  const blob = await response.blob()
+  const objectUrl = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = objectUrl
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(objectUrl)
 }
 
 export default function AdminEventsClient() {
@@ -201,6 +220,14 @@ export default function AdminEventsClient() {
       window.setTimeout(() => setCopiedKey((current) => (current === key ? null : current)), 1800)
     } catch {
       setError('Unable to copy link.')
+    }
+  }
+
+  async function handleDownloadQr(url: string, filename: string) {
+    try {
+      await downloadQrCodeImage(url, filename)
+    } catch {
+      setError('Unable to download QR code.')
     }
   }
 
@@ -472,35 +499,86 @@ export default function AdminEventsClient() {
 
                     <div className="pointer-events-auto mt-5 grid gap-3 lg:grid-cols-2">
                       <div className="rounded-2xl border border-white/30 bg-white/45 p-4 backdrop-blur-sm">
-                        <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-[#10233f]">
-                          <Camera className="h-4 w-4 text-[#c6603d]" />
-                          Photographer link
+                        <div className="flex gap-4">
+                          <div className="min-w-0 flex-1">
+                            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-[#10233f]">
+                              <Camera className="h-4 w-4 text-[#c6603d]" />
+                              Photographer link
+                            </div>
+                            <p className="break-all text-sm text-slate-600">{photographerUrl}</p>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <button
+                                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                                onClick={() => void copyText(`photo-${portalEvent.id}`, photographerUrl)}
+                                type="button"
+                              >
+                                <Copy className="h-3.5 w-3.5" />
+                                {copiedKey === `photo-${portalEvent.id}` ? 'Copied' : 'Copy link'}
+                              </button>
+                              <button
+                                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                                onClick={() =>
+                                  void handleDownloadQr(
+                                    photographerUrl,
+                                    `${portalEvent.slug}-photographer-qr.png`,
+                                  )
+                                }
+                                type="button"
+                              >
+                                <QrCode className="h-3.5 w-3.5" />
+                                Download QR
+                              </button>
+                            </div>
+                          </div>
+                          <div className="shrink-0 rounded-xl border border-white/70 bg-white p-2 shadow-sm">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              alt={`QR code for ${portalEvent.name} photographer link`}
+                              className="h-20 w-20"
+                              src={getQrCodeImageUrl(photographerUrl)}
+                            />
+                          </div>
                         </div>
-                        <p className="break-all text-sm text-slate-600">{photographerUrl}</p>
-                        <button
-                          className="mt-3 inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                          onClick={() => void copyText(`photo-${portalEvent.id}`, photographerUrl)}
-                          type="button"
-                        >
-                          <Copy className="h-3.5 w-3.5" />
-                          {copiedKey === `photo-${portalEvent.id}` ? 'Copied' : 'Copy link'}
-                        </button>
                       </div>
 
                       <div className="rounded-2xl border border-white/30 bg-white/45 p-4 backdrop-blur-sm">
-                        <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-[#10233f]">
-                          <Download className="h-4 w-4 text-[#2563eb]" />
-                          Public download link
+                        <div className="flex gap-4">
+                          <div className="min-w-0 flex-1">
+                            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-[#10233f]">
+                              <Download className="h-4 w-4 text-[#2563eb]" />
+                              Public download link
+                            </div>
+                            <p className="break-all text-sm text-slate-600">{publicUrl}</p>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <button
+                                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                                onClick={() => void copyText(`public-${portalEvent.id}`, publicUrl)}
+                                type="button"
+                              >
+                                <Copy className="h-3.5 w-3.5" />
+                                {copiedKey === `public-${portalEvent.id}` ? 'Copied' : 'Copy link'}
+                              </button>
+                              <button
+                                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                                onClick={() =>
+                                  void handleDownloadQr(publicUrl, `${portalEvent.slug}-public-qr.png`)
+                                }
+                                type="button"
+                              >
+                                <QrCode className="h-3.5 w-3.5" />
+                                Download QR
+                              </button>
+                            </div>
+                          </div>
+                          <div className="shrink-0 rounded-xl border border-white/70 bg-white p-2 shadow-sm">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              alt={`QR code for ${portalEvent.name} public download link`}
+                              className="h-20 w-20"
+                              src={getQrCodeImageUrl(publicUrl)}
+                            />
+                          </div>
                         </div>
-                        <p className="break-all text-sm text-slate-600">{publicUrl}</p>
-                        <button
-                          className="mt-3 inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                          onClick={() => void copyText(`public-${portalEvent.id}`, publicUrl)}
-                          type="button"
-                        >
-                          <Copy className="h-3.5 w-3.5" />
-                          {copiedKey === `public-${portalEvent.id}` ? 'Copied' : 'Copy link'}
-                        </button>
                       </div>
                     </div>
                     </div>
