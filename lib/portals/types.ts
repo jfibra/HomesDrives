@@ -20,6 +20,10 @@ export type PortalEvent = {
   updated_at: string
 }
 
+export type PortalEventWithStats = PortalEvent & {
+  folder_count: number
+}
+
 export type PortalPhoto = {
   id: string
   folder_id: string | null

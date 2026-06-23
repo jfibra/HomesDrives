@@ -153,7 +153,7 @@ export default function AdminWorkspaceClient({ eventSlug }: { eventSlug: string 
 
   const loadFolders = useCallback(async (code: string) => {
     const res = await fetch(
-      withEventQuery('/api/portals/admin/folders', eventSlug, { adminCode: code }),
+      withEventQuery('/api/portal-api/admin/folders', eventSlug, { adminCode: code }),
     )
     const data = await res.json().catch(() => null)
     if (!res.ok) throw new Error(data?.error || 'Unable to load folders.')
@@ -186,7 +186,7 @@ export default function AdminWorkspaceClient({ eventSlug }: { eventSlug: string 
     if (showLoading) setPhotosLoading(true)
     try {
       const res = await fetch(
-        withEventQuery(`/api/portals/admin/folders/${folderId}`, eventSlug, { adminCode: code }),
+        withEventQuery(`/api/portal-api/admin/folders/${folderId}`, eventSlug, { adminCode: code }),
       )
       const data = await res.json().catch(() => null)
       if (!res.ok) throw new Error(data?.error || 'Unable to load photos.')
@@ -308,7 +308,7 @@ export default function AdminWorkspaceClient({ eventSlug }: { eventSlug: string 
       clearMessages()
 
       try {
-        const res = await fetch('/api/portals/admin/folders/reorder', {
+        const res = await fetch('/api/portal-api/admin/folders/reorder', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ adminCode, parentFolderId, folderIds, eventSlug }),
@@ -360,7 +360,7 @@ export default function AdminWorkspaceClient({ eventSlug }: { eventSlug: string 
     clearMessages()
     setIsSavingFolderName(true)
     try {
-      const res = await fetch(`/api/portals/admin/folders/${selectedFolderId}`, {
+      const res = await fetch(`/api/portal-api/admin/folders/${selectedFolderId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -401,7 +401,7 @@ export default function AdminWorkspaceClient({ eventSlug }: { eventSlug: string 
     setDeletingFolder(true)
     try {
       const res = await fetch(
-        withEventQuery(`/api/portals/admin/folders/${selectedFolderId}`, eventSlug, {
+        withEventQuery(`/api/portal-api/admin/folders/${selectedFolderId}`, eventSlug, {
           adminCode,
         }),
         { method: 'DELETE' },
@@ -435,7 +435,7 @@ export default function AdminWorkspaceClient({ eventSlug }: { eventSlug: string 
     clearMessages()
     setSavingRenamePhotoId(photoId)
     try {
-      const res = await fetch(`/api/portals/admin/photos/${photoId}`, {
+      const res = await fetch(`/api/portal-api/admin/photos/${photoId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ adminCode, fileName: renameDraft.trim() }),
@@ -457,7 +457,7 @@ export default function AdminWorkspaceClient({ eventSlug }: { eventSlug: string 
     setDeletingPhotoId(photoId)
     try {
       const res = await fetch(
-        `/api/portals/admin/photos/${photoId}?adminCode=${encodeURIComponent(adminCode)}`,
+        `/api/portal-api/admin/photos/${photoId}?adminCode=${encodeURIComponent(adminCode)}`,
         { method: 'DELETE' },
       )
       const data = await res.json().catch(() => null)
@@ -485,7 +485,7 @@ export default function AdminWorkspaceClient({ eventSlug }: { eventSlug: string 
       const formData = new FormData()
       formData.append('adminCode', adminCode)
       formData.append('file', file)
-      const res = await fetch(`/api/portals/admin/photos/${photoId}/replace`, {
+      const res = await fetch(`/api/portal-api/admin/photos/${photoId}/replace`, {
         method: 'POST',
         body: formData,
       })

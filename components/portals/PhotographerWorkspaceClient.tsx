@@ -217,7 +217,7 @@ async function uploadMediaFileViaServer(
   formData.append('files', file, file.name)
   formData.append('eventSlug', eventSlug)
 
-  const res = await fetchWithTimeout(`/api/portals/photographers/folders/${folderId}/photos`, {
+  const res = await fetchWithTimeout(`/api/portal-api/photographers/folders/${folderId}/photos`, {
     method: 'POST',
     body: formData,
   })
@@ -316,7 +316,7 @@ async function presignPortalFiles(
   files: File[],
   eventSlug: string,
 ): Promise<PresignedPortalUpload[]> {
-  const presignRes = await fetchWithTimeout(`/api/portals/photographers/folders/${folderId}/photos/presign`, {
+  const presignRes = await fetchWithTimeout(`/api/portal-api/photographers/folders/${folderId}/photos/presign`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -353,7 +353,7 @@ async function completePresignedPortalBatch(
 ): Promise<PortalPhoto[]> {
   if (items.length === 0) return []
 
-  const completeRes = await fetchWithTimeout(`/api/portals/photographers/folders/${folderId}/photos/complete`, {
+  const completeRes = await fetchWithTimeout(`/api/portal-api/photographers/folders/${folderId}/photos/complete`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -479,7 +479,7 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
   }
 
   const loadFolders = useCallback(async () => {
-    const res = await fetch(withEventQuery('/api/portals/photographers/folders', eventSlug))
+    const res = await fetch(withEventQuery('/api/portal-api/photographers/folders', eventSlug))
     const data = await res.json().catch(() => null)
     if (!res.ok) throw new Error(data?.error || 'Unable to load folders.')
     setEventInfo(data.event ?? null)
@@ -491,7 +491,7 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
 
   const loadPhotos = useCallback(async (folderId: string) => {
     const res = await fetch(
-      withEventQuery(`/api/portals/photographers/folders/${folderId}/photos`, eventSlug),
+      withEventQuery(`/api/portal-api/photographers/folders/${folderId}/photos`, eventSlug),
     )
     const data = await res.json().catch(() => null)
     if (!res.ok) throw new Error(data?.error || 'Unable to load photos.')
@@ -611,7 +611,7 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
     setIsSavingFolder(true)
     setError('')
     try {
-      const res = await fetch('/api/portals/photographers/folders', {
+      const res = await fetch('/api/portal-api/photographers/folders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ folderName, parentFolderId: parentFolderId ?? null, eventSlug }),
@@ -943,7 +943,7 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
     try {
       const parentId = selectedFolder?.parent_folder_id ?? null
       const res = await fetch(
-        withEventQuery(`/api/portals/photographers/folders/${selectedFolderId}`, eventSlug),
+        withEventQuery(`/api/portal-api/photographers/folders/${selectedFolderId}`, eventSlug),
         { method: 'DELETE' },
       )
       const data = await res.json().catch(() => null)
@@ -971,7 +971,7 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
     setDeletingPhotoId(photoId)
     try {
       const res = await fetch(
-        withEventQuery(`/api/portals/photographers/photos/${photoId}`, eventSlug),
+        withEventQuery(`/api/portal-api/photographers/photos/${photoId}`, eventSlug),
         { method: 'DELETE' },
       )
       const data = await res.json().catch(() => null)

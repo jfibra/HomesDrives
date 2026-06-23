@@ -10,20 +10,33 @@ import {
   Copy,
   Download,
   FolderKanban,
+  LogOut,
   Pencil,
   Plus,
   RefreshCw,
+  Settings2,
   Shield,
+  Trash2,
 } from 'lucide-react'
 
 import PortalFrame from '@/components/portals/PortalFrame'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { DEFAULT_PORTAL_EVENT_SLUG } from '@/lib/portals/events'
 import {
   getAdminEventWorkspacePath,
   getPhotographerPortalUrl,
   getPublicPortalUrl,
   PORTAL_ADMIN_SESSION_KEY,
+  PORTAL_API_BASE,
 } from '@/lib/portals/constants'
-import type { PortalEvent } from '@/lib/portals/types'
+import type { PortalEventWithStats } from '@/lib/portals/types'
 
 function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback
@@ -32,7 +45,7 @@ function getErrorMessage(error: unknown, fallback: string) {
 export default function AdminEventsClient() {
   const router = useRouter()
   const [adminCode, setAdminCode] = useState('')
-  const [events, setEvents] = useState<PortalEvent[]>([])
+  const [events, setEvents] = useState<PortalEventWithStats[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [createName, setCreateName] = useState('')
@@ -40,9 +53,11 @@ export default function AdminEventsClient() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<PortalEventWithStats | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const loadEvents = useCallback(async (code: string) => {
-    const res = await fetch(`/api/portals/admin/events?adminCode=${encodeURIComponent(code)}`)
+    const res = await fetch(`${PORTAL_API_BASE}/admin/events?adminCode=${encodeURIComponent(code)}`)
     const data = await res.json().catch(() => null)
     if (!res.ok) throw new Error(data?.error || 'Unable to load events.')
     setEvents(Array.isArray(data.events) ? data.events : [])
@@ -60,13 +75,18 @@ export default function AdminEventsClient() {
       .finally(() => setLoading(false))
   }, [loadEvents, router])
 
+  function handleSignOut() {
+    localStorage.removeItem(PORTAL_ADMIN_SESSION_KEY)
+    router.replace('/admin')
+  }
+
   async function handleCreateEvent(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!adminCode || !createName.trim()) return
     setIsCreating(true)
     setError('')
     try {
-      const res = await fetch('/api/portals/admin/events', {
+      const res = await fetch(`${PORTAL_API_BASE}/admin/events`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ adminCode, name: createName.trim() }),
@@ -86,7 +106,7 @@ export default function AdminEventsClient() {
     if (!adminCode || !editingName.trim()) return
     setError('')
     try {
-      const res = await fetch(`/api/portals/admin/events/${eventId}`, {
+      const res = await fetch(`${PORTAL_API_BASE}/admin/events/${eventId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ adminCode, name: editingName.trim() }),
@@ -98,6 +118,27 @@ export default function AdminEventsClient() {
       await loadEvents(adminCode)
     } catch (err) {
       setError(getErrorMessage(err, 'Unable to rename event.'))
+    }
+  }
+
+  async function handleDeleteEvent() {
+    if (!adminCode || !deleteTarget) return
+    setIsDeleting(true)
+    setError('')
+    try {
+      const res = await fetch(`${PORTAL_API_BASE}/admin/events/${deleteTarget.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminCode }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(data?.error || 'Unable to delete event.')
+      setDeleteTarget(null)
+      await loadEvents(adminCode)
+    } catch (err) {
+      setError(getErrorMessage(err, 'Unable to delete event.'))
+    } finally {
+      setIsDeleting(false)
     }
   }
 
@@ -115,18 +156,28 @@ export default function AdminEventsClient() {
     <PortalFrame
       actions={
         adminCode ? (
-          <button
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-            onClick={() => void loadEvents(adminCode).catch((err) => setError(getErrorMessage(err, 'Unable to refresh.')))}
-            type="button"
-          >
-            <RefreshCw className="h-4 w-4" />
-            Refresh
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              onClick={() => void loadEvents(adminCode).catch((err) => setError(getErrorMessage(err, 'Unable to refresh.')))}
+              type="button"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Refresh
+            </button>
+            <button
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              onClick={handleSignOut}
+              type="button"
+            >
+              <LogOut className="h-4 w-4" />
+              Sign out
+            </button>
+          </div>
         ) : null
       }
       badge="Admin Portal"
-      subtitle="Manage drive events, rename them, and open separate photographer and public links for each one."
+      subtitle="Create events, manage folders and uploads, copy portal links, rename events, or delete events you no longer need."
       title="Events dashboard"
       variant="admin"
     >
@@ -177,7 +228,7 @@ export default function AdminEventsClient() {
               <div>
                 <h2 className="text-lg font-semibold text-[#10233f]">Your events</h2>
                 <p className="text-sm text-slate-500">
-                  Open an event workspace to manage folders and photos, or copy portal links to share.
+                  Manage folders and photos, copy portal links, rename events, or delete unused events.
                 </p>
               </div>
             </div>
@@ -196,6 +247,7 @@ export default function AdminEventsClient() {
                 const publicUrl = getPublicPortalUrl(portalEvent.slug)
                 const workspacePath = getAdminEventWorkspacePath(portalEvent.slug)
                 const isEditing = editingId === portalEvent.id
+                const isDefaultEvent = portalEvent.slug === DEFAULT_PORTAL_EVENT_SLUG
 
                 return (
                   <article className="px-6 py-6 sm:px-8" key={portalEvent.id}>
@@ -244,6 +296,15 @@ export default function AdminEventsClient() {
                                 <CalendarDays className="h-3.5 w-3.5" />
                                 Created {new Date(portalEvent.created_at).toLocaleDateString()}
                               </span>
+                              <span className="inline-flex items-center gap-1.5">
+                                <FolderKanban className="h-3.5 w-3.5" />
+                                {portalEvent.folder_count} folder{portalEvent.folder_count !== 1 ? 's' : ''}
+                              </span>
+                              {isDefaultEvent ? (
+                                <span className="rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-600">
+                                  Default event
+                                </span>
+                              ) : null}
                             </div>
                           </div>
                         </div>
@@ -267,9 +328,20 @@ export default function AdminEventsClient() {
                           className="inline-flex items-center gap-2 rounded-xl bg-[#10233f] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#1a3358]"
                           href={workspacePath}
                         >
-                          Manage folders
+                          <Settings2 className="h-4 w-4" />
+                          Manage event
                           <ArrowRight className="h-4 w-4" />
                         </Link>
+                        {!isDefaultEvent ? (
+                          <button
+                            className="inline-flex items-center gap-2 rounded-xl border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-50"
+                            onClick={() => setDeleteTarget(portalEvent)}
+                            type="button"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Delete
+                          </button>
+                        ) : null}
                       </div>
                     </div>
 
@@ -313,6 +385,37 @@ export default function AdminEventsClient() {
           )}
         </section>
       </div>
+
+      <Dialog onOpenChange={(open) => !open && !isDeleting && setDeleteTarget(null)} open={!!deleteTarget}>
+        <DialogContent className="rounded-2xl border-slate-200 sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-[#10233f]">Delete event?</DialogTitle>
+            <DialogDescription>
+              {deleteTarget
+                ? `"${deleteTarget.name}" will be removed from the admin dashboard and its photographer/public links will stop working. Existing folders (${deleteTarget.folder_count}) stay in storage but are no longer tied to this event.`
+                : null}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <button
+              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700"
+              disabled={isDeleting}
+              onClick={() => setDeleteTarget(null)}
+              type="button"
+            >
+              Cancel
+            </button>
+            <button
+              className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:opacity-60"
+              disabled={isDeleting}
+              onClick={() => void handleDeleteEvent()}
+              type="button"
+            >
+              {isDeleting ? 'Deleting…' : 'Delete event'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </PortalFrame>
   )
 }

@@ -1,11 +1,11 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AlertCircle, Eye, EyeOff, Lock, LogIn, Mail, Shield } from 'lucide-react'
 
 import PortalFrame from '@/components/portals/PortalFrame'
-import { PORTAL_ADMIN_SESSION_KEY, STATIC_ADMIN_CREDENTIALS } from '@/lib/portals/constants'
+import { PORTAL_ADMIN_SESSION_KEY, PORTAL_API_BASE, STATIC_ADMIN_CREDENTIALS } from '@/lib/portals/constants'
 
 export default function AdminPortalLogin() {
   const router = useRouter()
@@ -14,6 +14,16 @@ export default function AdminPortalLogin() {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isCheckingSession, setIsCheckingSession] = useState(true)
+
+  useEffect(() => {
+    const code = localStorage.getItem(PORTAL_ADMIN_SESSION_KEY)
+    if (code) {
+      router.replace('/admin/events')
+      return
+    }
+    setIsCheckingSession(false)
+  }, [router])
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -21,7 +31,7 @@ export default function AdminPortalLogin() {
     setIsSubmitting(true)
 
     try {
-      const res = await fetch('/api/portals/admin/login', {
+      const res = await fetch(`${PORTAL_API_BASE}/admin/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
@@ -38,6 +48,21 @@ export default function AdminPortalLogin() {
     } finally {
       setIsSubmitting(false)
     }
+  }
+
+  if (isCheckingSession) {
+    return (
+      <PortalFrame
+        badge="Admin Portal"
+        subtitle="Checking your session…"
+        title="Admin login"
+        variant="admin"
+      >
+        <div className="mx-auto w-full max-w-md px-6 py-10 text-center text-sm text-slate-500">
+          Loading admin dashboard…
+        </div>
+      </PortalFrame>
+    )
   }
 
   return (

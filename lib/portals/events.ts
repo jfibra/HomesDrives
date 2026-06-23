@@ -1,6 +1,6 @@
 import { createSupabaseAdminClient } from '@/lib/server/albums'
 
-import type { PortalEvent } from './types'
+import type { PortalEvent, PortalEventWithStats } from './types'
 
 export const DEFAULT_PORTAL_EVENT_SLUG = 'homes-ph-event'
 
@@ -56,6 +56,34 @@ export async function listPortalEvents(): Promise<PortalEvent[]> {
 
   if (error) throw new Error(error.message)
   return (data ?? []).map((row) => mapPortalEvent(row as Record<string, unknown>))
+}
+
+export async function listPortalEventsWithStats(): Promise<PortalEventWithStats[]> {
+  const events = await listPortalEvents()
+  if (events.length === 0) return []
+
+  const supabaseAdmin = createSupabaseAdminClient()
+  const { data, error } = await supabaseAdmin
+    .from('albums_folders')
+    .select('portal_event_id')
+    .in(
+      'portal_event_id',
+      events.map((event) => event.id),
+    )
+
+  if (error) throw new Error(error.message)
+
+  const folderCountByEventId = new Map<string, number>()
+  for (const row of data ?? []) {
+    const eventId = row.portal_event_id ? String(row.portal_event_id) : ''
+    if (!eventId) continue
+    folderCountByEventId.set(eventId, (folderCountByEventId.get(eventId) ?? 0) + 1)
+  }
+
+  return events.map((event) => ({
+    ...event,
+    folder_count: folderCountByEventId.get(event.id) ?? 0,
+  }))
 }
 
 export async function getPortalEventBySlug(slug: string): Promise<PortalEvent | null> {
@@ -154,6 +182,30 @@ export async function updatePortalEvent(
   if (error) throw new Error(error.message)
   if (!data) throw new Error('Event not found.')
   return mapPortalEvent(data as Record<string, unknown>)
+}
+
+export async function deletePortalEvent(id: string): Promise<void> {
+  const event = await getPortalEventById(id)
+  if (!event) {
+    throw new Error('Event not found.')
+  }
+  if (event.status !== 'active') {
+    throw new Error('Event is already deleted.')
+  }
+  if (event.slug === DEFAULT_PORTAL_EVENT_SLUG) {
+    throw new Error('The default Homes.ph event cannot be deleted.')
+  }
+
+  const supabaseAdmin = createSupabaseAdminClient()
+  const { error } = await supabaseAdmin
+    .from('portal_events')
+    .update({
+      status: 'archived',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+
+  if (error) throw new Error(error.message)
 }
 
 export async function assertPortalFolderInEvent(folderId: string, eventId: string) {

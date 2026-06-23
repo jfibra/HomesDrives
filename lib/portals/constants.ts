@@ -2,6 +2,8 @@ import { getPublicAppOrigin } from '@/lib/app-url'
 
 import { DEFAULT_PORTAL_EVENT_SLUG } from './events'
 
+export const PORTAL_API_BASE = '/api/portal-api' as const
+
 export const PORTAL_PATHS = {
   admin: '/admin',
   adminEvents: '/admin/events',

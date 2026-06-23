@@ -115,7 +115,7 @@ export default function PublicWorkspaceClient({ eventSlug }: { eventSlug: string
     setPhotosLoading(true)
     try {
       const res = await fetch(
-        withEventQuery(`/api/portals/public/folders/${folderId}/photos`, eventSlug),
+        withEventQuery(`/api/portal-api/public/folders/${folderId}/photos`, eventSlug),
       )
       const data = await res.json().catch(() => null)
       if (!res.ok) throw new Error(data?.error || 'Unable to load folder.')
@@ -148,7 +148,7 @@ export default function PublicWorkspaceClient({ eventSlug }: { eventSlug: string
     setError('')
     setLoading(true)
     try {
-      const res = await fetch(withEventQuery('/api/portals/public/folders', eventSlug))
+      const res = await fetch(withEventQuery('/api/portal-api/public/folders', eventSlug))
       const data = await res.json().catch(() => null)
       if (!res.ok) throw new Error(data?.error || 'Unable to load folders.')
       setEventInfo(data.event ?? null)
@@ -172,7 +172,7 @@ export default function PublicWorkspaceClient({ eventSlug }: { eventSlug: string
     setPhotosLoading(true)
     try {
       const res = await fetch(
-        withEventQuery(`/api/portals/public/folders/${folderId}/photos`, eventSlug),
+        withEventQuery(`/api/portal-api/public/folders/${folderId}/photos`, eventSlug),
       )
       const data = await res.json().catch(() => null)
       if (!res.ok) throw new Error(data?.error || 'Unable to load photos.')
@@ -294,7 +294,7 @@ export default function PublicWorkspaceClient({ eventSlug }: { eventSlug: string
     setDownloadingPhotoId(photo.id)
     try {
       const res = await fetch(
-        withEventQuery(`/api/portals/public/photos/${photo.id}/download`, eventSlug),
+        withEventQuery(`/api/portal-api/public/photos/${photo.id}/download`, eventSlug),
       )
       if (!res.ok) {
         const data = await res.json().catch(() => null)
@@ -322,7 +322,7 @@ export default function PublicWorkspaceClient({ eventSlug }: { eventSlug: string
     setDownloading(true)
     try {
       const res = await fetch(
-        withEventQuery(`/api/portals/public/folders/${selectedFolderId}/download`, eventSlug),
+        withEventQuery(`/api/portal-api/public/folders/${selectedFolderId}/download`, eventSlug),
       )
       if (!res.ok) {
         const data = await res.json().catch(() => null)
