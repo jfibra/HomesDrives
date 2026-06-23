@@ -1,6 +1,12 @@
 /** Max size of each photo accepted by the upload API (50 MB). */
 export const MAX_PHOTO_UPLOAD_BYTES = 50 * 1024 * 1024
 
+/**
+ * Max file size that can be proxied through the Next.js API in one request.
+ * Vercel/serverless caps request bodies around 4.5 MB; larger files must use presigned S3 upload.
+ */
+export const MAX_SERVER_PROXY_UPLOAD_BYTES = 4 * 1024 * 1024
+
 /** Max size of each video accepted by the upload API (1 GB). */
 export const MAX_VIDEO_UPLOAD_BYTES = 1024 * 1024 * 1024
 

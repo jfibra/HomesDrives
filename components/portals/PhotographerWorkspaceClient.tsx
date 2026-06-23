@@ -234,7 +234,7 @@ async function uploadMediaFileViaServer(
   if (!res.ok) {
     if (res.status === 413) {
       throw new Error(
-        `"${file.name}" is too large for a single upload request. Try a smaller file or compress it first.`,
+        `"${file.name}" is too large to upload through the server (${Math.round(file.size / (1024 * 1024))} MB). Use Wi‑Fi on a phone or desktop, or compress the file below 4 MB.`,
       )
     }
     throw new Error(data?.error || `"${file.name}" could not be uploaded (HTTP ${res.status}).`)

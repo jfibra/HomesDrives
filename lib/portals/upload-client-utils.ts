@@ -1,5 +1,5 @@
 import {
-  MULTIPART_VIDEO_THRESHOLD_BYTES,
+  MAX_SERVER_PROXY_UPLOAD_BYTES,
   PORTAL_PRESIGN_BATCH_SIZE,
   PORTAL_UPLOAD_CONCURRENCY,
 } from '@/lib/photo-upload-limits'
@@ -52,7 +52,7 @@ export function shouldFallbackPortalUploadToServer(error: unknown) {
 }
 
 export function canPortalFileUseServerUpload(file: File) {
-  return file.size <= MULTIPART_VIDEO_THRESHOLD_BYTES
+  return file.size <= MAX_SERVER_PROXY_UPLOAD_BYTES
 }
 
 export function shouldPortalFileUseServerUploadFirst(file: File) {
