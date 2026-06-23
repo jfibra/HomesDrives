@@ -10,6 +10,11 @@ type EventQrCodeProps = {
   alt: string
   className?: string
   previewSize?: number
+  enabled?: boolean
+}
+
+function isMobileViewport() {
+  return typeof window !== 'undefined' && window.innerWidth < 768
 }
 
 export default function EventQrCode({
@@ -18,17 +23,33 @@ export default function EventQrCode({
   alt,
   className = 'h-20 w-20',
   previewSize = 160,
+  enabled = true,
 }: EventQrCodeProps) {
   const [src, setSrc] = useState(() =>
     getQrCodeImageUrl(targetUrl, previewSize, logoUrl ? 'H' : 'M'),
   )
-  const [loading, setLoading] = useState(Boolean(logoUrl))
+  const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     let active = true
 
+    if (!enabled) {
+      return () => {
+        active = false
+      }
+    }
+
     if (!logoUrl) {
       setSrc(getQrCodeImageUrl(targetUrl, previewSize))
+      setLoading(false)
+      return () => {
+        active = false
+      }
+    }
+
+    // Canvas compositing is heavy on mobile browsers and can crash the tab.
+    if (isMobileViewport()) {
+      setSrc(getQrCodeImageUrl(targetUrl, previewSize, 'H'))
       setLoading(false)
       return () => {
         active = false
@@ -50,7 +71,11 @@ export default function EventQrCode({
     return () => {
       active = false
     }
-  }, [targetUrl, logoUrl, previewSize])
+  }, [targetUrl, logoUrl, previewSize, enabled])
+
+  if (!enabled) {
+    return null
+  }
 
   return (
     <div className="relative inline-block">

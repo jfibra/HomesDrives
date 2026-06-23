@@ -75,10 +75,8 @@ export default function AdminEventsClient() {
 
   function toggleMobileEvent(eventId: string) {
     setExpandedMobileEventIds((current) => {
-      const next = new Set(current)
-      if (next.has(eventId)) next.delete(eventId)
-      else next.add(eventId)
-      return next
+      if (current.has(eventId)) return new Set()
+      return new Set([eventId])
     })
   }
 
@@ -490,7 +488,11 @@ export default function AdminEventsClient() {
                               ? 'border-white/30 bg-white/15 text-white hover:bg-white/25'
                               : 'border-[#1428AE]/20 bg-white/80 text-[#10233f] hover:bg-white'
                           }`}
-                          onClick={() => toggleMobileEvent(portalEvent.id)}
+                          onClick={(event) => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                            toggleMobileEvent(portalEvent.id)
+                          }}
                           type="button"
                         >
                           {isMobileExpanded ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -647,7 +649,9 @@ export default function AdminEventsClient() {
                             <EventQrCode
                               alt={`QR code for ${portalEvent.name} photographer link`}
                               className="h-24 w-24 sm:h-20 sm:w-20"
+                              enabled={showFullEventDetails}
                               logoUrl={portalEvent.qr_logo_url}
+                              previewSize={isMobile ? 120 : 160}
                               targetUrl={photographerUrl}
                             />
                           </div>
@@ -693,7 +697,9 @@ export default function AdminEventsClient() {
                             <EventQrCode
                               alt={`QR code for ${portalEvent.name} public download link`}
                               className="h-24 w-24 sm:h-20 sm:w-20"
+                              enabled={showFullEventDetails}
                               logoUrl={portalEvent.qr_logo_url}
+                              previewSize={isMobile ? 120 : 160}
                               targetUrl={publicUrl}
                             />
                           </div>
