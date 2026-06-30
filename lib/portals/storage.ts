@@ -658,63 +658,61 @@ export async function createPortalUploadPresigns(params: {
     throw new Error('Choose at least one file.')
   }
 
-  const uploads: PortalUploadPresign[] = []
+  const uploads = await Promise.all(
+    params.files.map(async (file, index) => {
+      const contentType = inferPortalContentType(file.fileName, file.contentType)
+      const isVideo = isPortalVideoFile(file.fileName, contentType)
 
-  for (let index = 0; index < params.files.length; index++) {
-    const file = params.files[index]
-    const contentType = inferPortalContentType(file.fileName, file.contentType)
-    const isVideo = isPortalVideoFile(file.fileName, contentType)
+      if (!isAllowedPortalUpload(file.fileName, contentType)) {
+        throw new Error('Only image and video files are allowed.')
+      }
 
-    if (!isAllowedPortalUpload(file.fileName, contentType)) {
-      throw new Error('Only image and video files are allowed.')
-    }
+      assertPortalUploadFileSize(file.fileName, contentType, file.fileSizeBytes)
 
-    assertPortalUploadFileSize(file.fileName, contentType, file.fileSizeBytes)
+      const expiresInSeconds = isVideo ? VIDEO_PRESIGN_EXPIRY_SECONDS : DEFAULT_PRESIGN_EXPIRY_SECONDS
+      const useMultipart = isVideo && file.fileSizeBytes > MULTIPART_VIDEO_THRESHOLD_BYTES
 
-    const expiresInSeconds = isVideo ? VIDEO_PRESIGN_EXPIRY_SECONDS : DEFAULT_PRESIGN_EXPIRY_SECONDS
-    const useMultipart = isVideo && file.fileSizeBytes > MULTIPART_VIDEO_THRESHOLD_BYTES
+      if (useMultipart) {
+        const presigned = await createPresignedMultipartUpload({
+          contentType,
+          expiresInSeconds,
+          fileName: file.fileName,
+          fileSizeBytes: file.fileSizeBytes,
+          partSizeBytes: MULTIPART_PART_SIZE_BYTES,
+          uploaderName: user.full_name,
+        })
 
-    if (useMultipart) {
-      const presigned = await createPresignedMultipartUpload({
+        return {
+          index,
+          fileName: file.fileName,
+          bucketName: presigned.bucketName,
+          storagePath: presigned.storagePath,
+          contentType: presigned.contentType,
+          uploadMode: 'multipart' as const,
+          uploadId: presigned.uploadId,
+          partSizeBytes: presigned.partSizeBytes,
+          partUrls: presigned.partUrls,
+        }
+      }
+
+      const presigned = await createPresignedUploadObject({
         contentType,
         expiresInSeconds,
         fileName: file.fileName,
-        fileSizeBytes: file.fileSizeBytes,
-        partSizeBytes: MULTIPART_PART_SIZE_BYTES,
         uploaderName: user.full_name,
       })
 
-      uploads.push({
+      return {
         index,
         fileName: file.fileName,
+        uploadUrl: presigned.uploadUrl,
         bucketName: presigned.bucketName,
         storagePath: presigned.storagePath,
         contentType: presigned.contentType,
-        uploadMode: 'multipart',
-        uploadId: presigned.uploadId,
-        partSizeBytes: presigned.partSizeBytes,
-        partUrls: presigned.partUrls,
-      })
-      continue
-    }
-
-    const presigned = await createPresignedUploadObject({
-      contentType,
-      expiresInSeconds,
-      fileName: file.fileName,
-      uploaderName: user.full_name,
-    })
-
-    uploads.push({
-      index,
-      fileName: file.fileName,
-      uploadUrl: presigned.uploadUrl,
-      bucketName: presigned.bucketName,
-      storagePath: presigned.storagePath,
-      contentType: presigned.contentType,
-      uploadMode: 'single',
-    })
-  }
+        uploadMode: 'single' as const,
+      }
+    }),
+  )
 
   return uploads
 }
@@ -744,64 +742,64 @@ export async function registerPortalPhotoUploads(params: {
     throw new Error('No uploads to register.')
   }
 
-  const photos: PortalPhoto[] = []
-
-  for (const upload of params.uploads) {
-    const contentType = upload.contentType || 'application/octet-stream'
-    if (!upload.bucketName || !upload.storagePath) {
-      throw new Error('Upload metadata is incomplete.')
-    }
-
-    assertPortalUploadFileSize(upload.fileName, contentType, upload.fileSizeBytes)
-
-    if (upload.multipart) {
-      if (!upload.multipart.uploadId || upload.multipart.parts.length === 0) {
-        throw new Error('Multipart upload metadata is incomplete.')
+  const photos = await Promise.all(
+    params.uploads.map(async (upload) => {
+      const contentType = upload.contentType || 'application/octet-stream'
+      if (!upload.bucketName || !upload.storagePath) {
+        throw new Error('Upload metadata is incomplete.')
       }
 
-      await completeMultipartUploadObject({
-        bucketName: upload.bucketName,
-        storagePath: upload.storagePath,
-        uploadId: upload.multipart.uploadId,
-        parts: upload.multipart.parts,
-      })
-    }
+      assertPortalUploadFileSize(upload.fileName, contentType, upload.fileSizeBytes)
 
-    if (params.verifyStoredBytes !== false) {
-      await assertStoredObjectByteLength({
-        bucketName: upload.bucketName,
-        storagePath: upload.storagePath,
-        expectedBytes: upload.fileSizeBytes,
-      })
-    }
+      if (upload.multipart) {
+        if (!upload.multipart.uploadId || upload.multipart.parts.length === 0) {
+          throw new Error('Multipart upload metadata is incomplete.')
+        }
 
-    const imageUrl = buildPublicImageUrl(upload.bucketName, upload.storagePath)
-    const { data, error } = await supabaseAdmin
-      .from('albums_photos')
-      .insert({
-        album_user_id: user.id,
-        uploader_code: user.code,
-        uploader_name: user.full_name,
-        folder_id: folder.id,
-        bucket_name: upload.bucketName,
-        storage_path: upload.storagePath,
-        image_url: imageUrl,
-        original_file_name: upload.fileName,
-        file_type: contentType,
-        file_size_bytes: upload.fileSizeBytes,
-        place_name: folder.folder_name,
-        type_of_place: params.uploaderCode === PUBLIC_PORTAL_CODE ? ['Public submission'] : ['Photographer portal'],
-        tags:
-          params.uploaderCode === PUBLIC_PORTAL_CODE
-            ? ['public-upload', 'temp-portal']
-            : ['photographer-portal', 'temp-portal'],
-      })
-      .select('id, folder_id, image_url, original_file_name, file_size_bytes, created_at')
-      .single()
+        await completeMultipartUploadObject({
+          bucketName: upload.bucketName,
+          storagePath: upload.storagePath,
+          uploadId: upload.multipart.uploadId,
+          parts: upload.multipart.parts,
+        })
+      }
 
-    if (error) throw new Error(error.message)
-    photos.push(data as PortalPhoto)
-  }
+      if (params.verifyStoredBytes !== false) {
+        await assertStoredObjectByteLength({
+          bucketName: upload.bucketName,
+          storagePath: upload.storagePath,
+          expectedBytes: upload.fileSizeBytes,
+        })
+      }
+
+      const imageUrl = buildPublicImageUrl(upload.bucketName, upload.storagePath)
+      const { data, error } = await supabaseAdmin
+        .from('albums_photos')
+        .insert({
+          album_user_id: user.id,
+          uploader_code: user.code,
+          uploader_name: user.full_name,
+          folder_id: folder.id,
+          bucket_name: upload.bucketName,
+          storage_path: upload.storagePath,
+          image_url: imageUrl,
+          original_file_name: upload.fileName,
+          file_type: contentType,
+          file_size_bytes: upload.fileSizeBytes,
+          place_name: folder.folder_name,
+          type_of_place: params.uploaderCode === PUBLIC_PORTAL_CODE ? ['Public submission'] : ['Photographer portal'],
+          tags:
+            params.uploaderCode === PUBLIC_PORTAL_CODE
+              ? ['public-upload', 'temp-portal']
+              : ['photographer-portal', 'temp-portal'],
+        })
+        .select('id, folder_id, image_url, original_file_name, file_size_bytes, created_at')
+        .single()
+
+      if (error) throw new Error(error.message)
+      return data as PortalPhoto
+    }),
+  )
 
   return photos
 }
@@ -856,6 +854,16 @@ export async function renamePortalPhoto(id: string, originalFileName: string) {
   if (error) throw new Error(error.message)
   if (!data) throw new Error('Photo not found.')
   return data as PortalPhoto
+}
+
+export async function bulkRenamePortalPhotos(
+  renames: Array<{ fileName: string; id: string }>,
+): Promise<PortalPhoto[]> {
+  if (renames.length === 0) {
+    throw new Error('Choose at least one photo to rename.')
+  }
+
+  return Promise.all(renames.map((rename) => renamePortalPhoto(rename.id, rename.fileName)))
 }
 
 export async function deletePortalPhoto(id: string) {

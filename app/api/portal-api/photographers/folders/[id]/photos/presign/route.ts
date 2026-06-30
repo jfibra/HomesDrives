@@ -1,13 +1,14 @@
 import { NextResponse } from 'next/server'
 
 import { PHOTOGRAPHER_PORTAL_CODE } from '@/lib/portals/constants'
-import { requirePortalEventBySlug } from '@/lib/portals/events'
+import { requirePhotographerAccessFromRequest } from '@/lib/portals/require-photographer-access'
 import { createPortalUploadPresigns } from '@/lib/portals/storage'
 import { inferPortalContentType } from '@/lib/portals/upload-file-utils'
 
 export const runtime = 'nodejs'
 
 type PresignRequestBody = {
+  accessToken?: string
   eventSlug?: string
   files?: Array<{
     contentType?: string
@@ -30,7 +31,7 @@ export async function POST(
       return NextResponse.json({ error: 'Missing eventSlug.' }, { status: 400 })
     }
 
-    const event = await requirePortalEventBySlug(eventSlug)
+    const event = await requirePhotographerAccessFromRequest(request, eventSlug, body)
     const uploads = await createPortalUploadPresigns({
       folderId: id,
       uploaderCode: PHOTOGRAPHER_PORTAL_CODE,

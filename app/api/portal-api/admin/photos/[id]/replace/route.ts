@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { replacePortalPhoto, requirePortalAdmin } from '@/lib/portals/storage'
+import { enqueuePhotoFaceProcessing } from '@/lib/server/face-pipeline'
 
 export const runtime = 'nodejs'
 
@@ -23,6 +24,7 @@ export async function POST(
 
     await requirePortalAdmin(adminCode)
     const photo = await replacePortalPhoto(id, file)
+    enqueuePhotoFaceProcessing(photo.id)
     return NextResponse.json({ photo })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to replace photo.'

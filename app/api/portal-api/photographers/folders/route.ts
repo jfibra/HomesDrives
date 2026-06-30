@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server'
 
-import { requirePortalEventBySlug } from '@/lib/portals/events'
 import { PHOTOGRAPHER_PORTAL_CODE } from '@/lib/portals/constants'
+import {
+  publicEventResponse,
+  requirePhotographerAccessFromRequest,
+} from '@/lib/portals/require-photographer-access'
 import {
   buildFolderTree,
   createPortalFolder,
@@ -9,6 +12,10 @@ import {
 } from '@/lib/portals/storage'
 
 export const runtime = 'nodejs'
+
+function accessErrorStatus(message: string) {
+  return /access denied|incorrect pin|6-digit/i.test(message) ? 401 : 500
+}
 
 export async function GET(request: Request) {
   try {
@@ -18,14 +25,12 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Missing eventSlug.' }, { status: 400 })
     }
 
-    const event = await requirePortalEventBySlug(eventSlug)
+    const event = await requirePhotographerAccessFromRequest(request, eventSlug)
     const folders = await listPortalFoldersForUploader(PHOTOGRAPHER_PORTAL_CODE, event.id)
-    return NextResponse.json({ event, folders, tree: buildFolderTree(folders) })
+    return NextResponse.json({ event: publicEventResponse(event), folders, tree: buildFolderTree(folders) })
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Unable to load folders.' },
-      { status: 500 },
-    )
+    const message = error instanceof Error ? error.message : 'Unable to load folders.'
+    return NextResponse.json({ error: message }, { status: accessErrorStatus(message) })
   }
 }
 
@@ -46,7 +51,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Folder name is required.' }, { status: 400 })
     }
 
-    const event = await requirePortalEventBySlug(eventSlug)
+    const event = await requirePhotographerAccessFromRequest(request, eventSlug, body)
     const folder = await createPortalFolder({
       uploaderCode: PHOTOGRAPHER_PORTAL_CODE,
       folderName,
@@ -55,9 +60,7 @@ export async function POST(request: Request) {
     })
     return NextResponse.json({ folder }, { status: 201 })
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Unable to create folder.' },
-      { status: 500 },
-    )
+    const message = error instanceof Error ? error.message : 'Unable to create folder.'
+    return NextResponse.json({ error: message }, { status: accessErrorStatus(message) })
   }
 }

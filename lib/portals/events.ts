@@ -1,12 +1,19 @@
 import { createSupabaseAdminClient } from '@/lib/server/albums'
+import { hashPhotographerPin, isValidPhotographerPin } from '@/lib/portals/photographer-access'
 
 import type { PortalEvent, PortalEventWithStats } from './types'
 
 export const DEFAULT_PORTAL_EVENT_SLUG = 'homes-ph-event'
 
-const PORTAL_EVENT_SELECT = 'id, name, slug, status, cover_image_url, qr_logo_url, created_at, updated_at'
+const PORTAL_EVENT_SELECT =
+  'id, name, slug, status, cover_image_url, qr_logo_url, photographer_pin_hash, created_at, updated_at'
 
 function mapPortalEvent(row: Record<string, unknown>): PortalEvent {
+  const pinHash =
+    typeof row.photographer_pin_hash === 'string' && row.photographer_pin_hash.trim()
+      ? row.photographer_pin_hash.trim()
+      : null
+
   return {
     id: String(row.id),
     name: String(row.name),
@@ -18,8 +25,24 @@ function mapPortalEvent(row: Record<string, unknown>): PortalEvent {
         : null,
     qr_logo_url:
       typeof row.qr_logo_url === 'string' && row.qr_logo_url.trim() ? row.qr_logo_url.trim() : null,
+    has_photographer_pin: Boolean(pinHash),
+    photographer_pin_hash: pinHash,
     created_at: String(row.created_at),
     updated_at: String(row.updated_at ?? row.created_at),
+  }
+}
+
+export function toPublicPortalEvent(event: PortalEvent): PortalEvent {
+  return {
+    id: event.id,
+    name: event.name,
+    slug: event.slug,
+    status: event.status,
+    cover_image_url: event.cover_image_url,
+    qr_logo_url: event.qr_logo_url,
+    has_photographer_pin: event.has_photographer_pin,
+    created_at: event.created_at,
+    updated_at: event.updated_at,
   }
 }
 
@@ -227,6 +250,44 @@ export async function deletePortalEvent(id: string): Promise<void> {
     .eq('id', id)
 
   if (error) throw new Error(error.message)
+}
+
+export async function setPhotographerPin(eventId: string, pin: string): Promise<PortalEvent> {
+  if (!isValidPhotographerPin(pin)) {
+    throw new Error('Photographer PIN must be exactly 6 digits.')
+  }
+
+  const supabaseAdmin = createSupabaseAdminClient()
+  const { data, error } = await supabaseAdmin
+    .from('portal_events')
+    .update({
+      photographer_pin_hash: hashPhotographerPin(pin),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', eventId)
+    .select(PORTAL_EVENT_SELECT)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  if (!data) throw new Error('Event not found.')
+  return mapPortalEvent(data as Record<string, unknown>)
+}
+
+export async function clearPhotographerPin(eventId: string): Promise<PortalEvent> {
+  const supabaseAdmin = createSupabaseAdminClient()
+  const { data, error } = await supabaseAdmin
+    .from('portal_events')
+    .update({
+      photographer_pin_hash: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', eventId)
+    .select(PORTAL_EVENT_SELECT)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  if (!data) throw new Error('Event not found.')
+  return mapPortalEvent(data as Record<string, unknown>)
 }
 
 export async function assertPortalFolderInEvent(folderId: string, eventId: string) {

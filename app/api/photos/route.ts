@@ -11,6 +11,7 @@ import {
   listPhotosByUploader,
   uploadImageObject,
 } from '@/lib/server/albums'
+import { enqueuePhotoFaceProcessing } from '@/lib/server/face-pipeline'
 
 export const runtime = 'nodejs'
 
@@ -150,6 +151,10 @@ export async function POST(request: Request) {
       uploaderIp,
       uploaderUserAgent,
     })
+
+    if (photo?.id) {
+      enqueuePhotoFaceProcessing(String(photo.id))
+    }
 
     return NextResponse.json({ photo })
   } catch (error) {

@@ -22,15 +22,11 @@ export function prefersPortalServerUpload() {
 }
 
 export function getPortalUploadConcurrency() {
-  return isMobilePortalUploadClient()
-    ? Math.min(2, PORTAL_UPLOAD_CONCURRENCY)
-    : PORTAL_UPLOAD_CONCURRENCY
+  return isMobilePortalUploadClient() ? 3 : PORTAL_UPLOAD_CONCURRENCY
 }
 
 export function getPortalPresignBatchSize() {
-  return isMobilePortalUploadClient()
-    ? Math.min(4, PORTAL_PRESIGN_BATCH_SIZE)
-    : PORTAL_PRESIGN_BATCH_SIZE
+  return PORTAL_PRESIGN_BATCH_SIZE
 }
 
 /** Safari iOS uses "Load failed" instead of "Failed to fetch". */

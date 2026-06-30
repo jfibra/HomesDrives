@@ -43,6 +43,7 @@ export async function POST(
       folderId: id,
       uploaderCode: PHOTOGRAPHER_PORTAL_CODE,
       eventId: event.id,
+      verifyStoredBytes: false,
       uploads: uploads.map((upload) => ({
         fileName: upload.fileName?.trim() || 'upload',
         contentType: upload.contentType?.trim() || 'application/octet-stream',

@@ -18,6 +18,8 @@ export type PortalEvent = {
   status: string
   cover_image_url: string | null
   qr_logo_url: string | null
+  has_photographer_pin?: boolean
+  photographer_pin_hash?: string | null
   created_at: string
   updated_at: string
 }

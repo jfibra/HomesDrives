@@ -62,7 +62,7 @@ function isAwsEndpoint(endpoint: string) {
   return endpoint.includes('amazonaws.com')
 }
 
-function getStoragePrefix() {
+export function getStoragePrefix() {
   const prefix = process.env.AWS_S3_PREFIX || 'homesph'
 
   return prefix

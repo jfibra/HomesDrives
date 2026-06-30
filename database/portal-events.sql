@@ -32,3 +32,6 @@ alter table portal_events
 
 alter table portal_events
   add column if not exists qr_logo_url text;
+
+alter table portal_events
+  add column if not exists photographer_pin_hash text;

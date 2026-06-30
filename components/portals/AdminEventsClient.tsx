@@ -11,6 +11,7 @@ import {
   Download,
   FolderKanban,
   ImageIcon,
+  KeyRound,
   LogOut,
   Menu,
   Pencil,
@@ -72,6 +73,68 @@ export default function AdminEventsClient() {
   const [uploadingCoverId, setUploadingCoverId] = useState<string | null>(null)
   const [uploadingQrLogoId, setUploadingQrLogoId] = useState<string | null>(null)
   const [expandedMobileEventIds, setExpandedMobileEventIds] = useState<Set<string>>(() => new Set())
+  const [pinDrafts, setPinDrafts] = useState<Record<string, string>>({})
+  const [savingPinId, setSavingPinId] = useState<string | null>(null)
+
+  async function handleSavePhotographerPin(eventId: string) {
+    if (!adminCode) return
+    const pin = pinDrafts[eventId]?.trim() ?? ''
+    if (!/^\d{6}$/.test(pin)) {
+      setError('Photographer PIN must be exactly 6 digits.')
+      return
+    }
+
+    setSavingPinId(eventId)
+    setError('')
+    try {
+      const res = await fetch(`${PORTAL_API_BASE}/admin/events/${encodeURIComponent(eventId)}/photographer-pin`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminCode, pin }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(data?.error || 'Unable to save photographer PIN.')
+
+      const updatedEvent = data?.event
+      if (updatedEvent?.id) {
+        setEvents((current) =>
+          current.map((event) => (event.id === updatedEvent.id ? { ...event, ...updatedEvent } : event)),
+        )
+      }
+      setPinDrafts((current) => ({ ...current, [eventId]: '' }))
+    } catch (pinError) {
+      setError(getErrorMessage(pinError, 'Unable to save photographer PIN.'))
+    } finally {
+      setSavingPinId(null)
+    }
+  }
+
+  async function handleClearPhotographerPin(eventId: string) {
+    if (!adminCode) return
+    setSavingPinId(eventId)
+    setError('')
+    try {
+      const res = await fetch(`${PORTAL_API_BASE}/admin/events/${encodeURIComponent(eventId)}/photographer-pin`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminCode, clear: true }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(data?.error || 'Unable to remove photographer PIN.')
+
+      const updatedEvent = data?.event
+      if (updatedEvent?.id) {
+        setEvents((current) =>
+          current.map((event) => (event.id === updatedEvent.id ? { ...event, ...updatedEvent } : event)),
+        )
+      }
+      setPinDrafts((current) => ({ ...current, [eventId]: '' }))
+    } catch (pinError) {
+      setError(getErrorMessage(pinError, 'Unable to remove photographer PIN.'))
+    } finally {
+      setSavingPinId(null)
+    }
+  }
 
   function toggleMobileEvent(eventId: string) {
     setExpandedMobileEventIds((current) => {
@@ -620,6 +683,57 @@ export default function AdminEventsClient() {
                             <p className="flex-1 break-all text-xs leading-relaxed text-slate-600 sm:text-sm">
                               {photographerUrl}
                             </p>
+                            <div className="mt-3 rounded-xl border border-slate-200/80 bg-white/80 p-3">
+                              <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                                <KeyRound className="h-3.5 w-3.5" />
+                                Photographer PIN
+                              </div>
+                              {portalEvent.has_photographer_pin ? (
+                                <p className="mb-2 text-xs font-medium text-emerald-700">
+                                  PIN protection is on for this link.
+                                </p>
+                              ) : (
+                                <p className="mb-2 text-xs text-slate-500">
+                                  Optional. Set a 6-digit PIN so only invited photographers can open this link.
+                                </p>
+                              )}
+                              <div className="flex flex-col gap-2">
+                                <input
+                                  className="min-h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-center text-sm font-semibold tracking-[0.35em] text-[#10233f] outline-none transition focus:border-[#10233f]"
+                                  inputMode="numeric"
+                                  maxLength={6}
+                                  onChange={(event) =>
+                                    setPinDrafts((current) => ({
+                                      ...current,
+                                      [portalEvent.id]: event.target.value.replace(/\D/g, '').slice(0, 6),
+                                    }))
+                                  }
+                                  placeholder="6-digit PIN"
+                                  type="password"
+                                  value={pinDrafts[portalEvent.id] ?? ''}
+                                />
+                                <div className="flex flex-wrap gap-2">
+                                  <button
+                                    className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-lg bg-[#10233f] px-4 text-xs font-semibold text-white transition hover:bg-[#1a3358] disabled:cursor-not-allowed disabled:opacity-60"
+                                    disabled={savingPinId === portalEvent.id}
+                                    onClick={() => void handleSavePhotographerPin(portalEvent.id)}
+                                    type="button"
+                                  >
+                                    {savingPinId === portalEvent.id ? 'Saving…' : 'Save PIN'}
+                                  </button>
+                                  {portalEvent.has_photographer_pin ? (
+                                    <button
+                                      className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                      disabled={savingPinId === portalEvent.id}
+                                      onClick={() => void handleClearPhotographerPin(portalEvent.id)}
+                                      type="button"
+                                    >
+                                      Remove PIN
+                                    </button>
+                                  ) : null}
+                                </div>
+                              </div>
+                            </div>
                             <div className="mt-3 flex flex-row items-center gap-2">
                               <button
                                 className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 sm:flex-none sm:px-3"

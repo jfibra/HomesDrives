@@ -1,12 +1,14 @@
 import { NextResponse } from 'next/server'
 
 import { PHOTOGRAPHER_PORTAL_CODE } from '@/lib/portals/constants'
-import { requirePortalEventBySlug } from '@/lib/portals/events'
+import { requirePhotographerAccessFromRequest } from '@/lib/portals/require-photographer-access'
 import { registerPortalPhotoUploads } from '@/lib/portals/storage'
+import { enqueuePhotoFaceProcessing } from '@/lib/server/face-pipeline'
 
 export const runtime = 'nodejs'
 
 type CompleteRequestBody = {
+  accessToken?: string
   eventSlug?: string
   uploads?: Array<{
     bucketName?: string
@@ -38,11 +40,12 @@ export async function POST(
       return NextResponse.json({ error: 'Missing eventSlug.' }, { status: 400 })
     }
 
-    const event = await requirePortalEventBySlug(eventSlug)
+    const event = await requirePhotographerAccessFromRequest(request, eventSlug, body)
     const photos = await registerPortalPhotoUploads({
       folderId: id,
       uploaderCode: PHOTOGRAPHER_PORTAL_CODE,
       eventId: event.id,
+      verifyStoredBytes: false,
       uploads: uploads.map((upload) => ({
         fileName: upload.fileName?.trim() || 'upload',
         contentType: upload.contentType?.trim() || 'application/octet-stream',
@@ -62,6 +65,10 @@ export async function POST(
           : undefined,
       })),
     })
+
+    for (const photo of photos) {
+      enqueuePhotoFaceProcessing(photo.id)
+    }
 
     return NextResponse.json({ photos, uploadedCount: photos.length })
   } catch (error) {

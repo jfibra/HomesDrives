@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 
-import { createPortalEvent, deletePortalEvent, listPortalEventsWithStats } from '@/lib/portals/events'
+import { createPortalEvent, deletePortalEvent, listPortalEventsWithStats, toPublicPortalEvent } from '@/lib/portals/events'
 import { requirePortalAdmin } from '@/lib/portals/storage'
 
 export const runtime = 'nodejs'
@@ -15,7 +15,7 @@ export async function GET(request: Request) {
 
     await requirePortalAdmin(adminCode)
     const events = await listPortalEventsWithStats()
-    return NextResponse.json({ events })
+    return NextResponse.json({ events: events.map(toPublicPortalEvent) })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to load events.'
     const status = /forbidden|not active|not found/i.test(message) ? 403 : 500
@@ -38,7 +38,7 @@ export async function POST(request: Request) {
 
     await requirePortalAdmin(adminCode)
     const event = await createPortalEvent(name)
-    return NextResponse.json({ event }, { status: 201 })
+    return NextResponse.json({ event: toPublicPortalEvent(event) }, { status: 201 })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to create event.'
     const status = /forbidden|not active|not found/i.test(message) ? 403 : 500

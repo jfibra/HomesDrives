@@ -23,6 +23,7 @@ import {
   assertPortalFileFitsServerProxy,
 } from '@/lib/client/compress-upload-image'
 import FolderTree from '@/components/portals/FolderTree'
+import PhotographerPinGate from '@/components/portals/PhotographerPinGate'
 import PortalFrame from '@/components/portals/PortalFrame'
 import {
   Dialog,
@@ -39,7 +40,8 @@ import {
   PORTAL_MULTIPART_PART_CONCURRENCY,
   PORTAL_UPLOAD_CONCURRENCY,
 } from '@/lib/photo-upload-limits'
-import { getPublicPortalFolderUrl } from '@/lib/portals/constants'
+import { getPublicPortalFolderUrl, PORTAL_API_BASE } from '@/lib/portals/constants'
+import { getPhotographerAccessStorageKey } from '@/lib/portals/photographer-access'
 import { withEventQuery } from '@/lib/portals/event-query'
 import {
   canPortalFileUseServerUpload,
@@ -217,12 +219,14 @@ async function uploadMediaFileViaServer(
   folderId: string,
   file: File,
   eventSlug: string,
-): Promise<PortalPhoto> {
+  accessToken = '',
+) {
   assertPortalFileFitsServerProxy(file)
 
   const formData = new FormData()
   formData.append('files', file, file.name)
   formData.append('eventSlug', eventSlug)
+  if (accessToken) formData.append('accessToken', accessToken)
 
   const res = await fetchWithTimeout(`/api/portal-api/photographers/folders/${folderId}/photos`, {
     method: 'POST',
@@ -267,10 +271,11 @@ async function uploadPortalFileDirect(
   folderId: string,
   file: File,
   eventSlug: string,
+  accessToken = '',
 ): Promise<PortalPhoto> {
-  const [upload] = await presignPortalFiles(folderId, [file], eventSlug)
+  const [upload] = await presignPortalFiles(folderId, [file], eventSlug, accessToken)
   const multipart = await uploadFileToStorage(file, upload)
-  const [photo] = await completePresignedPortalBatch(folderId, [{ file, upload, multipart }], eventSlug)
+  const [photo] = await completePresignedPortalBatch(folderId, [{ file, upload, multipart }], eventSlug, accessToken)
   if (!photo) {
     throw new Error(`Upload failed for "${file.name}".`)
   }
@@ -281,15 +286,17 @@ async function uploadMediaFileViaServerPrepared(
   folderId: string,
   file: File,
   eventSlug: string,
+  accessToken = '',
 ): Promise<PortalPhoto> {
   const prepared = await preparePortalFileForServerUpload(file)
-  return uploadMediaFileViaServer(folderId, prepared, eventSlug)
+  return uploadMediaFileViaServer(folderId, prepared, eventSlug, accessToken)
 }
 
 async function uploadPortalFileResolved(
   folderId: string,
   file: File,
   eventSlug: string,
+  accessToken = '',
 ): Promise<PortalPhoto> {
   if (isPortalFileOverUploadLimit(file)) {
     const contentType = inferPortalContentType(file.name, file.type)
@@ -298,7 +305,7 @@ async function uploadPortalFileResolved(
     )
   }
 
-  return uploadPortalFileWithFallback(folderId, file, eventSlug)
+  return uploadPortalFileWithFallback(folderId, file, eventSlug, accessToken)
 }
 
 async function runWithConcurrency<T>(
@@ -326,12 +333,14 @@ async function presignPortalFiles(
   folderId: string,
   files: File[],
   eventSlug: string,
+  accessToken = '',
 ): Promise<PresignedPortalUpload[]> {
   const presignRes = await fetchWithTimeout(`/api/portal-api/photographers/folders/${folderId}/photos/presign`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       eventSlug,
+      accessToken: accessToken || undefined,
       files: files.map((file) => ({
         fileName: file.name,
         contentType: inferPortalContentType(file.name, file.type),
@@ -361,6 +370,7 @@ async function completePresignedPortalBatch(
     upload: PresignedPortalUpload
   }>,
   eventSlug: string,
+  accessToken = '',
 ): Promise<PortalPhoto[]> {
   if (items.length === 0) return []
 
@@ -369,6 +379,7 @@ async function completePresignedPortalBatch(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       eventSlug,
+      accessToken: accessToken || undefined,
       uploads: items.map(({ file, upload, multipart }) => ({
         fileName: upload.fileName,
         contentType: upload.contentType,
@@ -391,19 +402,23 @@ async function uploadPortalFileWithFallback(
   folderId: string,
   file: File,
   eventSlug: string,
+  accessToken = '',
 ): Promise<PortalPhoto> {
   try {
-    return await uploadPortalFileDirect(folderId, file, eventSlug)
+    return await uploadPortalFileDirect(folderId, file, eventSlug, accessToken)
   } catch (error) {
     if (!shouldFallbackToServerUpload(error) && !isDirectStorageUploadError(error)) {
       throw error
     }
 
-    return uploadMediaFileViaServerPrepared(folderId, file, eventSlug)
+    return uploadMediaFileViaServerPrepared(folderId, file, eventSlug, accessToken)
   }
 }
 
 export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: string }) {
+  const [accessToken, setAccessToken] = useState('')
+  const [accessState, setAccessState] = useState<'checking' | 'pin' | 'ready'>('checking')
+  const [gateEventName, setGateEventName] = useState('')
   const [eventInfo, setEventInfo] = useState<PortalEvent | null>(null)
   const [tree, setTree] = useState<PortalFolderNode[]>([])
   const [folders, setFolders] = useState<PortalFolder[]>([])
@@ -491,7 +506,11 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
   }
 
   const loadFolders = useCallback(async () => {
-    const res = await fetch(withEventQuery('/api/portal-api/photographers/folders', eventSlug))
+    const res = await fetch(
+      withEventQuery('/api/portal-api/photographers/folders', eventSlug, {
+        accessToken: accessToken || undefined,
+      }),
+    )
     const data = await res.json().catch(() => null)
     if (!res.ok) throw new Error(data?.error || 'Unable to load folders.')
     setEventInfo(data.event ?? null)
@@ -499,18 +518,68 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
     setFolders(nextFolders)
     setTree(Array.isArray(data.tree) ? data.tree : [])
     return nextFolders as PortalFolder[]
-  }, [eventSlug])
+  }, [accessToken, eventSlug])
 
   const loadPhotos = useCallback(async (folderId: string) => {
     const res = await fetch(
-      withEventQuery(`/api/portal-api/photographers/folders/${folderId}/photos`, eventSlug),
+      withEventQuery(`/api/portal-api/photographers/folders/${folderId}/photos`, eventSlug, {
+        accessToken: accessToken || undefined,
+      }),
     )
     const data = await res.json().catch(() => null)
     if (!res.ok) throw new Error(data?.error || 'Unable to load photos.')
     setPhotos(Array.isArray(data.photos) ? data.photos : [])
+  }, [accessToken, eventSlug])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function checkAccess() {
+      const stored = localStorage.getItem(getPhotographerAccessStorageKey(eventSlug))?.trim() ?? ''
+      try {
+        const res = await fetch(
+          withEventQuery(`${PORTAL_API_BASE}/photographers/access`, eventSlug, {
+            accessToken: stored || undefined,
+          }),
+        )
+        const data = await res.json().catch(() => null)
+        if (!res.ok) {
+          throw new Error(data?.error || 'Unable to verify photographer access.')
+        }
+
+        if (cancelled) return
+
+        setGateEventName(typeof data?.event?.name === 'string' ? data.event.name : '')
+
+        if (data?.requiresPin && !data?.authorized) {
+          setAccessState('pin')
+          setLoading(false)
+          return
+        }
+
+        if (stored && data?.authorized) {
+          setAccessToken(stored)
+        }
+        setAccessState('ready')
+      } catch (checkError) {
+        if (!cancelled) {
+          setError(checkError instanceof Error ? checkError.message : 'Unable to verify photographer access.')
+          setAccessState('pin')
+          setLoading(false)
+        }
+      }
+    }
+
+    void checkAccess()
+
+    return () => {
+      cancelled = true
+    }
   }, [eventSlug])
 
   useEffect(() => {
+    if (accessState !== 'ready') return
+
     void loadFolders()
       .then((nextFolders) => {
         const root = nextFolders.find((f) => !f.parent_folder_id)
@@ -518,7 +587,7 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
       })
       .catch((e) => setError(e instanceof Error ? e.message : 'Unable to load folders.'))
       .finally(() => setLoading(false))
-  }, [loadFolders])
+  }, [accessState, loadFolders])
 
   useEffect(() => {
     if (!selectedFolderId || !isSubFolder) {
@@ -626,7 +695,12 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
       const res = await fetch('/api/portal-api/photographers/folders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ folderName, parentFolderId: parentFolderId ?? null, eventSlug }),
+        body: JSON.stringify({
+          folderName,
+          parentFolderId: parentFolderId ?? null,
+          eventSlug,
+          accessToken: accessToken || undefined,
+        }),
       })
       const data = await res.json().catch(() => null)
       if (!res.ok) throw new Error(data?.error || 'Unable to create folder.')
@@ -758,7 +832,7 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
       const uploadOne = async (file: File) => {
         setActiveFile(file)
         try {
-          mergePhotos([await uploadPortalFileResolved(selectedFolderId, file, eventSlug)])
+          mergePhotos([await uploadPortalFileResolved(selectedFolderId, file, eventSlug, accessToken)])
         } catch (error) {
           failures.push(
             `${file.name}: ${error instanceof Error ? error.message : 'Upload failed.'}`,
@@ -770,6 +844,7 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
 
       const uploadConcurrency = getPortalUploadConcurrency()
       const presignBatchSize = getPortalPresignBatchSize()
+      let prefetchedPresigns: Promise<PresignedPortalUpload[]> | null = null
 
       for (let offset = 0; offset < uploadQueue.length; offset += presignBatchSize) {
         const batch = uploadQueue.slice(offset, offset + presignBatchSize)
@@ -785,7 +860,15 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
         }
 
         try {
-          const presigns = await presignPortalFiles(selectedFolderId, batch, eventSlug)
+          const presigns = prefetchedPresigns
+            ? await prefetchedPresigns
+            : await presignPortalFiles(selectedFolderId, batch, eventSlug, accessToken)
+          prefetchedPresigns = null
+
+          const nextBatch = uploadQueue.slice(offset + presignBatchSize, offset + presignBatchSize * 2)
+          if (nextBatch.length > 0) {
+            prefetchedPresigns = presignPortalFiles(selectedFolderId, nextBatch, eventSlug, accessToken)
+          }
           const jobs = batch.map((file, index) => ({ file, upload: presigns[index] }))
           const readyToComplete: Array<{
             file: File
@@ -823,7 +906,7 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
 
           if (readyToComplete.length > 0) {
             try {
-              mergePhotos(await completePresignedPortalBatch(selectedFolderId, readyToComplete, eventSlug))
+              mergePhotos(await completePresignedPortalBatch(selectedFolderId, readyToComplete, eventSlug, accessToken))
               for (const item of readyToComplete) {
                 batchCompletedKeys.add(fileProgressKey(item.file))
                 finishFileProgress(item.file)
@@ -862,6 +945,7 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
             })
           }
         } catch {
+          prefetchedPresigns = null
           await runWithConcurrency(batch, uploadConcurrency, async (file) => {
             await uploadOne(file)
           })
@@ -982,7 +1066,9 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
     try {
       const parentId = selectedFolder?.parent_folder_id ?? null
       const res = await fetch(
-        withEventQuery(`/api/portal-api/photographers/folders/${selectedFolderId}`, eventSlug),
+        withEventQuery(`/api/portal-api/photographers/folders/${selectedFolderId}`, eventSlug, {
+          accessToken: accessToken || undefined,
+        }),
         { method: 'DELETE' },
       )
       const data = await res.json().catch(() => null)
@@ -1010,7 +1096,9 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
     setDeletingPhotoId(photoId)
     try {
       const res = await fetch(
-        withEventQuery(`/api/portal-api/photographers/photos/${photoId}`, eventSlug),
+        withEventQuery(`/api/portal-api/photographers/photos/${photoId}`, eventSlug, {
+          accessToken: accessToken || undefined,
+        }),
         { method: 'DELETE' },
       )
       const data = await res.json().catch(() => null)
@@ -1036,6 +1124,36 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
     } finally {
       setDeletingPhotoId(null)
     }
+  }
+
+  if (accessState === 'checking') {
+    return (
+      <PortalFrame
+        badge="Photographer Portal"
+        subtitle="Checking event access…"
+        title="Upload workspace"
+        variant="photographer"
+      >
+        <div className="flex min-h-[240px] items-center justify-center text-sm text-slate-500">
+          Loading photographer portal…
+        </div>
+      </PortalFrame>
+    )
+  }
+
+  if (accessState === 'pin') {
+    return (
+      <PhotographerPinGate
+        eventName={gateEventName}
+        eventSlug={eventSlug}
+        onAuthorized={(token: string) => {
+          setError('')
+          setAccessToken(token)
+          setAccessState('ready')
+          setLoading(true)
+        }}
+      />
+    )
   }
 
   const uploadPercent = uploadProgress

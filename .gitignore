@@ -16,3 +16,10 @@ node_modules
 .next/
 .DS_Store
 docs/
+tsconfig.tsbuildinfo
+
+# Python (insightface-api local dev)
+.venv/
+__pycache__/
+*.py[cod]
+services/insightface-api/models/

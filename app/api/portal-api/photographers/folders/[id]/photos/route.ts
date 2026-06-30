@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server'
 
 import { PHOTOGRAPHER_PORTAL_CODE } from '@/lib/portals/constants'
-import { assertPortalFolderInEvent, requirePortalEventBySlug } from '@/lib/portals/events'
+import { assertPortalFolderInEvent } from '@/lib/portals/events'
+import { requirePhotographerAccessFromRequest } from '@/lib/portals/require-photographer-access'
 import { listPortalPhotos, uploadPortalPhoto } from '@/lib/portals/storage'
 import { inferPortalContentType } from '@/lib/portals/upload-file-utils'
+import { enqueuePhotoFaceProcessing } from '@/lib/server/face-pipeline'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
@@ -20,14 +22,15 @@ export async function GET(
       return NextResponse.json({ error: 'Missing eventSlug.' }, { status: 400 })
     }
 
-    const event = await requirePortalEventBySlug(eventSlug)
+    const event = await requirePhotographerAccessFromRequest(request, eventSlug)
     await assertPortalFolderInEvent(id, event.id)
     const photos = await listPortalPhotos(id)
     return NextResponse.json({ photos })
   } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unable to load photos.'
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Unable to load photos.' },
-      { status: 500 },
+      { error: message },
+      { status: /access denied|incorrect pin|6-digit/i.test(message) ? 401 : 500 },
     )
   }
 }
@@ -50,7 +53,13 @@ export async function POST(
       return NextResponse.json({ error: 'Choose at least one file.' }, { status: 400 })
     }
 
-    const event = await requirePortalEventBySlug(eventSlug)
+    const accessBody = {
+      accessToken:
+        typeof formData.get('accessToken') === 'string'
+          ? String(formData.get('accessToken')).trim()
+          : '',
+    }
+    const event = await requirePhotographerAccessFromRequest(request, eventSlug, accessBody)
     await assertPortalFolderInEvent(id, event.id)
 
     const uploaded = []
@@ -79,6 +88,10 @@ export async function POST(
     if (uploaded.length === 0) {
       const firstError = errors[0]?.error || 'Unable to upload photos.'
       return NextResponse.json({ error: firstError, errors }, { status: 500 })
+    }
+
+    for (const photo of uploaded) {
+      enqueuePhotoFaceProcessing(photo.id)
     }
 
     return NextResponse.json({

@@ -59,6 +59,18 @@ export function getAdminEventWorkspacePath(eventSlug: string) {
   return `${PORTAL_PATHS.adminEvents}/${encodeURIComponent(eventSlug)}/workspace`
 }
 
+export function getAdminEventPeoplePath(eventSlug: string) {
+  return `${getAdminEventWorkspacePath(eventSlug)}/people`
+}
+
+export function getAdminEventPeopleSearchPath(eventSlug: string) {
+  return `${getAdminEventPeoplePath(eventSlug)}/search`
+}
+
+export function getAdminEventPersonPath(eventSlug: string, personId: string) {
+  return `${getAdminEventPeoplePath(eventSlug)}/${encodeURIComponent(personId)}`
+}
+
 export function getPhotographerPortalUrl(eventSlug: string, origin = getPublicAppOrigin()) {
   return `${origin}${getPhotographerPortalPath(eventSlug)}`
 }

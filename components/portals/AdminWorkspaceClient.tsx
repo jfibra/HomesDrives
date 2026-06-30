@@ -6,8 +6,11 @@ import { useRouter } from 'next/navigation'
 import { Check, ChevronLeft, ChevronRight, Folder, ImageIcon, PanelLeft, Pencil, RefreshCw, Search, Settings2, Trash2, Upload, X, AlertCircle, CheckCircle2 } from 'lucide-react'
 
 import FolderTree from '@/components/portals/FolderTree'
+import AdminWorkspaceNav from '@/components/portals/AdminWorkspaceNav'
+import EventFaceBackgroundScanner from '@/components/people/EventFaceBackgroundScanner'
 import PortalFrame from '@/components/portals/PortalFrame'
 import { applySiblingReorder, collectFolderSortOrders } from '@/lib/portals/folder-tree'
+import { buildBulkPortalRenamePlan } from '@/lib/portals/bulk-rename-photos'
 import { filterPortalPhotosByFileName } from '@/lib/portals/filter-photos'
 import {
   Dialog,
@@ -19,6 +22,7 @@ import {
 } from '@/components/ui/dialog'
 import { getSubFolderCardColorByIndex } from '@/components/portals/sub-folder-card-colors'
 import { Switch } from '@/components/ui/switch'
+import { Checkbox } from '@/components/ui/checkbox'
 import { PHOTOGRAPHER_PORTAL_CODE, PORTAL_ADMIN_SESSION_KEY } from '@/lib/portals/constants'
 import { withEventQuery } from '@/lib/portals/event-query'
 import type { PortalEvent } from '@/lib/portals/types'
@@ -125,6 +129,10 @@ export default function AdminWorkspaceClient({ eventSlug }: { eventSlug: string 
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
   const [foldersPanelOpen, setFoldersPanelOpen] = useState(false)
   const [isReorderingFolders, setIsReorderingFolders] = useState(false)
+  const [selectedPhotoIds, setSelectedPhotoIds] = useState<string[]>([])
+  const [bulkRenameOpen, setBulkRenameOpen] = useState(false)
+  const [bulkRenameBase, setBulkRenameBase] = useState('')
+  const [isBulkRenaming, setIsBulkRenaming] = useState(false)
 
   const selectedFolder = useMemo(
     () => folders.find((f) => f.id === selectedFolderId) ?? null,
@@ -146,6 +154,20 @@ export default function AdminWorkspaceClient({ eventSlug }: { eventSlug: string 
   const filteredPhotos = useMemo(
     () => filterPortalPhotosByFileName(photos, photoSearch),
     [photos, photoSearch],
+  )
+
+  const selectedPhotos = useMemo(() => {
+    const photoById = new Map(filteredPhotos.map((photo) => [photo.id, photo]))
+    return sortPortalPhotosByFileName(
+      selectedPhotoIds
+        .map((id) => photoById.get(id))
+        .filter((photo): photo is PortalPhoto => Boolean(photo)),
+    )
+  }, [filteredPhotos, selectedPhotoIds])
+
+  const bulkRenamePreview = useMemo(
+    () => buildBulkPortalRenamePlan(bulkRenameBase, selectedPhotos),
+    [bulkRenameBase, selectedPhotos],
   )
 
   const currentLightboxPhoto =
@@ -202,6 +224,16 @@ export default function AdminWorkspaceClient({ eventSlug }: { eventSlug: string 
     )
   }, [])
 
+  const updatePhotosInState = useCallback((nextPhotos: PortalPhoto[]) => {
+    if (nextPhotos.length === 0) return
+    const incomingById = new Map(nextPhotos.map((photo) => [photo.id, photo]))
+    setPhotos((current) =>
+      sortPortalPhotosByFileName(
+        current.map((item) => incomingById.get(item.id) ?? item),
+      ),
+    )
+  }, [])
+
   useEffect(() => {
     const code = localStorage.getItem(PORTAL_ADMIN_SESSION_KEY)
     if (!code) {
@@ -216,6 +248,9 @@ export default function AdminWorkspaceClient({ eventSlug }: { eventSlug: string 
 
   useEffect(() => {
     setPhotoSearch('')
+    setSelectedPhotoIds([])
+    setBulkRenameOpen(false)
+    setBulkRenameBase('')
   }, [selectedFolderId])
 
   useEffect(() => {
@@ -451,6 +486,62 @@ export default function AdminWorkspaceClient({ eventSlug }: { eventSlug: string 
     }
   }
 
+  function togglePhotoSelection(photoId: string) {
+    setSelectedPhotoIds((current) =>
+      current.includes(photoId)
+        ? current.filter((id) => id !== photoId)
+        : [...current, photoId],
+    )
+  }
+
+  function selectAllVisiblePhotos() {
+    setSelectedPhotoIds(filteredPhotos.map((photo) => photo.id))
+  }
+
+  function clearPhotoSelection() {
+    setSelectedPhotoIds([])
+    setBulkRenameOpen(false)
+    setBulkRenameBase('')
+  }
+
+  function openBulkRenameDialog() {
+    if (selectedPhotos.length === 0) return
+    clearMessages()
+    cancelRenamePhoto()
+    setConfirmDeletePhotoId(null)
+    setBulkRenameBase('')
+    setBulkRenameOpen(true)
+  }
+
+  async function saveBulkRename() {
+    if (!adminCode || bulkRenamePreview.length === 0) return
+    clearMessages()
+    setIsBulkRenaming(true)
+    try {
+      const res = await fetch('/api/portal-api/admin/photos/bulk-rename', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adminCode,
+          renames: bulkRenamePreview,
+        }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(data?.error || 'Unable to rename photos.')
+      const renamedPhotos = Array.isArray(data?.photos) ? data.photos.filter(isPortalPhoto) : []
+      if (renamedPhotos.length === 0) {
+        throw new Error('Rename succeeded but photo data was missing.')
+      }
+      updatePhotosInState(renamedPhotos)
+      setBulkRenameOpen(false)
+      setBulkRenameBase('')
+      setSelectedPhotoIds([])
+      setSuccess(`Renamed ${renamedPhotos.length} file${renamedPhotos.length === 1 ? '' : 's'}.`)
+    } finally {
+      setIsBulkRenaming(false)
+    }
+  }
+
   async function deletePhoto(photoId: string) {
     if (!adminCode) return
     clearMessages()
@@ -528,6 +619,8 @@ export default function AdminWorkspaceClient({ eventSlug }: { eventSlug: string 
           <p className="leading-relaxed">{success}</p>
         </div>
       ) : null}
+
+      <AdminWorkspaceNav activeTab="folders" eventSlug={eventSlug} />
 
       <input
         accept="image/*,video/*"
@@ -771,6 +864,96 @@ export default function AdminWorkspaceClient({ eventSlug }: { eventSlug: string 
                   </DialogContent>
                 </Dialog>
 
+                <Dialog
+                  onOpenChange={(open) => {
+                    if (!open) {
+                      setBulkRenameOpen(false)
+                      setBulkRenameBase('')
+                    } else {
+                      setBulkRenameOpen(true)
+                    }
+                  }}
+                  open={bulkRenameOpen}
+                >
+                  <DialogContent className="rounded-2xl border-slate-200 sm:max-w-md">
+                    <DialogHeader>
+                      <DialogTitle className="text-[#10233f]">Rename selected files</DialogTitle>
+                      <DialogDescription>
+                        Enter a base name. Each selected file keeps its extension and gets a number:
+                        test-1.jpg, test-2.jpg, and so on.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-slate-700" htmlFor="bulk-rename-base">
+                          Base name
+                        </label>
+                        <input
+                          autoFocus
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-[#10233f] focus:ring-2 focus:ring-[#10233f]/10"
+                          id="bulk-rename-base"
+                          onChange={(e) => setBulkRenameBase(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && bulkRenamePreview.length > 0) {
+                              void saveBulkRename().catch((err) =>
+                                setError(getErrorMessage(err, 'Unable to rename photos.')),
+                              )
+                            }
+                          }}
+                          placeholder="test"
+                          value={bulkRenameBase}
+                        />
+                      </div>
+                      {bulkRenamePreview.length > 0 ? (
+                        <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3">
+                          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Preview
+                          </p>
+                          <ul className="max-h-40 space-y-1 overflow-y-auto text-sm text-slate-700">
+                            {bulkRenamePreview.slice(0, 8).map((rename) => (
+                              <li className="truncate font-mono text-xs" key={rename.id}>
+                                {rename.fileName}
+                              </li>
+                            ))}
+                            {bulkRenamePreview.length > 8 ? (
+                              <li className="text-xs text-slate-500">
+                                +{bulkRenamePreview.length - 8} more
+                              </li>
+                            ) : null}
+                          </ul>
+                        </div>
+                      ) : null}
+                    </div>
+                    <DialogFooter className="gap-2 sm:gap-2">
+                      <button
+                        className="inline-flex min-h-[44px] flex-1 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 sm:flex-none"
+                        disabled={isBulkRenaming}
+                        onClick={() => {
+                          setBulkRenameOpen(false)
+                          setBulkRenameBase('')
+                        }}
+                        type="button"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        className="inline-flex min-h-[44px] flex-1 items-center justify-center rounded-xl bg-[#10233f] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#1a3358] disabled:cursor-not-allowed disabled:opacity-60 sm:flex-none"
+                        disabled={isBulkRenaming || bulkRenamePreview.length === 0}
+                        onClick={() =>
+                          void saveBulkRename().catch((err) =>
+                            setError(getErrorMessage(err, 'Unable to rename photos.')),
+                          )
+                        }
+                        type="button"
+                      >
+                        {isBulkRenaming
+                          ? 'Renaming…'
+                          : `Rename ${selectedPhotoIds.length} file${selectedPhotoIds.length === 1 ? '' : 's'}`}
+                      </button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+
                 {photosLoading && photos.length === 0 && !hasChildFolders ? (
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
                     {[1, 2, 3].map((item) => (
@@ -850,7 +1033,40 @@ export default function AdminWorkspaceClient({ eventSlug }: { eventSlug: string 
                             {photoSearch.trim()
                               ? `${filteredPhotos.length} of ${photos.length} files`
                               : `${photos.length} file${photos.length === 1 ? '' : 's'}`}
+                            {selectedPhotoIds.length > 0
+                              ? ` · ${selectedPhotoIds.length} selected`
+                              : ''}
                           </p>
+                          {filteredPhotos.length > 0 ? (
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                className="inline-flex min-h-[36px] items-center justify-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50"
+                                onClick={selectAllVisiblePhotos}
+                                type="button"
+                              >
+                                Select all
+                              </button>
+                              {selectedPhotoIds.length > 0 ? (
+                                <>
+                                  <button
+                                    className="inline-flex min-h-[36px] items-center justify-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50"
+                                    onClick={clearPhotoSelection}
+                                    type="button"
+                                  >
+                                    Clear
+                                  </button>
+                                  <button
+                                    className="inline-flex min-h-[36px] items-center justify-center gap-1 rounded-lg bg-[#10233f] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#1a3358]"
+                                    onClick={openBulkRenameDialog}
+                                    type="button"
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                    Rename {selectedPhotoIds.length}
+                                  </button>
+                                </>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </div>
                         <div className="relative mb-4">
                           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -875,13 +1091,30 @@ export default function AdminWorkspaceClient({ eventSlug }: { eventSlug: string 
                             const isDeleting = deletingPhotoId === photo.id
                             const isReplacing = replacingPhotoId === photo.id
                             const isConfirmingDelete = confirmDeletePhotoId === photo.id
+                            const isSelected = selectedPhotoIds.includes(photo.id)
 
                             return (
                               <article
-                                className="overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-sm"
+                                className={`overflow-hidden rounded-xl border bg-white shadow-sm transition ${
+                                  isSelected
+                                    ? 'border-[#10233f] ring-2 ring-[#10233f]/15'
+                                    : 'border-slate-200/80'
+                                }`}
                                 key={photo.id}
                               >
-                                <PortalPhotoThumbnail onOpen={openLightbox} photo={photo} />
+                                <div className="relative">
+                                  <PortalPhotoThumbnail onOpen={openLightbox} photo={photo} />
+                                  <label
+                                    className="absolute left-2 top-2 z-10 flex cursor-pointer items-center gap-2 rounded-lg bg-white/95 px-2 py-1.5 shadow-sm"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <Checkbox
+                                      checked={isSelected}
+                                      onCheckedChange={() => togglePhotoSelection(photo.id)}
+                                    />
+                                    <span className="text-xs font-medium text-slate-600">Select</span>
+                                  </label>
+                                </div>
                                 <div className="space-y-2 p-3">
                                   {isRenaming ? (
                                     <div className="space-y-2">
@@ -1076,6 +1309,7 @@ export default function AdminWorkspaceClient({ eventSlug }: { eventSlug: string 
           </div>
         </div>
       ) : null}
+      {eventInfo ? <EventFaceBackgroundScanner eventId={eventInfo.id} /> : null}
     </PortalFrame>
   )
 }
