@@ -138,6 +138,87 @@ export function createSupabaseAdminClient() {
   )
 }
 
+export async function findSupabaseAuthUserByEmail(email: string) {
+  const supabaseAdmin = createSupabaseAdminClient()
+  const normalized = email.trim().toLowerCase()
+  if (!normalized) return null
+
+  let page = 1
+  const perPage = 1000
+
+  for (;;) {
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage })
+    if (error) throw new Error(`Auth: ${error.message}`)
+
+    const match = data.users.find((user) => user.email?.trim().toLowerCase() === normalized)
+    if (match) return match
+
+    if (data.users.length < perPage) return null
+    page += 1
+  }
+}
+
+async function ensureSupabaseAuthCredentialsForAlbumUser(params: {
+  albumUser: {
+    code: string
+    email: string
+    full_name: string
+    role: string | null
+  }
+  email?: string
+  password?: string
+}) {
+  const supabaseAdmin = createSupabaseAdminClient()
+  const targetEmail = (params.email ?? params.albumUser.email).trim().toLowerCase()
+  const authUpdate: { email?: string; password?: string } = {}
+  if (params.email) authUpdate.email = targetEmail
+  if (params.password) authUpdate.password = params.password
+
+  if (!authUpdate.email && !authUpdate.password) return
+
+  let authUser =
+    (await findSupabaseAuthUserByEmail(params.albumUser.email).catch(() => null)) ??
+    (targetEmail !== params.albumUser.email.trim().toLowerCase()
+      ? await findSupabaseAuthUserByEmail(targetEmail).catch(() => null)
+      : null)
+
+  if (authUser) {
+    const { error: authErr } = await supabaseAdmin.auth.admin.updateUserById(authUser.id, authUpdate)
+    if (authErr) throw new Error(`Auth: ${authErr.message}`)
+    return
+  }
+
+  if (!params.password) {
+    throw new Error('No login account exists for this user. Set a new password to create one.')
+  }
+
+  const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
+    email: targetEmail,
+    password: params.password,
+    email_confirm: true,
+    user_metadata: {
+      full_name: params.albumUser.full_name,
+      code: params.albumUser.code,
+      role: params.albumUser.role ?? 'media',
+    },
+  })
+
+  if (createErr) {
+    if (/already (registered|exists)/i.test(createErr.message)) {
+      const existing = await findSupabaseAuthUserByEmail(targetEmail)
+      if (!existing) throw new Error(`Auth: ${createErr.message}`)
+      const { error: authErr } = await supabaseAdmin.auth.admin.updateUserById(existing.id, authUpdate)
+      if (authErr) throw new Error(`Auth: ${authErr.message}`)
+      return
+    }
+    throw new Error(`Auth: ${createErr.message}`)
+  }
+
+  if (!created.user?.id) {
+    throw new Error('Auth: Unable to create login account for this user.')
+  }
+}
+
 async function listActiveTaxonomy(tableName: 'albums_place_types' | 'albums_tags') {
   const supabaseAdmin = createSupabaseAdminClient()
   const { data, error } = await supabaseAdmin
@@ -908,7 +989,7 @@ export async function createAdminAlbumUser(params: {
 
   // 1. Create the Supabase Auth user (so they can log in with email + password)
   const { data: authData, error: authErr } = await supabaseAdmin.auth.admin.createUser({
-    email: params.email,
+    email: params.email.trim().toLowerCase(),
     password: params.password,
     email_confirm: true,
     user_metadata: { full_name: fullName, code },
@@ -1029,31 +1110,23 @@ export async function updateAdminAlbumUser(params: {
   // Fetch current row (needed to find the auth user by email)
   const { data: existing, error: existingErr } = await supabaseAdmin
     .from('album_users')
-    .select('id, email, first_name, last_name')
+    .select('id, email, first_name, last_name, full_name, code, role')
     .eq('id', params.id)
     .maybeSingle()
   if (existingErr) throw new Error(existingErr.message)
   if (!existing) throw new Error('User not found.')
 
-  // Find the matching Supabase Auth user
-  let authUserId: string | null = null
-  try {
-    const { data: list } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 })
-    const match = list?.users?.find(
-      (u) => u.email?.toLowerCase() === String(existing.email).toLowerCase(),
-    )
-    authUserId = match?.id ?? null
-  } catch {
-    authUserId = null
-  }
-
-  // Update auth (password / email) if needed
-  if (authUserId && (params.email || params.password)) {
-    const authUpdate: Record<string, unknown> = {}
-    if (params.email) authUpdate.email = params.email.trim().toLowerCase()
-    if (params.password) authUpdate.password = params.password
-    const { error: authErr } = await supabaseAdmin.auth.admin.updateUserById(authUserId, authUpdate)
-    if (authErr) throw new Error(`Auth: ${authErr.message}`)
+  if (params.email || params.password) {
+    await ensureSupabaseAuthCredentialsForAlbumUser({
+      albumUser: {
+        code: String(existing.code),
+        email: String(existing.email),
+        full_name: String(existing.full_name),
+        role: typeof existing.role === 'string' ? existing.role : null,
+      },
+      email: params.email,
+      password: params.password,
+    })
   }
 
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
@@ -1451,21 +1524,18 @@ export async function deleteAdminAlbumUser(params: { id: number }) {
     throw new Error('Refusing to delete an admin account from the admin UI.')
   }
 
-  // Delete from Supabase Auth (best-effort)
+  const { error } = await supabaseAdmin.from('album_users').delete().eq('id', params.id)
+  if (error) throw new Error(error.message)
+
+  // Remove login only after the app account is gone (avoids orphan album_users rows).
   try {
-    const { data: list } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 })
-    const match = list?.users?.find(
-      (u) => u.email?.toLowerCase() === String(existing.email).toLowerCase(),
-    )
+    const match = await findSupabaseAuthUserByEmail(String(existing.email))
     if (match?.id) {
       await supabaseAdmin.auth.admin.deleteUser(match.id).catch(() => undefined)
     }
   } catch {
     /* ignore */
   }
-
-  const { error } = await supabaseAdmin.from('album_users').delete().eq('id', params.id)
-  if (error) throw new Error(error.message)
 }
 
 export type AdminStats = {

@@ -2390,6 +2390,10 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
               >
                 Sign in to access your dashboard
               </p>
+              <p className="text-sm" style={{ color: 'var(--ds-on-surface-variant)' }}>
+                Dashboard for <span className="font-semibold text-[#10233f]">{liveUser.fullName}</span>
+                <span className="block text-xs opacity-80">Link code: {user.code}</span>
+              </p>
             </div>
 
             {/* Form */}

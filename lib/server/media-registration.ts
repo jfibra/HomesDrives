@@ -3,6 +3,7 @@ import { createHash, randomInt } from 'node:crypto'
 import { getPublicAppOrigin } from '@/lib/app-url'
 import {
   createSupabaseAdminClient,
+  findSupabaseAuthUserByEmail,
   generateUserCode,
 } from '@/lib/server/albums'
 import {
@@ -53,16 +54,7 @@ function isPendingMediaRegistration(user: PendingMediaUserRow) {
 }
 
 async function findAuthUserByEmail(email: string) {
-  const supabase = createSupabaseAdminClient()
-  const { data, error } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 })
-
-  if (error) {
-    throw new Error(`Auth: ${error.message}`)
-  }
-
-  return (
-    data.users.find((user) => user.email?.trim().toLowerCase() === email) ?? null
-  )
+  return findSupabaseAuthUserByEmail(email)
 }
 
 async function completeExistingMediaRegistration(params: {
