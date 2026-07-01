@@ -2,13 +2,17 @@ import { NextResponse } from 'next/server'
 
 import { PHOTOGRAPHER_PORTAL_CODE } from '@/lib/portals/constants'
 import { assertPortalFolderInEvent } from '@/lib/portals/events'
-import { requirePhotographerAccessFromRequest } from '@/lib/portals/require-photographer-access'
+import { requirePhotographerSessionFromRequest } from '@/lib/portals/require-photographer-access'
 import { listPortalPhotos, uploadPortalPhoto } from '@/lib/portals/storage'
 import { inferPortalContentType } from '@/lib/portals/upload-file-utils'
 import { enqueuePhotoFaceProcessing } from '@/lib/server/face-pipeline'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
+
+function accessErrorStatus(message: string) {
+  return /access denied|incorrect pin|6-digit|session expired|full name/i.test(message) ? 401 : 500
+}
 
 export async function GET(
   request: Request,
@@ -22,16 +26,13 @@ export async function GET(
       return NextResponse.json({ error: 'Missing eventSlug.' }, { status: 400 })
     }
 
-    const event = await requirePhotographerAccessFromRequest(request, eventSlug)
+    const { event, photographer } = await requirePhotographerSessionFromRequest(request, eventSlug)
     await assertPortalFolderInEvent(id, event.id)
-    const photos = await listPortalPhotos(id)
+    const photos = await listPortalPhotos(id, { portalPhotographerId: photographer.id })
     return NextResponse.json({ photos })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to load photos.'
-    return NextResponse.json(
-      { error: message },
-      { status: /access denied|incorrect pin|6-digit/i.test(message) ? 401 : 500 },
-    )
+    return NextResponse.json({ error: message }, { status: accessErrorStatus(message) })
   }
 }
 
@@ -58,8 +59,16 @@ export async function POST(
         typeof formData.get('accessToken') === 'string'
           ? String(formData.get('accessToken')).trim()
           : '',
+      photographerId:
+        typeof formData.get('photographerId') === 'string'
+          ? String(formData.get('photographerId')).trim()
+          : '',
     }
-    const event = await requirePhotographerAccessFromRequest(request, eventSlug, accessBody)
+    const { event, photographer } = await requirePhotographerSessionFromRequest(
+      request,
+      eventSlug,
+      accessBody,
+    )
     await assertPortalFolderInEvent(id, event.id)
 
     const uploaded = []
@@ -75,6 +84,7 @@ export async function POST(
           fileBuffer: buffer,
           contentType: inferPortalContentType(file.name, file.type || ''),
           eventId: event.id,
+          portalPhotographerId: photographer.id,
         })
         uploaded.push(photo)
       } catch (error) {
@@ -100,9 +110,10 @@ export async function POST(
       errors: errors.length > 0 ? errors : undefined,
     })
   } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unable to upload photos.'
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Unable to upload photos.' },
-      { status: 500 },
+      { error: message },
+      { status: /access denied|incorrect pin|6-digit|session expired|full name/i.test(message) ? 401 : 500 },
     )
   }
 }

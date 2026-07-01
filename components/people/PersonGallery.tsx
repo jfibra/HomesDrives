@@ -1,22 +1,60 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Check, CheckSquare, Square, Trash2, UserX, X } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { Check, CheckSquare, Pencil, Square, Trash2, UserX, X } from 'lucide-react'
 
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { PORTAL_ADMIN_SESSION_KEY } from '@/lib/portals/constants'
+import { buildBulkPortalRenamePlan } from '@/lib/portals/bulk-rename-photos'
 import type { PersonPhoto } from '@/lib/types/people'
 
 type PersonGalleryProps = {
+  defaultRenameBase?: string
+  enableBulkRename?: boolean
+  eventId?: string
   onDetachPhotos?: (photoIds: string[]) => Promise<void>
   onRemovePhotos?: (photoIds: string[]) => Promise<void>
+  personId?: string
   photos: PersonPhoto[]
 }
 
-export default function PersonGallery({ onDetachPhotos, onRemovePhotos, photos }: PersonGalleryProps) {
+export default function PersonGallery({
+  defaultRenameBase = '',
+  enableBulkRename = false,
+  eventId,
+  onDetachPhotos,
+  onRemovePhotos,
+  personId,
+  photos,
+}: PersonGalleryProps) {
+  const router = useRouter()
   const [activePhoto, setActivePhoto] = useState<PersonPhoto | null>(null)
   const [selectMode, setSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [isWorking, setIsWorking] = useState(false)
   const [error, setError] = useState('')
+  const [bulkRenameOpen, setBulkRenameOpen] = useState(false)
+  const [bulkRenameBase, setBulkRenameBase] = useState(defaultRenameBase)
+  const [isBulkRenaming, setIsBulkRenaming] = useState(false)
+
+  const selectedPhotos = useMemo(
+    () => photos.filter((photo) => selectedIds.includes(photo.id)),
+    [photos, selectedIds],
+  )
+
+  const bulkRenamePreview = useMemo(
+    () => buildBulkPortalRenamePlan(bulkRenameBase, selectedPhotos),
+    [bulkRenameBase, selectedPhotos],
+  )
+  const canBulkRename = enableBulkRename && Boolean(eventId && personId)
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds])
   const allSelected = photos.length > 0 && selectedIds.length === photos.length
@@ -25,6 +63,49 @@ export default function PersonGallery({ onDetachPhotos, onRemovePhotos, photos }
     setSelectMode(false)
     setSelectedIds([])
     setError('')
+  }
+
+  function openBulkRenameDialog() {
+    setBulkRenameBase(defaultRenameBase)
+    setBulkRenameOpen(true)
+  }
+
+  async function saveBulkRename() {
+    if (!canBulkRename || bulkRenamePreview.length === 0) return
+
+    const adminCode = window.localStorage.getItem(PORTAL_ADMIN_SESSION_KEY)?.trim() ?? ''
+    if (!adminCode) {
+      setError('Admin session expired. Sign in again from the admin portal.')
+      return
+    }
+
+    setIsBulkRenaming(true)
+    setError('')
+    try {
+      const response = await fetch(`/api/people/${personId}/photos/bulk-rename`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adminCode,
+          baseName: bulkRenameBase,
+          eventId,
+          photoIds: selectedIds,
+        }),
+      })
+      const data = await response.json().catch(() => null)
+      if (!response.ok) {
+        throw new Error(data?.error || 'Unable to rename photos.')
+      }
+
+      setBulkRenameOpen(false)
+      setBulkRenameBase(defaultRenameBase)
+      exitSelectMode()
+      router.refresh()
+    } catch (renameError) {
+      setError(renameError instanceof Error ? renameError.message : 'Unable to rename photos.')
+    } finally {
+      setIsBulkRenaming(false)
+    }
   }
 
   function togglePhoto(photoId: string) {
@@ -67,7 +148,7 @@ export default function PersonGallery({ onDetachPhotos, onRemovePhotos, photos }
 
   return (
     <>
-      {onDetachPhotos || onRemovePhotos ? (
+      {onDetachPhotos || onRemovePhotos || canBulkRename ? (
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           {selectMode ? (
             <>
@@ -81,8 +162,19 @@ export default function PersonGallery({ onDetachPhotos, onRemovePhotos, photos }
                   type="button"
                 >
                   {allSelected ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
-                  {allSelected ? 'Deselect all' : 'Select all'}
+                  {allSelected ? 'Deselect all' : 'Select all on page'}
                 </button>
+                {canBulkRename ? (
+                  <button
+                    className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-[#10233f] shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={isWorking || isBulkRenaming || selectedIds.length === 0}
+                    onClick={openBulkRenameDialog}
+                    type="button"
+                  >
+                    <Pencil className="h-4 w-4" />
+                    Rename {selectedIds.length > 0 ? selectedIds.length : ''}
+                  </button>
+                ) : null}
                 {onRemovePhotos ? (
                   <button
                     className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
@@ -135,6 +227,88 @@ export default function PersonGallery({ onDetachPhotos, onRemovePhotos, photos }
           )}
         </div>
       ) : null}
+
+      <Dialog
+        onOpenChange={(open) => {
+          if (!open) {
+            setBulkRenameOpen(false)
+            setBulkRenameBase(defaultRenameBase)
+          } else {
+            setBulkRenameOpen(true)
+          }
+        }}
+        open={bulkRenameOpen}
+      >
+        <DialogContent className="rounded-2xl border-slate-200 sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-[#10233f]">
+              Rename {selectedIds.length} selected file{selectedIds.length === 1 ? '' : 's'}
+            </DialogTitle>
+            <DialogDescription>
+              Enter a base name. Each file keeps its extension and gets a number, for example{' '}
+              {defaultRenameBase || 'name'}-1.jpg, {defaultRenameBase || 'name'}-2.jpg.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-700" htmlFor="person-bulk-rename-base">
+                Base name
+              </label>
+              <input
+                autoFocus
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-[#10233f] focus:ring-2 focus:ring-[#10233f]/10"
+                id="person-bulk-rename-base"
+                onChange={(event) => setBulkRenameBase(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && bulkRenamePreview.length > 0) {
+                    void saveBulkRename()
+                  }
+                }}
+                placeholder={defaultRenameBase || 'photo-name'}
+                value={bulkRenameBase}
+              />
+            </div>
+            {bulkRenamePreview.length > 0 ? (
+              <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Preview</p>
+                <ul className="max-h-40 space-y-1 overflow-y-auto text-sm text-slate-700">
+                  {bulkRenamePreview.slice(0, 8).map((rename) => (
+                    <li className="truncate font-mono text-xs" key={rename.id}>
+                      {rename.fileName}
+                    </li>
+                  ))}
+                  {bulkRenamePreview.length > 8 ? (
+                    <li className="text-xs text-slate-500">+{bulkRenamePreview.length - 8} more</li>
+                  ) : null}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <button
+              className="inline-flex min-h-[44px] flex-1 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 sm:flex-none"
+              disabled={isBulkRenaming}
+              onClick={() => {
+                setBulkRenameOpen(false)
+                setBulkRenameBase(defaultRenameBase)
+              }}
+              type="button"
+            >
+              Cancel
+            </button>
+            <button
+              className="inline-flex min-h-[44px] flex-1 items-center justify-center rounded-xl bg-[#10233f] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#1a3358] disabled:cursor-not-allowed disabled:opacity-60 sm:flex-none"
+              disabled={isBulkRenaming || bulkRenamePreview.length === 0}
+              onClick={() => void saveBulkRename()}
+              type="button"
+            >
+              {isBulkRenaming
+                ? 'Renaming…'
+                : `Rename ${selectedIds.length} file${selectedIds.length === 1 ? '' : 's'}`}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {error ? <p className="mb-4 text-sm text-red-600">{error}</p> : null}
 

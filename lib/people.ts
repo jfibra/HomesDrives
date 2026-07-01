@@ -182,15 +182,18 @@ export async function listPeopleForEvent(params: {
   eventId: string
   page?: number
   pageSize?: number
+  search?: string
 }): Promise<PaginatedResult<Person>> {
   const page = Math.max(1, params.page ?? 1)
   const pageSize = Math.min(60, Math.max(1, params.pageSize ?? 24))
   const offset = (page - 1) * pageSize
+  const search = params.search?.trim() || null
 
   const supabase = createSupabaseAdminClient()
 
   const { data: countData, error: countError } = await supabase.rpc('count_people_for_event', {
     p_event_id: params.eventId,
+    p_search: search,
   })
   if (countError) throw new Error(countError.message)
 
@@ -200,6 +203,7 @@ export async function listPeopleForEvent(params: {
     p_event_id: params.eventId,
     p_limit: pageSize,
     p_offset: offset,
+    p_search: search,
   })
   if (error) throw new Error(error.message)
 
@@ -269,6 +273,49 @@ export async function getPersonPhotosForEvent(params: {
     totalCount,
     totalPages: Math.max(1, Math.ceil(totalCount / pageSize)),
   }
+}
+
+export async function listAllPersonPhotosForEvent(params: {
+  personId: string
+  eventId: string
+}): Promise<PersonPhoto[]> {
+  const pageSize = 200
+  let page = 1
+  const items: PersonPhoto[] = []
+
+  while (true) {
+    const result = await getPersonPhotosForEvent({
+      personId: params.personId,
+      eventId: params.eventId,
+      page,
+      pageSize,
+    })
+    items.push(...result.items)
+    if (page >= result.totalPages) {
+      break
+    }
+    page += 1
+  }
+
+  return items
+}
+
+export async function getPersonPhotosByIdsForEvent(params: {
+  personId: string
+  eventId: string
+  photoIds: string[]
+}): Promise<PersonPhoto[]> {
+  const uniqueIds = [...new Set(params.photoIds.map((id) => id.trim()).filter(Boolean))]
+  if (uniqueIds.length === 0) {
+    return []
+  }
+
+  const allPhotos = await listAllPersonPhotosForEvent({
+    personId: params.personId,
+    eventId: params.eventId,
+  })
+  const allowedIds = new Set(allPhotos.map((photo) => photo.id))
+  return allPhotos.filter((photo) => uniqueIds.includes(photo.id) && allowedIds.has(photo.id))
 }
 
 export async function ensurePersonNameFromPhotoIfUnknown(

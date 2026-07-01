@@ -77,19 +77,26 @@ export default function FaceCameraSearch({
   const streamRef = useRef<MediaStream | null>(null)
   const scanTimerRef = useRef<number | null>(null)
   const inFlightRef = useRef(false)
+  const resultLockedRef = useRef(false)
 
   const [cameraActive, setCameraActive] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [resultLocked, setResultLocked] = useState(false)
   const [status, setStatus] = useState('Start the camera to scan your face in real time.')
   const [error, setError] = useState('')
   const [matches, setMatches] = useState<FaceSearchMatch[]>([])
 
-  const stopCamera = useCallback(() => {
+  const pauseScanLoop = useCallback(() => {
     if (scanTimerRef.current != null) {
       window.clearInterval(scanTimerRef.current)
       scanTimerRef.current = null
     }
+    setScanning(false)
+  }, [])
+
+  const releaseCameraStream = useCallback(() => {
+    pauseScanLoop()
 
     const stream = streamRef.current
     if (stream) {
@@ -105,12 +112,31 @@ export default function FaceCameraSearch({
     }
 
     setCameraActive(false)
-    setScanning(false)
     setLoading(false)
     inFlightRef.current = false
-  }, [])
+  }, [pauseScanLoop])
 
-  useEffect(() => () => stopCamera(), [stopCamera])
+  const stopCamera = useCallback(() => {
+    releaseCameraStream()
+    setResultLocked(false)
+    resultLockedRef.current = false
+    setMatches([])
+    setStatus('Start the camera to scan your face in real time.')
+  }, [releaseCameraStream])
+
+  useEffect(() => () => {
+    releaseCameraStream()
+  }, [releaseCameraStream])
+
+  const lockCapture = useCallback((nextMatches: FaceSearchMatch[]) => {
+    releaseCameraStream()
+    resultLockedRef.current = true
+    setResultLocked(true)
+    setMatches(nextMatches)
+    setStatus(
+      `Found ${nextMatches.length} matching ${nextMatches.length === 1 ? 'person' : 'people'}.`,
+    )
+  }, [releaseCameraStream])
 
   const captureFrame = useCallback(async () => {
     const video = videoRef.current
@@ -132,7 +158,7 @@ export default function FaceCameraSearch({
   }, [])
 
   const runSearch = useCallback(async () => {
-    if (inFlightRef.current) return
+    if (inFlightRef.current || resultLockedRef.current) return
 
     const frame = await captureFrame()
     if (!frame) return
@@ -169,7 +195,6 @@ export default function FaceCameraSearch({
 
       const result = parseSearchResponse(data as Record<string, unknown>)
       onResult?.(result)
-      setMatches(result.matches)
 
       if (result.noFaceDetected) {
         setStatus('No face detected. Center your face in the camera frame.')
@@ -181,9 +206,7 @@ export default function FaceCameraSearch({
         return
       }
 
-      setStatus(
-        `Found ${result.matches.length} matching ${result.matches.length === 1 ? 'person' : 'people'}.`,
-      )
+      lockCapture(result.matches)
     } catch (searchError) {
       setError(searchError instanceof Error ? searchError.message : 'Face search failed.')
       setStatus('Scan paused due to an error.')
@@ -191,7 +214,7 @@ export default function FaceCameraSearch({
       inFlightRef.current = false
       setLoading(false)
     }
-  }, [captureFrame, includeAdminCode, onResult, searchUrl])
+  }, [captureFrame, includeAdminCode, lockCapture, onResult, searchUrl])
 
   const startScanLoop = useCallback(() => {
     if (scanTimerRef.current != null) {
@@ -210,6 +233,8 @@ export default function FaceCameraSearch({
   const startCamera = useCallback(async () => {
     setError('')
     setMatches([])
+    setResultLocked(false)
+    resultLockedRef.current = false
     setStatus('Starting camera…')
 
     try {
@@ -243,87 +268,108 @@ export default function FaceCameraSearch({
     }
   }, [startScanLoop, stopCamera])
 
+  const scanAgain = useCallback(() => {
+    resultLockedRef.current = false
+    setResultLocked(false)
+    setMatches([])
+    setError('')
+    onResult?.(null)
+    window.requestAnimationFrame(() => {
+      void startCamera()
+    })
+  }, [onResult, startCamera])
+
   return (
     <div className="space-y-6">
-      <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-950 shadow-sm">
-        <div className="relative aspect-[4/3] w-full bg-slate-900 sm:aspect-video">
-          <video
-            autoPlay
-            className={`h-full w-full object-cover ${cameraActive ? 'block' : 'hidden'}`}
-            muted
-            playsInline
-            ref={videoRef}
-          />
-          {!cameraActive ? (
-            <div className="flex h-full flex-col items-center justify-center px-6 text-center text-slate-300">
-              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-white/10">
-                <Camera className="h-8 w-8" />
-              </div>
-              <p className="text-sm font-medium text-white">Live face scanner</p>
-              <p className="mt-1 max-w-sm text-xs text-slate-400">
-                Use your webcam to find matching people in this event&apos;s library in real time.
-              </p>
-            </div>
-          ) : null}
-          {cameraActive ? (
-            <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between bg-gradient-to-b from-black/50 to-transparent px-4 py-3">
-              <div className="inline-flex items-center gap-2 text-xs font-medium text-white">
-                {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ScanFace className="h-3.5 w-3.5" />}
-                {scanning ? 'Live scanning' : 'Camera on'}
-              </div>
-              {matches.length > 0 ? (
-                <span className="rounded-full bg-white/15 px-2.5 py-1 text-xs font-semibold text-white">
-                  {matches.length} match{matches.length === 1 ? '' : 'es'}
-                </span>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-
-        <canvas className="hidden" ref={canvasRef} />
-
-        <div className="flex flex-col gap-3 border-t border-white/10 bg-slate-900 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-slate-300">{status}</p>
-          <div className="flex flex-wrap gap-2">
+      {!resultLocked ? (
+        <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-950 shadow-sm">
+          <div className="relative aspect-[4/3] w-full bg-slate-900 sm:aspect-video">
+            <video
+              autoPlay
+              className={`h-full w-full object-cover ${cameraActive ? 'block' : 'hidden'}`}
+              muted
+              playsInline
+              ref={videoRef}
+            />
             {!cameraActive ? (
-              <button
-                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-[#10233f] transition hover:bg-slate-100"
-                onClick={() => void startCamera()}
-                type="button"
-              >
-                <Camera className="h-4 w-4" />
-                Start camera
-              </button>
-            ) : (
-              <>
+              <div className="flex h-full flex-col items-center justify-center px-6 text-center text-slate-300">
+                <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-white/10">
+                  <Camera className="h-8 w-8" />
+                </div>
+                <p className="text-sm font-medium text-white">Live face scanner</p>
+                <p className="mt-1 max-w-sm text-xs text-slate-400">
+                  Use your webcam to find matching people in this event&apos;s library in real time.
+                </p>
+              </div>
+            ) : null}
+            {cameraActive ? (
+              <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between bg-gradient-to-b from-black/50 to-transparent px-4 py-3">
+                <div className="inline-flex items-center gap-2 text-xs font-medium text-white">
+                  {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ScanFace className="h-3.5 w-3.5" />}
+                  {scanning ? 'Live scanning' : 'Camera on'}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <canvas className="hidden" ref={canvasRef} />
+
+          <div className="flex flex-col gap-3 border-t border-white/10 bg-slate-900 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-slate-300">{status}</p>
+            <div className="flex flex-wrap gap-2">
+              {!cameraActive ? (
                 <button
-                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/15"
-                  disabled={loading}
-                  onClick={() => void runSearch()}
+                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-[#10233f] transition hover:bg-slate-100"
+                  onClick={() => void startCamera()}
                   type="button"
                 >
-                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanFace className="h-4 w-4" />}
-                  Scan now
+                  <Camera className="h-4 w-4" />
+                  Start camera
                 </button>
-                <button
-                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-white/15 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-white/10"
-                  onClick={stopCamera}
-                  type="button"
-                >
-                  <CameraOff className="h-4 w-4" />
-                  Stop camera
-                </button>
-              </>
-            )}
+              ) : (
+                <>
+                  <button
+                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/15"
+                    disabled={loading}
+                    onClick={() => void runSearch()}
+                    type="button"
+                  >
+                    {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanFace className="h-4 w-4" />}
+                    Capture now
+                  </button>
+                  <button
+                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-white/15 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-white/10"
+                    onClick={stopCamera}
+                    type="button"
+                  >
+                    <CameraOff className="h-4 w-4" />
+                    Stop camera
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      ) : null}
 
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
 
-      {matches.length > 0 ? (
+      {resultLocked && matches.length > 0 ? (
         <div>
-          <h3 className="mb-3 text-sm font-semibold text-[#10233f]">Matching people</h3>
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-[#10233f]">Matching people</h3>
+              <p className="mt-1 text-sm text-slate-500">{status}</p>
+            </div>
+            <button
+              className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#10233f] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#0d1c33]"
+              onClick={scanAgain}
+              type="button"
+            >
+              <ScanFace className="h-4 w-4" />
+              Scan again
+            </button>
+          </div>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
             {matches.map((match, index) => (
               <Link

@@ -1,15 +1,16 @@
 'use client'
 
 import Link from 'next/link'
-import { FolderOpen, Users } from 'lucide-react'
+import { Camera, FolderOpen, Users } from 'lucide-react'
 
 import {
   getAdminEventPeoplePath,
+  getAdminEventPhotographersPath,
   getAdminEventWorkspacePath,
 } from '@/lib/portals/constants'
 
 type AdminWorkspaceNavProps = {
-  activeTab: 'folders' | 'people'
+  activeTab: 'folders' | 'people' | 'photographers'
   eventSlug: string
 }
 
@@ -20,6 +21,12 @@ export default function AdminWorkspaceNav({ activeTab, eventSlug }: AdminWorkspa
       label: 'Folders',
       href: getAdminEventWorkspacePath(eventSlug),
       icon: FolderOpen,
+    },
+    {
+      id: 'photographers' as const,
+      label: 'Photographers',
+      href: getAdminEventPhotographersPath(eventSlug),
+      icon: Camera,
     },
     {
       id: 'people' as const,

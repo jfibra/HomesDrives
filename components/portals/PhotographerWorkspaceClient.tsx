@@ -23,6 +23,7 @@ import {
   assertPortalFileFitsServerProxy,
 } from '@/lib/client/compress-upload-image'
 import FolderTree from '@/components/portals/FolderTree'
+import PhotographerNameGate from '@/components/portals/PhotographerNameGate'
 import PhotographerPinGate from '@/components/portals/PhotographerPinGate'
 import PortalFrame from '@/components/portals/PortalFrame'
 import {
@@ -42,6 +43,13 @@ import {
 } from '@/lib/photo-upload-limits'
 import { getPublicPortalFolderUrl, PORTAL_API_BASE } from '@/lib/portals/constants'
 import { getPhotographerAccessStorageKey } from '@/lib/portals/photographer-access'
+import {
+  clearStoredPhotographerIdentity,
+  isPhotographerPinError,
+  readStoredPhotographerIdentity,
+  resolvePhotographerSession,
+  writeStoredPhotographerIdentity,
+} from '@/lib/portals/photographer-identity'
 import { withEventQuery } from '@/lib/portals/event-query'
 import {
   canPortalFileUseServerUpload,
@@ -220,6 +228,7 @@ async function uploadMediaFileViaServer(
   file: File,
   eventSlug: string,
   accessToken = '',
+  photographerId = '',
 ) {
   assertPortalFileFitsServerProxy(file)
 
@@ -227,6 +236,7 @@ async function uploadMediaFileViaServer(
   formData.append('files', file, file.name)
   formData.append('eventSlug', eventSlug)
   if (accessToken) formData.append('accessToken', accessToken)
+  if (photographerId) formData.append('photographerId', photographerId)
 
   const res = await fetchWithTimeout(`/api/portal-api/photographers/folders/${folderId}/photos`, {
     method: 'POST',
@@ -272,10 +282,17 @@ async function uploadPortalFileDirect(
   file: File,
   eventSlug: string,
   accessToken = '',
+  photographerId = '',
 ): Promise<PortalPhoto> {
-  const [upload] = await presignPortalFiles(folderId, [file], eventSlug, accessToken)
+  const [upload] = await presignPortalFiles(folderId, [file], eventSlug, accessToken, photographerId)
   const multipart = await uploadFileToStorage(file, upload)
-  const [photo] = await completePresignedPortalBatch(folderId, [{ file, upload, multipart }], eventSlug, accessToken)
+  const [photo] = await completePresignedPortalBatch(
+    folderId,
+    [{ file, upload, multipart }],
+    eventSlug,
+    accessToken,
+    photographerId,
+  )
   if (!photo) {
     throw new Error(`Upload failed for "${file.name}".`)
   }
@@ -287,9 +304,10 @@ async function uploadMediaFileViaServerPrepared(
   file: File,
   eventSlug: string,
   accessToken = '',
+  photographerId = '',
 ): Promise<PortalPhoto> {
   const prepared = await preparePortalFileForServerUpload(file)
-  return uploadMediaFileViaServer(folderId, prepared, eventSlug, accessToken)
+  return uploadMediaFileViaServer(folderId, prepared, eventSlug, accessToken, photographerId)
 }
 
 async function uploadPortalFileResolved(
@@ -297,6 +315,7 @@ async function uploadPortalFileResolved(
   file: File,
   eventSlug: string,
   accessToken = '',
+  photographerId = '',
 ): Promise<PortalPhoto> {
   if (isPortalFileOverUploadLimit(file)) {
     const contentType = inferPortalContentType(file.name, file.type)
@@ -305,7 +324,7 @@ async function uploadPortalFileResolved(
     )
   }
 
-  return uploadPortalFileWithFallback(folderId, file, eventSlug, accessToken)
+  return uploadPortalFileWithFallback(folderId, file, eventSlug, accessToken, photographerId)
 }
 
 async function runWithConcurrency<T>(
@@ -334,6 +353,7 @@ async function presignPortalFiles(
   files: File[],
   eventSlug: string,
   accessToken = '',
+  photographerId = '',
 ): Promise<PresignedPortalUpload[]> {
   const presignRes = await fetchWithTimeout(`/api/portal-api/photographers/folders/${folderId}/photos/presign`, {
     method: 'POST',
@@ -341,6 +361,7 @@ async function presignPortalFiles(
     body: JSON.stringify({
       eventSlug,
       accessToken: accessToken || undefined,
+      photographerId: photographerId || undefined,
       files: files.map((file) => ({
         fileName: file.name,
         contentType: inferPortalContentType(file.name, file.type),
@@ -371,6 +392,7 @@ async function completePresignedPortalBatch(
   }>,
   eventSlug: string,
   accessToken = '',
+  photographerId = '',
 ): Promise<PortalPhoto[]> {
   if (items.length === 0) return []
 
@@ -380,6 +402,7 @@ async function completePresignedPortalBatch(
     body: JSON.stringify({
       eventSlug,
       accessToken: accessToken || undefined,
+      photographerId: photographerId || undefined,
       uploads: items.map(({ file, upload, multipart }) => ({
         fileName: upload.fileName,
         contentType: upload.contentType,
@@ -403,21 +426,24 @@ async function uploadPortalFileWithFallback(
   file: File,
   eventSlug: string,
   accessToken = '',
+  photographerId = '',
 ): Promise<PortalPhoto> {
   try {
-    return await uploadPortalFileDirect(folderId, file, eventSlug, accessToken)
+    return await uploadPortalFileDirect(folderId, file, eventSlug, accessToken, photographerId)
   } catch (error) {
     if (!shouldFallbackToServerUpload(error) && !isDirectStorageUploadError(error)) {
       throw error
     }
 
-    return uploadMediaFileViaServerPrepared(folderId, file, eventSlug, accessToken)
+    return uploadMediaFileViaServerPrepared(folderId, file, eventSlug, accessToken, photographerId)
   }
 }
 
 export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: string }) {
   const [accessToken, setAccessToken] = useState('')
-  const [accessState, setAccessState] = useState<'checking' | 'pin' | 'ready'>('checking')
+  const [photographerId, setPhotographerId] = useState('')
+  const [photographerName, setPhotographerName] = useState('')
+  const [accessState, setAccessState] = useState<'checking' | 'pin' | 'identity' | 'ready'>('checking')
   const [gateEventName, setGateEventName] = useState('')
   const [eventInfo, setEventInfo] = useState<PortalEvent | null>(null)
   const [tree, setTree] = useState<PortalFolderNode[]>([])
@@ -455,6 +481,17 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
     () => filterPortalPhotosByFileName(photos, photoSearch),
     [photos, photoSearch],
   )
+
+  const sessionAuth = useCallback(
+    () => resolvePhotographerSession(eventSlug, { accessToken, photographerId }),
+    [accessToken, eventSlug, photographerId],
+  )
+
+  function handlePhotographerPinRequired(message?: string) {
+    setAccessToken('')
+    setAccessState('pin')
+    setError(message || 'Your event PIN session expired. Enter the PIN again to continue uploading.')
+  }
 
   const currentLightboxPhoto =
     lightboxIndex != null ? filteredPhotos[lightboxIndex] ?? null : null
@@ -506,30 +543,106 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
   }
 
   const loadFolders = useCallback(async () => {
+    const auth = sessionAuth()
     const res = await fetch(
       withEventQuery('/api/portal-api/photographers/folders', eventSlug, {
-        accessToken: accessToken || undefined,
+        accessToken: auth.accessToken || undefined,
+        photographerId: auth.photographerId || undefined,
       }),
     )
     const data = await res.json().catch(() => null)
-    if (!res.ok) throw new Error(data?.error || 'Unable to load folders.')
+    if (!res.ok) {
+      const message = data?.error || 'Unable to load folders.'
+      if (res.status === 401 && isPhotographerPinError(message)) {
+        handlePhotographerPinRequired(message)
+      }
+      throw new Error(message)
+    }
+    if (auth.accessToken && auth.accessToken !== accessToken) {
+      setAccessToken(auth.accessToken)
+    }
     setEventInfo(data.event ?? null)
     const nextFolders = Array.isArray(data.folders) ? data.folders : []
     setFolders(nextFolders)
     setTree(Array.isArray(data.tree) ? data.tree : [])
     return nextFolders as PortalFolder[]
-  }, [accessToken, eventSlug])
+  }, [accessToken, eventSlug, sessionAuth])
 
   const loadPhotos = useCallback(async (folderId: string) => {
+    const auth = sessionAuth()
     const res = await fetch(
       withEventQuery(`/api/portal-api/photographers/folders/${folderId}/photos`, eventSlug, {
-        accessToken: accessToken || undefined,
+        accessToken: auth.accessToken || undefined,
+        photographerId: auth.photographerId || undefined,
       }),
     )
     const data = await res.json().catch(() => null)
-    if (!res.ok) throw new Error(data?.error || 'Unable to load photos.')
+    if (!res.ok) {
+      const message = data?.error || 'Unable to load photos.'
+      if (res.status === 401 && isPhotographerPinError(message)) {
+        handlePhotographerPinRequired(message)
+      }
+      throw new Error(message)
+    }
     setPhotos(Array.isArray(data.photos) ? data.photos : [])
-  }, [accessToken, eventSlug])
+  }, [eventSlug, sessionAuth])
+
+  const validateIdentity = useCallback(
+    async (token: string) => {
+      const storedIdentity = readStoredPhotographerIdentity(eventSlug)
+      try {
+        const res = await fetch(
+          withEventQuery(`${PORTAL_API_BASE}/photographers/identity`, eventSlug, {
+            accessToken: token || undefined,
+            photographerId: storedIdentity?.id,
+          }),
+        )
+        const data = await res.json().catch(() => null)
+        if (!res.ok) {
+          throw new Error(data?.error || 'Unable to verify photographer identity.')
+        }
+
+        if (data?.identity?.id && data?.identity?.fullName) {
+          const identity = { id: data.identity.id as string, fullName: data.identity.fullName as string }
+          writeStoredPhotographerIdentity(eventSlug, identity)
+          setPhotographerId(identity.id)
+          setPhotographerName(identity.fullName)
+          setAccessState('ready')
+          return
+        }
+
+        if (storedIdentity?.id) {
+          clearStoredPhotographerIdentity(eventSlug)
+        }
+        setPhotographerId('')
+        setPhotographerName('')
+        setAccessState('identity')
+      } catch (identityError) {
+        setPhotographerId('')
+        setPhotographerName('')
+        setError(
+          identityError instanceof Error
+            ? identityError.message
+            : 'Unable to verify photographer identity.',
+        )
+        setAccessState('identity')
+      } finally {
+        setLoading(false)
+      }
+    },
+    [eventSlug],
+  )
+
+  function switchPhotographer() {
+    clearStoredPhotographerIdentity(eventSlug)
+    setPhotographerId('')
+    setPhotographerName('')
+    setFolders([])
+    setTree([])
+    setSelectedFolderId(null)
+    setPhotos([])
+    setAccessState('identity')
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -557,10 +670,10 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
           return
         }
 
-        if (stored && data?.authorized) {
+        if (data?.authorized && stored) {
           setAccessToken(stored)
         }
-        setAccessState('ready')
+        await validateIdentity(data?.authorized && stored ? stored : '')
       } catch (checkError) {
         if (!cancelled) {
           setError(checkError instanceof Error ? checkError.message : 'Unable to verify photographer access.')
@@ -575,7 +688,21 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
     return () => {
       cancelled = true
     }
-  }, [eventSlug])
+  }, [eventSlug, validateIdentity])
+
+  useEffect(() => {
+    if (accessState !== 'ready') return
+
+    const auth = resolvePhotographerSession(eventSlug, { accessToken, photographerId })
+    if (auth.accessToken && auth.accessToken !== accessToken) {
+      setAccessToken(auth.accessToken)
+    }
+    if (auth.photographerId && auth.photographerId !== photographerId) {
+      const identity = readStoredPhotographerIdentity(eventSlug)
+      setPhotographerId(auth.photographerId)
+      if (identity?.fullName) setPhotographerName(identity.fullName)
+    }
+  }, [accessState, accessToken, eventSlug, photographerId])
 
   useEffect(() => {
     if (accessState !== 'ready') return
@@ -691,6 +818,7 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
   async function createFolder(folderName: string, parentFolderId?: string | null) {
     setIsSavingFolder(true)
     setError('')
+    const auth = sessionAuth()
     try {
       const res = await fetch('/api/portal-api/photographers/folders', {
         method: 'POST',
@@ -699,11 +827,18 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
           folderName,
           parentFolderId: parentFolderId ?? null,
           eventSlug,
-          accessToken: accessToken || undefined,
+          accessToken: auth.accessToken || undefined,
+          photographerId: auth.photographerId || undefined,
         }),
       })
       const data = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(data?.error || 'Unable to create folder.')
+      if (!res.ok) {
+        const message = data?.error || 'Unable to create folder.'
+        if (res.status === 401 && isPhotographerPinError(message)) {
+          handlePhotographerPinRequired(message)
+        }
+        throw new Error(message)
+      }
       const nextFolders = await loadFolders()
       if (data.folder?.id) {
         if (parentFolderId) {
@@ -791,6 +926,7 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
     }
 
     try {
+      const auth = sessionAuth()
       const uploadQueue = [...filesToUpload]
       let completedCount = 0
       const finishedFileKeys = new Set<string>()
@@ -832,7 +968,7 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
       const uploadOne = async (file: File) => {
         setActiveFile(file)
         try {
-          mergePhotos([await uploadPortalFileResolved(selectedFolderId, file, eventSlug, accessToken)])
+          mergePhotos([await uploadPortalFileResolved(selectedFolderId, file, eventSlug, auth.accessToken, auth.photographerId)])
         } catch (error) {
           failures.push(
             `${file.name}: ${error instanceof Error ? error.message : 'Upload failed.'}`,
@@ -862,12 +998,12 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
         try {
           const presigns = prefetchedPresigns
             ? await prefetchedPresigns
-            : await presignPortalFiles(selectedFolderId, batch, eventSlug, accessToken)
+            : await presignPortalFiles(selectedFolderId, batch, eventSlug, auth.accessToken, auth.photographerId)
           prefetchedPresigns = null
 
           const nextBatch = uploadQueue.slice(offset + presignBatchSize, offset + presignBatchSize * 2)
           if (nextBatch.length > 0) {
-            prefetchedPresigns = presignPortalFiles(selectedFolderId, nextBatch, eventSlug, accessToken)
+            prefetchedPresigns = presignPortalFiles(selectedFolderId, nextBatch, eventSlug, auth.accessToken, auth.photographerId)
           }
           const jobs = batch.map((file, index) => ({ file, upload: presigns[index] }))
           const readyToComplete: Array<{
@@ -906,7 +1042,7 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
 
           if (readyToComplete.length > 0) {
             try {
-              mergePhotos(await completePresignedPortalBatch(selectedFolderId, readyToComplete, eventSlug, accessToken))
+              mergePhotos(await completePresignedPortalBatch(selectedFolderId, readyToComplete, eventSlug, auth.accessToken, auth.photographerId))
               for (const item of readyToComplete) {
                 batchCompletedKeys.add(fileProgressKey(item.file))
                 finishFileProgress(item.file)
@@ -934,7 +1070,15 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
 
               setActiveFile(file)
               try {
-                mergePhotos([await uploadMediaFileViaServerPrepared(selectedFolderId, file, eventSlug)])
+                mergePhotos([
+                  await uploadMediaFileViaServerPrepared(
+                    selectedFolderId,
+                    file,
+                    eventSlug,
+                    auth.accessToken,
+                    auth.photographerId,
+                  ),
+                ])
               } catch (error) {
                 failures.push(
                   `${file.name}: ${error instanceof Error ? error.message : 'Upload failed.'}`,
@@ -969,6 +1113,9 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
         messages.push(failures.slice(0, 3).join(' · '))
         if (failures.length > 3) {
           messages.push(`and ${failures.length - 3} more failed.`)
+        }
+        if (failures.some((failure) => isPhotographerPinError(failure))) {
+          handlePhotographerPinRequired()
         }
       }
       if (messages.length > 0) {
@@ -1063,16 +1210,24 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
     setError('')
     setSuccess('')
     setDeletingFolder(true)
+    const auth = sessionAuth()
     try {
       const parentId = selectedFolder?.parent_folder_id ?? null
       const res = await fetch(
         withEventQuery(`/api/portal-api/photographers/folders/${selectedFolderId}`, eventSlug, {
-          accessToken: accessToken || undefined,
+          accessToken: auth.accessToken || undefined,
+          photographerId: auth.photographerId || undefined,
         }),
         { method: 'DELETE' },
       )
       const data = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(data?.error || 'Unable to delete folder.')
+      if (!res.ok) {
+        const message = data?.error || 'Unable to delete folder.'
+        if (res.status === 401 && isPhotographerPinError(message)) {
+          handlePhotographerPinRequired(message)
+        }
+        throw new Error(message)
+      }
 
       setFolderManageOpen(false)
       const nextFolders = await loadFolders()
@@ -1094,15 +1249,23 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
     setError('')
     setSuccess('')
     setDeletingPhotoId(photoId)
+    const auth = sessionAuth()
     try {
       const res = await fetch(
         withEventQuery(`/api/portal-api/photographers/photos/${photoId}`, eventSlug, {
-          accessToken: accessToken || undefined,
+          accessToken: auth.accessToken || undefined,
+          photographerId: auth.photographerId || undefined,
         }),
         { method: 'DELETE' },
       )
       const data = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(data?.error || 'Unable to delete photo.')
+      if (!res.ok) {
+        const message = data?.error || 'Unable to delete photo.'
+        if (res.status === 401 && isPhotographerPinError(message)) {
+          handlePhotographerPinRequired(message)
+        }
+        throw new Error(message)
+      }
 
       setConfirmDeletePhotoId(null)
       setPhotos((current) => {
@@ -1149,6 +1312,24 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
         onAuthorized={(token: string) => {
           setError('')
           setAccessToken(token)
+          setLoading(true)
+          void validateIdentity(token)
+        }}
+      />
+    )
+  }
+
+  if (accessState === 'identity') {
+    return (
+      <PhotographerNameGate
+        accessToken={accessToken}
+        eventName={gateEventName}
+        eventSlug={eventSlug}
+        onRegistered={(identity) => {
+          setError('')
+          writeStoredPhotographerIdentity(eventSlug, identity)
+          setPhotographerId(identity.id)
+          setPhotographerName(identity.fullName)
           setAccessState('ready')
           setLoading(true)
         }}
@@ -1168,7 +1349,13 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
   return (
     <PortalFrame
       badge="Photographer Portal"
-      subtitle={eventInfo ? `Uploads for ${eventInfo.name}.` : undefined}
+      subtitle={
+        eventInfo
+          ? photographerName
+            ? `Signed in as ${photographerName} · ${eventInfo.name}`
+            : `Uploads for ${eventInfo.name}.`
+          : undefined
+      }
       title={eventInfo?.name ?? 'Upload workspace'}
       variant="photographer"
     >
@@ -1195,7 +1382,11 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
             <div className="mb-4 flex items-center justify-between gap-2">
               <div>
                 <h2 className="text-sm font-semibold text-[#10233f]">Your folders</h2>
-                <p className="text-xs text-slate-500">Main folders and sub-folders</p>
+                <p className="text-xs text-slate-500">
+                  {photographerName
+                    ? `Saved for ${photographerName} on this device`
+                    : 'Main folders and sub-folders'}
+                </p>
               </div>
               <button
                 aria-label="Refresh folders"
@@ -1207,6 +1398,19 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
                 <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
               </button>
             </div>
+
+            {photographerName ? (
+              <p className="mb-4 text-xs leading-relaxed text-slate-500">
+                Open this same link again to return here. On a new phone, enter the same full name.{' '}
+                <button
+                  className="font-medium text-[#10233f] underline-offset-2 hover:underline"
+                  onClick={switchPhotographer}
+                  type="button"
+                >
+                  Not you?
+                </button>
+              </p>
+            ) : null}
 
             {!isCreatingRootFolder ? (
               <button

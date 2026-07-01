@@ -58,6 +58,8 @@ export default async function AdminEventPersonPage({ params, searchParams }: Adm
       <div className="overflow-hidden rounded-[1.75rem] border border-white/80 bg-white/75 p-5 shadow-[0_20px_60px_-12px_rgba(16,35,63,0.12)] backdrop-blur-sm sm:p-8">
         <PersonDetailClient
           backHref={peopleBasePath}
+          enableBulkRename
+          eventId={event.id}
           initialPerson={person}
           paginationBasePath={personBasePath}
           photosResult={photosResult}

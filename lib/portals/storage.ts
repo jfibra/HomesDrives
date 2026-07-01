@@ -78,7 +78,10 @@ export async function getPortalUser(code: string) {
   return user
 }
 
-async function countPhotosByFolderIds(folderIds: string[]) {
+async function countPhotosByFolderIds(
+  folderIds: string[],
+  portalPhotographerId?: string | null,
+) {
   const supabaseAdmin = createSupabaseAdminClient()
   const counts = new Map<string, number>()
   if (folderIds.length === 0) return counts
@@ -88,11 +91,16 @@ async function countPhotosByFolderIds(folderIds: string[]) {
     const chunk = folderIds.slice(i, i + chunkSize)
     let offset = 0
     for (;;) {
-      const { data, error } = await supabaseAdmin
+      let query = supabaseAdmin
         .from('albums_photos')
         .select('folder_id')
         .in('folder_id', chunk)
-        .range(offset, offset + 999)
+
+      if (portalPhotographerId) {
+        query = query.eq('portal_photographer_id', portalPhotographerId)
+      }
+
+      const { data, error } = await query.range(offset, offset + 999)
       if (error) throw new Error(error.message)
       const batch = data ?? []
       for (const row of batch) {
@@ -128,19 +136,29 @@ export async function listPortalFoldersForAdmin(eventId: string): Promise<Portal
 export async function listPortalFoldersForUploader(
   uploaderCode: string,
   eventId: string,
+  options?: { portalPhotographerId?: string | null },
 ): Promise<PortalFolder[]> {
   const supabaseAdmin = createSupabaseAdminClient()
-  const { data, error } = await supabaseAdmin
+  let query = supabaseAdmin
     .from('albums_folders')
     .select(PORTAL_FOLDER_SELECT)
     .eq('uploader_code', uploaderCode)
     .eq('portal_event_id', eventId)
+
+  if (options?.portalPhotographerId) {
+    query = query.eq('portal_photographer_id', options.portalPhotographerId)
+  }
+
+  const { data, error } = await query
     .order('sort_order', { ascending: true })
     .order('created_at', { ascending: true })
 
   if (error) throw new Error(error.message)
   const rows = (data ?? []).map((row) => mapPortalFolderRow(row as PortalFolderRow))
-  const counts = await countPhotosByFolderIds(rows.map((r) => r.id))
+  const counts = await countPhotosByFolderIds(
+    rows.map((r) => r.id),
+    options?.portalPhotographerId,
+  )
   return rows.map((row) => ({
     ...row,
     photo_count: counts.get(row.id) ?? 0,
@@ -218,6 +236,7 @@ export async function createPortalFolder(params: {
   parentFolderId?: string | null
   labelSuffix?: string
   eventId: string
+  portalPhotographerId?: string | null
 }) {
   const user = await getPortalUser(params.uploaderCode)
   const supabaseAdmin = createSupabaseAdminClient()
@@ -225,7 +244,7 @@ export async function createPortalFolder(params: {
   if (params.parentFolderId) {
     const { data: parent, error: parentError } = await supabaseAdmin
       .from('albums_folders')
-      .select('id, uploader_code, parent_folder_id, portal_event_id')
+      .select('id, uploader_code, parent_folder_id, portal_event_id, portal_photographer_id')
       .eq('id', params.parentFolderId)
       .maybeSingle()
     if (parentError) throw new Error(parentError.message)
@@ -233,6 +252,13 @@ export async function createPortalFolder(params: {
       throw new Error('Parent folder not found.')
     }
     if (parent.portal_event_id && parent.portal_event_id !== params.eventId) {
+      throw new Error('Parent folder not found.')
+    }
+    if (
+      params.portalPhotographerId &&
+      parent.portal_photographer_id &&
+      parent.portal_photographer_id !== params.portalPhotographerId
+    ) {
       throw new Error('Parent folder not found.')
     }
 
@@ -262,6 +288,7 @@ export async function createPortalFolder(params: {
       folder_name: folderName,
       parent_folder_id: parentFolderId,
       portal_event_id: params.eventId,
+      portal_photographer_id: params.portalPhotographerId ?? null,
       sort_order: sortOrder,
       type_of_place: params.uploaderCode === PUBLIC_PORTAL_CODE ? ['Public submission'] : ['Photographer portal'],
       tags:
@@ -334,10 +361,13 @@ export async function deletePortalFolderForUploader(
   folderId: string,
   uploaderCode: string,
   eventId: string,
+  portalPhotographerId?: string | null,
 ) {
-  await getPortalFolderForUploader(folderId, uploaderCode, eventId)
+  await getPortalFolderForUploader(folderId, uploaderCode, eventId, portalPhotographerId)
 
-  const allFolders = await listPortalFoldersForUploader(uploaderCode, eventId)
+  const allFolders = await listPortalFoldersForUploader(uploaderCode, eventId, {
+    portalPhotographerId: portalPhotographerId ?? undefined,
+  })
   const folderIdsToRemove = new Set<string>()
   const stack = [folderId]
 
@@ -397,20 +427,24 @@ export async function deletePortalPhotoForUploader(
   photoId: string,
   uploaderCode: string,
   eventId: string,
+  portalPhotographerId?: string | null,
 ) {
   const supabaseAdmin = createSupabaseAdminClient()
   const { data: photo, error: selectError } = await supabaseAdmin
     .from('albums_photos')
-    .select('id, folder_id, bucket_name, storage_path, uploader_code')
+    .select('id, folder_id, bucket_name, storage_path, uploader_code, portal_photographer_id')
     .eq('id', photoId)
     .maybeSingle()
 
   if (selectError) throw new Error(selectError.message)
   if (!photo) throw new Error('Photo not found.')
   if (photo.uploader_code !== uploaderCode) throw new Error('Photo not found.')
+  if (portalPhotographerId && photo.portal_photographer_id !== portalPhotographerId) {
+    throw new Error('Photo not found.')
+  }
 
   if (photo.folder_id) {
-    await getPortalFolderForUploader(photo.folder_id, uploaderCode, eventId)
+    await getPortalFolderForUploader(photo.folder_id, uploaderCode, eventId, portalPhotographerId)
   }
 
   await deleteImageObject(photo.bucket_name, photo.storage_path)
@@ -488,12 +522,21 @@ export async function listPortalPhotosForFolderTree(
   return { folder: context.root, photos }
 }
 
-export async function listPortalPhotos(folderId: string): Promise<PortalPhoto[]> {
+export async function listPortalPhotos(
+  folderId: string,
+  options?: { portalPhotographerId?: string | null },
+): Promise<PortalPhoto[]> {
   const supabaseAdmin = createSupabaseAdminClient()
-  const { data, error } = await supabaseAdmin
+  let query = supabaseAdmin
     .from('albums_photos')
     .select('id, folder_id, image_url, original_file_name, file_size_bytes, created_at')
     .eq('folder_id', folderId)
+
+  if (options?.portalPhotographerId) {
+    query = query.eq('portal_photographer_id', options.portalPhotographerId)
+  }
+
+  const { data, error } = await query
 
   if (error) throw new Error(error.message)
   return sortPortalPhotosByFileName((data ?? []) as PortalPhoto[])
@@ -610,11 +653,16 @@ function assertPortalUploadFileSize(fileName: string, contentType: string, fileS
   }
 }
 
-async function getPortalFolderForUploader(folderId: string, uploaderCode: string, eventId?: string) {
+async function getPortalFolderForUploader(
+  folderId: string,
+  uploaderCode: string,
+  eventId?: string,
+  portalPhotographerId?: string | null,
+) {
   const supabaseAdmin = createSupabaseAdminClient()
   const { data: folder, error: folderError } = await supabaseAdmin
     .from('albums_folders')
-    .select('id, folder_name, uploader_code, portal_event_id')
+    .select('id, folder_name, uploader_code, portal_event_id, portal_photographer_id')
     .eq('id', folderId)
     .eq('uploader_code', uploaderCode)
     .maybeSingle()
@@ -622,6 +670,9 @@ async function getPortalFolderForUploader(folderId: string, uploaderCode: string
   if (folderError) throw new Error(folderError.message)
   if (!folder) throw new Error('Folder not found.')
   if (eventId && folder.portal_event_id !== eventId) {
+    throw new Error('Folder not found.')
+  }
+  if (portalPhotographerId && folder.portal_photographer_id !== portalPhotographerId) {
     throw new Error('Folder not found.')
   }
   return folder
@@ -650,9 +701,15 @@ export async function createPortalUploadPresigns(params: {
   files: Array<{ contentType: string; fileName: string; fileSizeBytes: number }>
   uploaderCode: string
   eventId: string
+  portalPhotographerId?: string | null
 }): Promise<PortalUploadPresign[]> {
   const user = await getPortalUser(params.uploaderCode)
-  await getPortalFolderForUploader(params.folderId, params.uploaderCode, params.eventId)
+  await getPortalFolderForUploader(
+    params.folderId,
+    params.uploaderCode,
+    params.eventId,
+    params.portalPhotographerId,
+  )
 
   if (params.files.length === 0) {
     throw new Error('Choose at least one file.')
@@ -732,10 +789,16 @@ export async function registerPortalPhotoUploads(params: {
   }>
   uploaderCode: string
   eventId: string
+  portalPhotographerId?: string | null
   verifyStoredBytes?: boolean
 }) {
   const user = await getPortalUser(params.uploaderCode)
-  const folder = await getPortalFolderForUploader(params.folderId, params.uploaderCode, params.eventId)
+  const folder = await getPortalFolderForUploader(
+    params.folderId,
+    params.uploaderCode,
+    params.eventId,
+    params.portalPhotographerId,
+  )
   const supabaseAdmin = createSupabaseAdminClient()
 
   if (params.uploads.length === 0) {
@@ -792,6 +855,7 @@ export async function registerPortalPhotoUploads(params: {
             params.uploaderCode === PUBLIC_PORTAL_CODE
               ? ['public-upload', 'temp-portal']
               : ['photographer-portal', 'temp-portal'],
+          portal_photographer_id: params.portalPhotographerId ?? null,
         })
         .select('id, folder_id, image_url, original_file_name, file_size_bytes, created_at')
         .single()
@@ -811,6 +875,7 @@ export async function uploadPortalPhoto(params: {
   fileBuffer: Buffer
   contentType: string
   eventId: string
+  portalPhotographerId?: string | null
 }) {
   const contentType = params.contentType || 'application/octet-stream'
   assertPortalUploadFileSize(params.fileName, contentType, params.fileBuffer.length)
@@ -827,6 +892,7 @@ export async function uploadPortalPhoto(params: {
     folderId: params.folderId,
     uploaderCode: params.uploaderCode,
     eventId: params.eventId,
+    portalPhotographerId: params.portalPhotographerId,
     verifyStoredBytes: false,
     uploads: [
       {

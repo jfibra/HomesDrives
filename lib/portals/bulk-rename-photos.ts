@@ -1,5 +1,10 @@
 import type { PortalPhoto } from '@/lib/portals/types'
 
+export type BulkRenamePhoto = {
+  id: string
+  original_file_name: string
+}
+
 export function getPortalFileExtension(fileName: string) {
   const lastDot = fileName.lastIndexOf('.')
   if (lastDot <= 0) return ''
@@ -25,7 +30,7 @@ export function buildNumberedPortalFileName(baseName: string, index: number, ext
 
 export function buildBulkPortalRenamePlan(
   baseName: string,
-  photos: PortalPhoto[],
+  photos: Array<BulkRenamePhoto | PortalPhoto>,
   startIndex = 1,
 ): Array<{ id: string; fileName: string }> {
   const base = sanitizePortalRenameBaseName(baseName)

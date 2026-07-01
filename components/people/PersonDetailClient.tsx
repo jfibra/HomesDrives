@@ -7,10 +7,12 @@ import { ChevronLeft, Pencil } from 'lucide-react'
 
 import PersonGallery from '@/components/people/PersonGallery'
 import PeoplePagination from '@/components/people/PeoplePagination'
-import type { PaginatedResult, Person } from '@/lib/types/people'
+import type { PaginatedResult, Person, PersonPhoto } from '@/lib/types/people'
 
 type PersonDetailClientProps = {
   backHref?: string
+  enableBulkRename?: boolean
+  eventId?: string
   initialPerson: Person
   paginationBasePath?: string
   photosResult: PaginatedResult<PersonPhoto>
@@ -18,6 +20,8 @@ type PersonDetailClientProps = {
 
 export default function PersonDetailClient({
   backHref = '/people',
+  enableBulkRename = false,
+  eventId,
   initialPerson,
   paginationBasePath,
   photosResult,
@@ -158,8 +162,12 @@ export default function PersonDetailClient({
       </div>
 
       <PersonGallery
+        defaultRenameBase={person.name}
+        enableBulkRename={enableBulkRename}
+        eventId={eventId}
         onDetachPhotos={detachPhotos}
         onRemovePhotos={removePhotos}
+        personId={person.id}
         photos={photosResult.items}
       />
       <PeoplePagination

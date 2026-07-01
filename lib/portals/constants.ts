@@ -71,6 +71,14 @@ export function getAdminEventPersonPath(eventSlug: string, personId: string) {
   return `${getAdminEventPeoplePath(eventSlug)}/${encodeURIComponent(personId)}`
 }
 
+export function getAdminEventPhotographersPath(eventSlug: string) {
+  return `${getAdminEventWorkspacePath(eventSlug)}/photographers`
+}
+
+export function getAdminEventPhotographerPath(eventSlug: string, photographerId: string) {
+  return `${getAdminEventPhotographersPath(eventSlug)}/${encodeURIComponent(photographerId)}`
+}
+
 export function getPhotographerPortalUrl(eventSlug: string, origin = getPublicAppOrigin()) {
   return `${origin}${getPhotographerPortalPath(eventSlug)}`
 }

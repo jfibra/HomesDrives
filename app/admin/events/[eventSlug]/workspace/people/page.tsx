@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 
 import AdminEventWorkspaceShell from '@/components/portals/AdminEventWorkspaceShell'
 import PeopleGridManager from '@/components/people/PeopleGridManager'
+import PeopleLibrarySearchBar from '@/components/people/PeopleLibrarySearchBar'
 import PeoplePagination from '@/components/people/PeoplePagination'
 import { getAdminEventPeoplePath, getAdminEventPeopleSearchPath } from '@/lib/portals/constants'
 import { requirePortalEventBySlug } from '@/lib/portals/events'
@@ -12,7 +13,7 @@ const PAGE_SIZE = 24
 
 type AdminEventPeoplePageProps = {
   params: Promise<{ eventSlug: string }>
-  searchParams: Promise<{ page?: string }>
+  searchParams: Promise<{ page?: string; q?: string }>
 }
 
 function readPage(value: string | undefined) {
@@ -24,6 +25,7 @@ export default async function AdminEventPeoplePage({ params, searchParams }: Adm
   const { eventSlug } = await params
   const query = await searchParams
   const page = readPage(query.page)
+  const searchQuery = query.q?.trim() ?? ''
 
   let event
   try {
@@ -36,7 +38,12 @@ export default async function AdminEventPeoplePage({ params, searchParams }: Adm
   let loadError = ''
 
   try {
-    peopleResult = await listPeopleForEvent({ eventId: event.id, page, pageSize: PAGE_SIZE })
+    peopleResult = await listPeopleForEvent({
+      eventId: event.id,
+      page,
+      pageSize: PAGE_SIZE,
+      search: searchQuery || undefined,
+    })
   } catch (error) {
     loadError = error instanceof Error ? error.message : 'Unable to load people.'
     peopleResult = { items: [], page: 1, pageSize: PAGE_SIZE, totalCount: 0, totalPages: 1 }
@@ -67,6 +74,10 @@ export default async function AdminEventPeoplePage({ params, searchParams }: Adm
           </Link>
         </div>
 
+        <div className="mb-6">
+          <PeopleLibrarySearchBar defaultValue={searchQuery} />
+        </div>
+
         {loadError ? (
           <div className="mb-6 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
             {loadError}
@@ -81,15 +92,21 @@ export default async function AdminEventPeoplePage({ params, searchParams }: Adm
         <PeopleGridManager
           emptyAction={
             <p className="max-w-md text-center text-sm text-slate-500">
-              Face scanning runs automatically in the background. People will appear here as photos are
-              processed. Keep the face recognition service running.
+              {searchQuery
+                ? 'No people match your search. Try a different name or clear the search.'
+                : 'Face scanning runs automatically in the background. People will appear here as photos are processed. Keep the face recognition service running.'}
             </p>
           }
           enableBulkDelete
           people={peopleResult.items}
           personBasePath={peopleBasePath}
         />
-        <PeoplePagination basePath={peopleBasePath} page={safePage} totalPages={peopleResult.totalPages} />
+        <PeoplePagination
+          basePath={peopleBasePath}
+          page={safePage}
+          searchQuery={searchQuery}
+          totalPages={peopleResult.totalPages}
+        />
       </div>
     </AdminEventWorkspaceShell>
   )

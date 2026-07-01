@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { PHOTOGRAPHER_PORTAL_CODE } from '@/lib/portals/constants'
 import {
   publicEventResponse,
-  requirePhotographerAccessFromRequest,
+  requirePhotographerSessionFromRequest,
 } from '@/lib/portals/require-photographer-access'
 import {
   buildFolderTree,
@@ -14,7 +14,7 @@ import {
 export const runtime = 'nodejs'
 
 function accessErrorStatus(message: string) {
-  return /access denied|incorrect pin|6-digit/i.test(message) ? 401 : 500
+  return /access denied|incorrect pin|6-digit|session expired|full name/i.test(message) ? 401 : 500
 }
 
 export async function GET(request: Request) {
@@ -25,9 +25,16 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Missing eventSlug.' }, { status: 400 })
     }
 
-    const event = await requirePhotographerAccessFromRequest(request, eventSlug)
-    const folders = await listPortalFoldersForUploader(PHOTOGRAPHER_PORTAL_CODE, event.id)
-    return NextResponse.json({ event: publicEventResponse(event), folders, tree: buildFolderTree(folders) })
+    const { event, photographer } = await requirePhotographerSessionFromRequest(request, eventSlug)
+    const folders = await listPortalFoldersForUploader(PHOTOGRAPHER_PORTAL_CODE, event.id, {
+      portalPhotographerId: photographer.id,
+    })
+    return NextResponse.json({
+      event: publicEventResponse(event),
+      folders,
+      tree: buildFolderTree(folders),
+      photographer,
+    })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to load folders.'
     return NextResponse.json({ error: message }, { status: accessErrorStatus(message) })
@@ -51,12 +58,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Folder name is required.' }, { status: 400 })
     }
 
-    const event = await requirePhotographerAccessFromRequest(request, eventSlug, body)
+    const { event, photographer } = await requirePhotographerSessionFromRequest(request, eventSlug, body)
     const folder = await createPortalFolder({
       uploaderCode: PHOTOGRAPHER_PORTAL_CODE,
       folderName,
       parentFolderId,
       eventId: event.id,
+      portalPhotographerId: photographer.id,
     })
     return NextResponse.json({ folder }, { status: 201 })
   } catch (error) {

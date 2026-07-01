@@ -122,7 +122,8 @@ $$;
 create or replace function public.list_people_for_event(
   p_event_id uuid,
   p_limit integer default 24,
-  p_offset integer default 0
+  p_offset integer default 0,
+  p_search text default null
 )
 returns table (
   id uuid,
@@ -145,6 +146,11 @@ as $$
   inner join public.albums_photos ap on ap.id = f.photo_id
   inner join public.albums_folders af on af.id = ap.folder_id
   where af.portal_event_id = p_event_id
+    and (
+      p_search is null
+      or btrim(p_search) = ''
+      or p.name ilike ('%' || btrim(p_search) || '%')
+    )
   group by p.id, p.name, p.cover_face_url, p.created_at
   having count(distinct f.photo_id) > 0
   order by photo_count desc, p.created_at desc
@@ -152,7 +158,10 @@ as $$
   offset greatest(p_offset, 0);
 $$;
 
-create or replace function public.count_people_for_event(p_event_id uuid)
+create or replace function public.count_people_for_event(
+  p_event_id uuid,
+  p_search text default null
+)
 returns bigint
 language sql
 stable
@@ -165,6 +174,11 @@ as $$
     inner join public.albums_photos ap on ap.id = f.photo_id
     inner join public.albums_folders af on af.id = ap.folder_id
     where af.portal_event_id = p_event_id
+      and (
+        p_search is null
+        or btrim(p_search) = ''
+        or p.name ilike ('%' || btrim(p_search) || '%')
+      )
     group by p.id
     having count(distinct f.photo_id) > 0
   ) scoped_people;

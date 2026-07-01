@@ -1,10 +1,18 @@
 import { NextResponse } from 'next/server'
 
 import { PHOTOGRAPHER_PORTAL_CODE } from '@/lib/portals/constants'
-import { requirePhotographerAccessFromRequest } from '@/lib/portals/require-photographer-access'
+import { requirePhotographerSessionFromRequest } from '@/lib/portals/require-photographer-access'
 import { deletePortalPhotoForUploader } from '@/lib/portals/storage'
 
 export const runtime = 'nodejs'
+
+function accessErrorStatus(message: string) {
+  return /access denied|incorrect pin|6-digit|session expired|full name/i.test(message)
+    ? 401
+    : /not found/i.test(message)
+      ? 404
+      : 500
+}
 
 export async function DELETE(
   request: Request,
@@ -19,16 +27,11 @@ export async function DELETE(
       return NextResponse.json({ error: 'Missing eventSlug.' }, { status: 400 })
     }
 
-    const event = await requirePhotographerAccessFromRequest(request, eventSlug)
-    await deletePortalPhotoForUploader(id, PHOTOGRAPHER_PORTAL_CODE, event.id)
+    const { event, photographer } = await requirePhotographerSessionFromRequest(request, eventSlug)
+    await deletePortalPhotoForUploader(id, PHOTOGRAPHER_PORTAL_CODE, event.id, photographer.id)
     return NextResponse.json({ success: true })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to delete photo.'
-    const status = /access denied|incorrect pin|6-digit/i.test(message)
-      ? 401
-      : /not found/i.test(message)
-        ? 404
-        : 500
-    return NextResponse.json({ error: message }, { status })
+    return NextResponse.json({ error: message }, { status: accessErrorStatus(message) })
   }
 }

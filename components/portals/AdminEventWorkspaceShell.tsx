@@ -8,7 +8,7 @@ import PortalFrame from '@/components/portals/PortalFrame'
 import type { PortalEvent } from '@/lib/portals/types'
 
 type AdminEventWorkspaceShellProps = {
-  activeTab: 'folders' | 'people'
+  activeTab: 'folders' | 'people' | 'photographers'
   children: ReactNode
   event: PortalEvent
 }

@@ -3,10 +3,29 @@ import Link from 'next/link'
 type PeoplePaginationProps = {
   basePath: string
   page: number
+  searchQuery?: string
   totalPages: number
 }
 
-export default function PeoplePagination({ basePath, page, totalPages }: PeoplePaginationProps) {
+function buildHref(basePath: string, page: number, searchQuery?: string) {
+  const params = new URLSearchParams()
+  if (page > 1) {
+    params.set('page', String(page))
+  }
+  const trimmed = searchQuery?.trim()
+  if (trimmed) {
+    params.set('q', trimmed)
+  }
+  const queryString = params.toString()
+  return queryString ? `${basePath}?${queryString}` : basePath
+}
+
+export default function PeoplePagination({
+  basePath,
+  page,
+  searchQuery,
+  totalPages,
+}: PeoplePaginationProps) {
   if (totalPages <= 1) return null
 
   const pages = Array.from({ length: Math.min(totalPages, 5) }, (_, index) => {
@@ -19,7 +38,7 @@ export default function PeoplePagination({ basePath, page, totalPages }: PeopleP
       <Link
         aria-disabled={page <= 1}
         className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-50 aria-disabled:pointer-events-none aria-disabled:opacity-40"
-        href={page > 1 ? `${basePath}?page=${page - 1}` : basePath}
+        href={page > 1 ? buildHref(basePath, page - 1, searchQuery) : buildHref(basePath, 1, searchQuery)}
       >
         Previous
       </Link>
@@ -30,7 +49,7 @@ export default function PeoplePagination({ basePath, page, totalPages }: PeopleP
               ? 'bg-[#10233f] text-white'
               : 'border border-slate-200 text-slate-600 hover:bg-slate-50'
           }`}
-          href={`${basePath}?page=${pageNumber}`}
+          href={buildHref(basePath, pageNumber, searchQuery)}
           key={pageNumber}
         >
           {pageNumber}
@@ -39,7 +58,7 @@ export default function PeoplePagination({ basePath, page, totalPages }: PeopleP
       <Link
         aria-disabled={page >= totalPages}
         className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-50 aria-disabled:pointer-events-none aria-disabled:opacity-40"
-        href={page < totalPages ? `${basePath}?page=${page + 1}` : `${basePath}?page=${totalPages}`}
+        href={page < totalPages ? buildHref(basePath, page + 1, searchQuery) : buildHref(basePath, totalPages, searchQuery)}
       >
         Next
       </Link>

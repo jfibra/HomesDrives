@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { PHOTOGRAPHER_PORTAL_CODE } from '@/lib/portals/constants'
-import { requirePhotographerAccessFromRequest } from '@/lib/portals/require-photographer-access'
+import { requirePhotographerSessionFromRequest } from '@/lib/portals/require-photographer-access'
 import { registerPortalPhotoUploads } from '@/lib/portals/storage'
 import { enqueuePhotoFaceProcessing } from '@/lib/server/face-pipeline'
 
@@ -10,6 +10,7 @@ export const runtime = 'nodejs'
 type CompleteRequestBody = {
   accessToken?: string
   eventSlug?: string
+  photographerId?: string
   uploads?: Array<{
     bucketName?: string
     contentType?: string
@@ -40,11 +41,12 @@ export async function POST(
       return NextResponse.json({ error: 'Missing eventSlug.' }, { status: 400 })
     }
 
-    const event = await requirePhotographerAccessFromRequest(request, eventSlug, body)
+    const { event, photographer } = await requirePhotographerSessionFromRequest(request, eventSlug, body)
     const photos = await registerPortalPhotoUploads({
       folderId: id,
       uploaderCode: PHOTOGRAPHER_PORTAL_CODE,
       eventId: event.id,
+      portalPhotographerId: photographer.id,
       verifyStoredBytes: false,
       uploads: uploads.map((upload) => ({
         fileName: upload.fileName?.trim() || 'upload',
@@ -72,9 +74,10 @@ export async function POST(
 
     return NextResponse.json({ photos, uploadedCount: photos.length })
   } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unable to complete upload.'
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Unable to complete upload.' },
-      { status: 500 },
+      { error: message },
+      { status: /access denied|incorrect pin|6-digit|session expired|full name/i.test(message) ? 401 : 500 },
     )
   }
 }

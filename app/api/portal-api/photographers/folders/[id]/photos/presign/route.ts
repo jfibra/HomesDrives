@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { PHOTOGRAPHER_PORTAL_CODE } from '@/lib/portals/constants'
-import { requirePhotographerAccessFromRequest } from '@/lib/portals/require-photographer-access'
+import { requirePhotographerSessionFromRequest } from '@/lib/portals/require-photographer-access'
 import { createPortalUploadPresigns } from '@/lib/portals/storage'
 import { inferPortalContentType } from '@/lib/portals/upload-file-utils'
 
@@ -10,6 +10,7 @@ export const runtime = 'nodejs'
 type PresignRequestBody = {
   accessToken?: string
   eventSlug?: string
+  photographerId?: string
   files?: Array<{
     contentType?: string
     fileName?: string
@@ -31,11 +32,12 @@ export async function POST(
       return NextResponse.json({ error: 'Missing eventSlug.' }, { status: 400 })
     }
 
-    const event = await requirePhotographerAccessFromRequest(request, eventSlug, body)
+    const { event, photographer } = await requirePhotographerSessionFromRequest(request, eventSlug, body)
     const uploads = await createPortalUploadPresigns({
       folderId: id,
       uploaderCode: PHOTOGRAPHER_PORTAL_CODE,
       eventId: event.id,
+      portalPhotographerId: photographer.id,
       files: files.map((file) => ({
         fileName: file.fileName?.trim() || 'upload',
         contentType: inferPortalContentType(
@@ -48,9 +50,10 @@ export async function POST(
 
     return NextResponse.json({ uploads })
   } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unable to prepare upload.'
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Unable to prepare upload.' },
-      { status: 500 },
+      { error: message },
+      { status: /access denied|incorrect pin|6-digit|session expired|full name/i.test(message) ? 401 : 500 },
     )
   }
 }
