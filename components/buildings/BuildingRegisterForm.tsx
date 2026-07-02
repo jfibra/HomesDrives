@@ -5,6 +5,12 @@ import { Camera, CameraOff, ImagePlus, Loader2, MapPin, Plus, Trash2, X } from '
 
 import type { Building, BuildingListing } from '@/lib/types/buildings'
 import { MAX_BUILDING_REFERENCE_PHOTOS } from '@/lib/types/buildings'
+import {
+  assertBuildingPhotoBatchFits,
+  isBuildingImageFile,
+  prepareBuildingPhotoForUpload,
+} from '@/lib/client/building-photo-utils'
+import { requestCurrentLocationWithAddress } from '@/lib/client/geolocation'
 
 type ListingDraft = {
   title: string
@@ -53,6 +59,8 @@ export default function BuildingRegisterForm({ onRegistered }: BuildingRegisterF
   const [activePhotoId, setActivePhotoId] = useState<string | null>(null)
   const [cameraActive, setCameraActive] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isProcessingPhotos, setIsProcessingPhotos] = useState(false)
+  const [isLocating, setIsLocating] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
@@ -85,34 +93,46 @@ export default function BuildingRegisterForm({ onRegistered }: BuildingRegisterF
   }, [releaseCamera, revokePhotoPreview])
 
   const addPhotosFromFiles = useCallback(
-    (files: FileList | File[]) => {
-      const incoming = Array.from(files).filter((file) => file.type.startsWith('image/'))
-      if (incoming.length === 0) return
+    async (files: FileList | File[]) => {
+      const incoming = Array.from(files).filter(isBuildingImageFile)
+      if (incoming.length === 0) {
+        setError('Please choose a photo (JPG, PNG, or HEIC).')
+        return
+      }
 
-      setPhotos((current) => {
-        const remaining = MAX_BUILDING_REFERENCE_PHOTOS - current.length
-        if (remaining <= 0) {
-          setError(`You can add up to ${MAX_BUILDING_REFERENCE_PHOTOS} photos per building.`)
-          return current
-        }
+      setIsProcessingPhotos(true)
+      setError('')
 
-        const accepted = incoming.slice(0, remaining)
-        if (accepted.length < incoming.length) {
-          setError(`Only ${remaining} more photo${remaining === 1 ? '' : 's'} can be added.`)
-        } else {
-          setError('')
-        }
+      try {
+        const prepared = await Promise.all(incoming.map((file) => prepareBuildingPhotoForUpload(file)))
 
-        const nextPhotos = accepted.map((file) => ({
-          id: createPhotoId(),
-          file,
-          preview: URL.createObjectURL(file),
-        }))
+        setPhotos((current) => {
+          const remaining = MAX_BUILDING_REFERENCE_PHOTOS - current.length
+          if (remaining <= 0) {
+            setError(`You can add up to ${MAX_BUILDING_REFERENCE_PHOTOS} photos per building.`)
+            return current
+          }
 
-        const merged = [...current, ...nextPhotos]
-        setActivePhotoId(nextPhotos[nextPhotos.length - 1]?.id ?? merged[merged.length - 1]?.id ?? null)
-        return merged
-      })
+          const accepted = prepared.slice(0, remaining)
+          if (accepted.length < prepared.length) {
+            setError(`Only ${remaining} more photo${remaining === 1 ? '' : 's'} can be added.`)
+          }
+
+          const nextPhotos = accepted.map((file) => ({
+            id: createPhotoId(),
+            file,
+            preview: URL.createObjectURL(file),
+          }))
+
+          const merged = [...current, ...nextPhotos]
+          setActivePhotoId(nextPhotos[nextPhotos.length - 1]?.id ?? merged[merged.length - 1]?.id ?? null)
+          return merged
+        })
+      } catch (photoError) {
+        setError(photoError instanceof Error ? photoError.message : 'Unable to prepare photo for upload.')
+      } finally {
+        setIsProcessingPhotos(false)
+      }
     },
     [],
   )
@@ -188,7 +208,7 @@ export default function BuildingRegisterForm({ onRegistered }: BuildingRegisterF
     if (!blob) return
 
     const file = new File([blob], `building-angle-${photos.length + 1}.jpg`, { type: 'image/jpeg' })
-    addPhotosFromFiles([file])
+    void addPhotosFromFiles([file])
   }, [addPhotosFromFiles, photos.length])
 
   function updateListing(index: number, field: keyof ListingDraft, value: string) {
@@ -207,23 +227,19 @@ export default function BuildingRegisterForm({ onRegistered }: BuildingRegisterF
     setListings((current) => (current.length === 1 ? current : current.filter((_, i) => i !== index)))
   }
 
-  function useCurrentLocation() {
-    if (!navigator.geolocation) {
-      setError('Geolocation is not supported in this browser.')
-      return
+  async function useCurrentLocation() {
+    setIsLocating(true)
+    setError('')
+    try {
+      const position = await requestCurrentLocationWithAddress()
+      setLatitude(position.latitude.toFixed(6))
+      setLongitude(position.longitude.toFixed(6))
+      setFullAddress(position.fullAddress)
+    } catch (locationError) {
+      setError(locationError instanceof Error ? locationError.message : 'Unable to read your current location.')
+    } finally {
+      setIsLocating(false)
     }
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setLatitude(position.coords.latitude.toFixed(6))
-        setLongitude(position.coords.longitude.toFixed(6))
-        setError('')
-      },
-      () => {
-        setError('Unable to read your current location.')
-      },
-      { enableHighAccuracy: true, timeout: 15000 },
-    )
   }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -252,9 +268,12 @@ export default function BuildingRegisterForm({ onRegistered }: BuildingRegisterF
 
     setIsSubmitting(true)
     try {
+      const uploadFiles = await Promise.all(photos.map((photo) => prepareBuildingPhotoForUpload(photo.file)))
+      assertBuildingPhotoBatchFits(uploadFiles)
+
       const formData = new FormData()
-      for (const photo of photos) {
-        formData.append('files', photo.file)
+      for (const file of uploadFiles) {
+        formData.append('files', file)
       }
       formData.append('name', name.trim())
       formData.append('description', description.trim())
@@ -269,10 +288,14 @@ export default function BuildingRegisterForm({ onRegistered }: BuildingRegisterF
       })
       const data = await response.json().catch(() => null)
       if (!response.ok) {
+        const fallback =
+          response.status === 413
+            ? 'Upload too large. Use fewer photos or the Camera button on iPhone.'
+            : 'Unable to register building.'
         throw new Error(
           data && typeof data === 'object' && 'error' in data && typeof data.error === 'string'
             ? data.error
-            : 'Unable to register building.',
+            : fallback,
         )
       }
 
@@ -335,12 +358,12 @@ export default function BuildingRegisterForm({ onRegistered }: BuildingRegisterF
             <div className="flex flex-wrap gap-2 border-t border-white/10 bg-slate-900 p-3">
               <button
                 className="inline-flex min-h-9 items-center gap-2 rounded-lg bg-white px-3 py-2 text-xs font-semibold text-[#10233f] disabled:opacity-50"
-                disabled={photos.length >= MAX_BUILDING_REFERENCE_PHOTOS}
+                disabled={photos.length >= MAX_BUILDING_REFERENCE_PHOTOS || isProcessingPhotos}
                 onClick={() => fileInputRef.current?.click()}
                 type="button"
               >
-                <ImagePlus className="h-3.5 w-3.5" />
-                Upload
+                {isProcessingPhotos ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
+                {isProcessingPhotos ? 'Preparing…' : 'Upload'}
               </button>
               {!cameraActive ? (
                 <button
@@ -385,12 +408,13 @@ export default function BuildingRegisterForm({ onRegistered }: BuildingRegisterF
           </div>
 
           <input
-            accept="image/*"
+            accept="image/*,.heic,.heif"
+            capture="environment"
             className="hidden"
             multiple
             onChange={(event) => {
               const fileList = event.target.files
-              if (fileList?.length) addPhotosFromFiles(fileList)
+              if (fileList?.length) void addPhotosFromFiles(fileList)
               if (fileInputRef.current) fileInputRef.current.value = ''
             }}
             ref={fileInputRef}
@@ -479,12 +503,13 @@ export default function BuildingRegisterForm({ onRegistered }: BuildingRegisterF
           </div>
 
           <button
-            className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-[#10233f] transition hover:bg-slate-50"
-            onClick={useCurrentLocation}
+            className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-[#10233f] transition hover:bg-slate-50 disabled:opacity-60"
+            disabled={isLocating}
+            onClick={() => void useCurrentLocation()}
             type="button"
           >
-            <MapPin className="h-4 w-4" />
-            Use current location
+            {isLocating ? <Loader2 className="h-4 w-4 animate-spin" /> : <MapPin className="h-4 w-4" />}
+            {isLocating ? 'Getting location…' : 'Use current location'}
           </button>
 
           <div className="space-y-3">
@@ -559,7 +584,7 @@ export default function BuildingRegisterForm({ onRegistered }: BuildingRegisterF
 
       <button
         className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#10233f] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#0d1c33] disabled:opacity-60"
-        disabled={isSubmitting}
+        disabled={isSubmitting || isProcessingPhotos}
         type="submit"
       >
         {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}

@@ -12,7 +12,12 @@ import { getVisionApiHealthUrl } from '@/lib/server/building-client'
 import { MAX_BUILDING_REFERENCE_PHOTOS } from '@/lib/types/buildings'
 
 function getAppOrigins() {
-  const origins = new Set<string>(['https://drive.homes.ph', 'http://localhost:3000', 'http://127.0.0.1:3000'])
+  const origins = new Set<string>([
+    'https://drive.homes.ph',
+    'https://www.drive.homes.ph',
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+  ])
   const appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim()
   if (appUrl) {
     try {
@@ -32,6 +37,9 @@ function isSameAppRequest(request: Request) {
 
   // Same-origin browser POSTs (especially multipart uploads) often omit Origin.
   const host = request.headers.get('host')?.split(':')[0]?.toLowerCase()
+  const internalHosts = new Set(['drive.homes.ph', 'www.drive.homes.ph', 'localhost', '127.0.0.1'])
+  if (host && internalHosts.has(host)) return true
+
   if (host) {
     for (const appOrigin of appOrigins) {
       try {

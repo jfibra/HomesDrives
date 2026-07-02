@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Building2, Camera, CameraOff, Loader2, MapPin, ScanSearch } from 'lucide-react'
 
 import type { BuildingMatch, BuildingMatchConfidence, BuildingRecognitionResult } from '@/lib/types/buildings'
+import { requestCurrentLocation } from '@/lib/client/geolocation'
 
 const SCAN_INTERVAL_MS = 2500
 
@@ -255,20 +256,18 @@ export default function BuildingCameraScan({
     setStatus('Starting camera…')
 
     if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
+      void requestCurrentLocation()
+        .then((position) => {
           setScanLocation({
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
+            latitude: position.latitude,
+            longitude: position.longitude,
           })
           setGpsEnabled(true)
-        },
-        () => {
+        })
+        .catch(() => {
           setScanLocation(null)
           setGpsEnabled(false)
-        },
-        { enableHighAccuracy: true, timeout: 12000, maximumAge: 60_000 },
-      )
+        })
     }
 
     try {
