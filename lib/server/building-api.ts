@@ -11,6 +11,49 @@ import {
 import { getVisionApiHealthUrl } from '@/lib/server/building-client'
 import { MAX_BUILDING_REFERENCE_PHOTOS } from '@/lib/types/buildings'
 
+function getAppOrigins() {
+  const origins = new Set<string>(['https://drive.homes.ph', 'http://localhost:3000', 'http://127.0.0.1:3000'])
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim()
+  if (appUrl) {
+    try {
+      origins.add(new URL(appUrl).origin)
+    } catch {
+      /* ignore */
+    }
+  }
+  return origins
+}
+
+function isSameAppRequest(request: Request) {
+  const origin = request.headers.get('origin')
+  const appOrigins = getAppOrigins()
+
+  if (origin && appOrigins.has(origin)) return true
+
+  // Same-origin browser POSTs (especially multipart uploads) often omit Origin.
+  const host = request.headers.get('host')?.split(':')[0]?.toLowerCase()
+  if (host) {
+    for (const appOrigin of appOrigins) {
+      try {
+        if (new URL(appOrigin).hostname.toLowerCase() === host) return true
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  const referer = request.headers.get('referer')
+  if (referer) {
+    try {
+      if (appOrigins.has(new URL(referer).origin)) return true
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return false
+}
+
 function getAllowedOrigins() {
   const fromEnv = process.env.BUILDING_API_ALLOWED_ORIGINS?.split(',').map((v) => v.trim()).filter(Boolean)
   if (fromEnv?.length) return fromEnv
@@ -43,17 +86,10 @@ export function buildingApiCorsHeaders(request: Request): Record<string, string>
 }
 
 export function assertBuildingApiAccess(request: Request) {
-  const origin = request.headers.get('origin')
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim()
-  const requiredKey = process.env.BUILDING_API_KEY?.trim()
+  if (isSameAppRequest(request)) return
 
-  if (origin && appUrl) {
-    try {
-      if (origin === new URL(appUrl).origin) return
-    } catch {
-      /* ignore */
-    }
-  }
+  const origin = request.headers.get('origin')
+  const requiredKey = process.env.BUILDING_API_KEY?.trim()
 
   if (requiredKey) {
     const provided = request.headers.get('x-building-api-key')?.trim()
