@@ -63,6 +63,9 @@ before update on public.buildings
 for each row
 execute function public.set_buildings_updated_at();
 
+-- Drop legacy 3-arg overload (causes "could not choose the best candidate function" with PostgREST)
+drop function if exists public.match_buildings(vector, double precision, integer);
+
 create or replace function public.match_buildings(
   query_embedding vector(512),
   match_threshold float default 0.65,

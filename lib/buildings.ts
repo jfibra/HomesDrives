@@ -296,21 +296,19 @@ export async function matchBuildingsByEmbedding(params: {
   scanRadiusKm?: number | null
 }) {
   const supabase = createSupabaseAdminClient()
-  const rpcParams: Record<string, unknown> = {
-    query_embedding: params.embedding,
-    match_threshold: params.threshold ?? BUILDING_MATCH_DB_THRESHOLD,
-    match_count: params.limit ?? 12,
-  }
-
-  if (
+  const hasGps =
     params.scanLatitude != null &&
     params.scanLongitude != null &&
     Number.isFinite(params.scanLatitude) &&
     Number.isFinite(params.scanLongitude)
-  ) {
-    rpcParams.scan_latitude = params.scanLatitude
-    rpcParams.scan_longitude = params.scanLongitude
-    rpcParams.scan_radius_km = params.scanRadiusKm ?? BUILDING_GPS_RADIUS_KM
+
+  const rpcParams = {
+    query_embedding: params.embedding,
+    match_threshold: params.threshold ?? BUILDING_MATCH_DB_THRESHOLD,
+    match_count: params.limit ?? 12,
+    scan_latitude: hasGps ? params.scanLatitude : null,
+    scan_longitude: hasGps ? params.scanLongitude : null,
+    scan_radius_km: hasGps ? (params.scanRadiusKm ?? BUILDING_GPS_RADIUS_KM) : null,
   }
 
   const { data, error } = await supabase.rpc('match_buildings', rpcParams)
