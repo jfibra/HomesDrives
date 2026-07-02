@@ -474,41 +474,41 @@ export default function BuildingEditForm({ buildingId, onCancel, onSaved }: Buil
               )}
             </div>
             <canvas className="hidden" ref={canvasRef} />
-            <div className="flex flex-wrap gap-2 border-t border-white/10 bg-slate-900 p-3">
+            <div className="grid grid-cols-2 gap-2 border-t border-white/10 bg-slate-900 p-3 sm:flex sm:flex-wrap">
               <button
-                className="inline-flex min-h-9 items-center gap-2 rounded-lg bg-white px-3 py-2 text-xs font-semibold text-[#10233f] disabled:opacity-50"
+                className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-semibold text-[#10233f] disabled:opacity-50 sm:inline-flex sm:min-h-9 sm:w-auto sm:text-xs"
                 disabled={!canAddMorePhotos || isProcessingPhotos}
                 onClick={() => fileInputRef.current?.click()}
                 type="button"
               >
-                {isProcessingPhotos ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
+                {isProcessingPhotos ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
                 {isProcessingPhotos ? 'Preparing…' : 'Upload'}
               </button>
               {!cameraActive ? (
                 <button
-                  className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                  className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-white/15 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 sm:inline-flex sm:min-h-9 sm:w-auto sm:text-xs"
                   disabled={!canAddMorePhotos}
                   onClick={() => void startCamera()}
                   type="button"
                 >
-                  <Camera className="h-3.5 w-3.5" />
+                  <Camera className="h-4 w-4" />
                   Camera
                 </button>
               ) : (
                 <>
                   <button
-                    className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-white"
+                    className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-white/15 px-3 py-2 text-sm font-semibold text-white sm:inline-flex sm:min-h-9 sm:w-auto sm:text-xs"
                     onClick={() => void capturePhoto()}
                     type="button"
                   >
                     Add angle
                   </button>
                   <button
-                    className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-slate-300"
+                    className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-white/15 px-3 py-2 text-sm font-semibold text-slate-300 sm:inline-flex sm:min-h-9 sm:w-auto sm:text-xs"
                     onClick={releaseCamera}
                     type="button"
                   >
-                    <CameraOff className="h-3.5 w-3.5" />
+                    <CameraOff className="h-4 w-4" />
                     Stop
                   </button>
                 </>

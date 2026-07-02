@@ -354,10 +354,10 @@ export default function BuildingCameraScan({
 
           <div className="flex flex-col gap-3 border-t border-white/10 bg-slate-900 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm text-slate-300">{status}</p>
-            <div className="flex flex-wrap gap-2">
+            <div className={`grid w-full gap-2 ${cameraActive ? 'grid-cols-2' : 'grid-cols-1'} sm:w-auto sm:flex sm:flex-wrap`}>
               {!cameraActive ? (
                 <button
-                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-[#10233f] transition hover:bg-slate-100"
+                  className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-[#10233f] transition hover:bg-slate-100 sm:inline-flex sm:min-h-10 sm:w-auto"
                   onClick={() => void startCamera()}
                   type="button"
                 >
@@ -367,7 +367,7 @@ export default function BuildingCameraScan({
               ) : (
                 <>
                   <button
-                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/15"
+                    className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/15 sm:inline-flex sm:min-h-10 sm:w-auto"
                     disabled={loading}
                     onClick={() => void runSearch()}
                     type="button"
@@ -376,7 +376,7 @@ export default function BuildingCameraScan({
                     Capture now
                   </button>
                   <button
-                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-white/15 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-white/10"
+                    className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-white/15 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-white/10 sm:inline-flex sm:min-h-10 sm:w-auto"
                     onClick={stopCamera}
                     type="button"
                   >

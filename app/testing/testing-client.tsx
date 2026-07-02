@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Building2, FlaskConical, List, Pencil, ScanSearch } from 'lucide-react'
+import { Building2, List, Pencil, ScanSearch } from 'lucide-react'
 
 import BuildingCameraScan from '@/components/buildings/BuildingCameraScan'
 import BuildingEditForm from '@/components/buildings/BuildingEditForm'
@@ -17,7 +17,6 @@ export default function TestingClient() {
   const [editingBuildingId, setEditingBuildingId] = useState<string | null>(null)
   const [loadingBuildings, setLoadingBuildings] = useState(false)
   const [datasetError, setDatasetError] = useState('')
-  const [visionStatus, setVisionStatus] = useState<string>('Checking vision service…')
 
   const loadBuildings = useCallback(async () => {
     setLoadingBuildings(true)
@@ -41,100 +40,67 @@ export default function TestingClient() {
     }
   }, [])
 
-  const loadVisionHealth = useCallback(async () => {
-    try {
-      const response = await fetch('/api/buildings/health', { cache: 'no-store' })
-      const data = await response.json().catch(() => null)
-      if (!response.ok || !data?.ok) {
-        setVisionStatus('Vision API offline — start services/insightface-api on port 8000.')
-        return
-      }
-      const buildingModel =
-        typeof data.building_model === 'string' ? data.building_model : 'clip-ViT-B-32'
-      setVisionStatus(`Vision API online · building model: ${buildingModel}`)
-    } catch {
-      setVisionStatus('Vision API offline — start services/insightface-api on port 8000.')
-    }
-  }, [])
-
   useEffect(() => {
-    void loadVisionHealth()
     void loadBuildings()
-  }, [loadBuildings, loadVisionHealth])
+  }, [loadBuildings])
 
   return (
     <div className="min-h-screen bg-[#f4f7fb]">
       <Navbar />
-      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mb-8 rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-[#10233f]/5 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-[#10233f]">
-                <FlaskConical className="h-3.5 w-3.5" />
-                Internal testing
-              </div>
-              <h1 className="text-3xl font-semibold text-[#10233f]">Building recognition lab</h1>
-              <p className="mt-2 max-w-2xl text-sm text-slate-600">
-                Register buildings with multiple reference photos, edit details later, then scan with your
-                camera. For best accuracy: add 3+ angles per building, include GPS on register, and scan
-                in good lighting.
-              </p>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-              {visionStatus}
-            </div>
+      <main className="mx-auto max-w-6xl px-4 pb-24 pt-16 sm:px-6 sm:pb-8 sm:pt-20 lg:px-8">
+        <section className="rounded-3xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-8">
+          <h1 className="mb-4 text-xl font-semibold text-[#10233f] sm:mb-6 sm:text-3xl">
+            Homes.ph Building Recognition
+          </h1>
+
+          <div className="mb-4 grid grid-cols-3 gap-2 border-b border-slate-100 pb-4 sm:mb-6 sm:pb-6">
+            <button
+              className={`flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-xl px-2 py-2 text-[11px] font-semibold transition sm:flex-row sm:gap-2 sm:px-4 sm:text-sm ${
+                tab === 'register'
+                  ? 'bg-[#10233f] text-white'
+                  : 'border border-slate-200 bg-white text-[#10233f] hover:bg-slate-50'
+              }`}
+              onClick={() => {
+                setEditingBuildingId(null)
+                setTab('register')
+              }}
+              type="button"
+            >
+              <Building2 className="h-4 w-4" />
+              Register
+            </button>
+            <button
+              className={`flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-xl px-2 py-2 text-[11px] font-semibold transition sm:flex-row sm:gap-2 sm:px-4 sm:text-sm ${
+                tab === 'scan'
+                  ? 'bg-[#10233f] text-white'
+                  : 'border border-slate-200 bg-white text-[#10233f] hover:bg-slate-50'
+              }`}
+              onClick={() => {
+                setEditingBuildingId(null)
+                setTab('scan')
+              }}
+              type="button"
+            >
+              <ScanSearch className="h-4 w-4" />
+              Scan
+            </button>
+            <button
+              className={`flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-xl px-2 py-2 text-[11px] font-semibold transition sm:flex-row sm:gap-2 sm:px-4 sm:text-sm ${
+                tab === 'dataset'
+                  ? 'bg-[#10233f] text-white'
+                  : 'border border-slate-200 bg-white text-[#10233f] hover:bg-slate-50'
+              }`}
+              onClick={() => {
+                setEditingBuildingId(null)
+                setTab('dataset')
+              }}
+              type="button"
+            >
+              <List className="h-4 w-4" />
+              Dataset ({buildings.length})
+            </button>
           </div>
-        </div>
 
-        <div className="mb-6 flex flex-wrap gap-2">
-          <button
-            className={`inline-flex min-h-10 items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${
-              tab === 'register'
-                ? 'bg-[#10233f] text-white'
-                : 'border border-slate-200 bg-white text-[#10233f] hover:bg-slate-50'
-            }`}
-            onClick={() => {
-              setEditingBuildingId(null)
-              setTab('register')
-            }}
-            type="button"
-          >
-            <Building2 className="h-4 w-4" />
-            Register
-          </button>
-          <button
-            className={`inline-flex min-h-10 items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${
-              tab === 'scan'
-                ? 'bg-[#10233f] text-white'
-                : 'border border-slate-200 bg-white text-[#10233f] hover:bg-slate-50'
-            }`}
-            onClick={() => {
-              setEditingBuildingId(null)
-              setTab('scan')
-            }}
-            type="button"
-          >
-            <ScanSearch className="h-4 w-4" />
-            Scan
-          </button>
-          <button
-            className={`inline-flex min-h-10 items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${
-              tab === 'dataset'
-                ? 'bg-[#10233f] text-white'
-                : 'border border-slate-200 bg-white text-[#10233f] hover:bg-slate-50'
-            }`}
-            onClick={() => {
-              setEditingBuildingId(null)
-              setTab('dataset')
-            }}
-            type="button"
-          >
-            <List className="h-4 w-4" />
-            Dataset ({buildings.length})
-          </button>
-        </div>
-
-        <section className="rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8">
           {tab === 'register' ? (
             <BuildingRegisterForm
               onRegistered={() => {
