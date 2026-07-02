@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt face_engine.py scrfd_detector.py main.py .
+COPY requirements.txt face_engine.py scrfd_detector.py building_engine.py main.py .
 RUN pip install --no-cache-dir -r requirements.txt
 
 EXPOSE 8000

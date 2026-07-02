@@ -1,6 +1,7 @@
 """
-Face detection + embedding API for HomesDrives People feature.
-Uses buffalo_l ONNX models via onnxruntime (no insightface compile on Windows).
+Face + building vision API for HomesDrives.
+Faces: buffalo_l ONNX via onnxruntime.
+Buildings: CLIP ViT-B/32 via sentence-transformers.
 
 Setup:
   cd services/insightface-api
@@ -12,6 +13,7 @@ Setup:
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import cv2
@@ -19,9 +21,12 @@ import numpy as np
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
+from building_engine import BUILDING_MODEL_NAME, embed_building_image, get_building_engine, serialize_building_embedding
 from face_engine import get_face_engine, serialize_face
 
-app = FastAPI(title="HomesDrives Face API", version="1.1.0")
+WARM_BUILDING_MODEL = os.getenv("WARM_BUILDING_MODEL", "true").strip().lower() in {"1", "true", "yes"}
+
+app = FastAPI(title="HomesDrives Vision API", version="1.2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -42,11 +47,17 @@ def decode_image(data: bytes) -> np.ndarray:
 @app.on_event("startup")
 def warm_models() -> None:
     get_face_engine()
+    if WARM_BUILDING_MODEL:
+        get_building_engine()
 
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "model": "buffalo_l-scrfd"}
+    return {
+        "status": "ok",
+        "face_model": "buffalo_l-scrfd",
+        "building_model": BUILDING_MODEL_NAME,
+    }
 
 
 async def read_image_bytes(file: UploadFile | None, request: Request) -> bytes:
@@ -90,3 +101,18 @@ async def embed(
         "bbox": serialized["bbox"],
         "bounding_box": serialized["bounding_box"],
     }
+
+
+@app.post("/buildings/embed")
+async def buildings_embed(
+    request: Request,
+    file: UploadFile | None = File(None),
+) -> dict[str, Any]:
+    data = await read_image_bytes(file, request)
+    image = decode_image(data)
+    try:
+        return serialize_building_embedding(image)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=f"Building embed failed: {error}") from error

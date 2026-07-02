@@ -1,6 +1,24 @@
-# InsightFace API — Windows setup
+# HomesDrives Vision API
 
-The People feature needs this Python service for face detection and embeddings.
+Face + building vision service for HomesDrives.
+
+- **Faces** — People feature (`/detect`, `/embed`)
+- **Buildings** — Building recognition (`/buildings/embed`)
+
+**Partner integration guide:**  
+See [docs/BUILDING-RECOGNITION.md](../../docs/BUILDING-RECOGNITION.md) — partner sites call `drive.homes.ph/api/buildings` only (no separate AI stack).
+
+## Endpoints
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/health` | Service status |
+| POST | `/detect` | Face detection (multiple faces) |
+| POST | `/embed` | Best face embedding |
+| POST | `/buildings/embed` | Building/place CLIP embedding |
+
+Building model: `clip-vit-base-patch32-onnx` (ONNX, ~30s first download, then fast CPU inference).
+Optional: set `WARM_BUILDING_MODEL=true` (default) to load it at API startup.
 
 ## 1. Install Python (if `python` is not found)
 
