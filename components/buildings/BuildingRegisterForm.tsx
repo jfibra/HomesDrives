@@ -409,7 +409,6 @@ export default function BuildingRegisterForm({ onRegistered }: BuildingRegisterF
 
           <input
             accept="image/*,.heic,.heif"
-            capture="environment"
             className="hidden"
             multiple
             onChange={(event) => {

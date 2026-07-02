@@ -518,7 +518,6 @@ export default function BuildingEditForm({ buildingId, onCancel, onSaved }: Buil
 
           <input
             accept="image/*,.heic,.heif"
-            capture="environment"
             className="hidden"
             multiple
             onChange={(event) => {
