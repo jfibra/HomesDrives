@@ -442,7 +442,7 @@ export default function AdminEventsClient() {
                     {!isEditing && showFullEventDetails ? (
                       <Link
                         aria-label={`Manage ${portalEvent.name}`}
-                        className="absolute inset-0 z-[1] hidden cursor-pointer md:block"
+                        className="absolute inset-0 z-[1] cursor-pointer max-md:hidden"
                         href={workspacePath}
                       />
                     ) : null}
@@ -454,9 +454,45 @@ export default function AdminEventsClient() {
                           : 'bg-[#1428AE]/10 group-hover:bg-[#1428AE]/15'
                       }`}
                     />
-                    <div className="relative z-10 pointer-events-none">
+                    <div className="relative z-10">
                     <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                     <div className="flex min-w-0 flex-1 items-start gap-3">
+                      {!isEditing && isMobile && !isMobileExpanded ? (
+                        <Link
+                          className="flex min-h-12 min-w-0 flex-1 items-start gap-3 rounded-xl outline-none ring-[#10233f] transition active:opacity-90 focus-visible:ring-2"
+                          href={workspacePath}
+                        >
+                          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white/80 text-[#10233f] backdrop-blur-sm sm:h-10 sm:w-10">
+                            {portalEvent.qr_logo_url ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                alt={`${portalEvent.name} logo`}
+                                className="h-full w-full object-cover"
+                                src={portalEvent.qr_logo_url}
+                              />
+                            ) : (
+                              <Shield className="h-4 w-4" />
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1 pr-2">
+                            <h3
+                              className={`text-base font-semibold leading-snug sm:text-lg ${hasCover ? 'text-white' : 'text-[#10233f]'}`}
+                            >
+                              {portalEvent.name}
+                            </h3>
+                            <p
+                              className={`mt-1 truncate text-xs ${hasCover ? 'text-white/80' : 'text-slate-500'}`}
+                            >
+                              /{portalEvent.slug} · {portalEvent.folder_count} folder
+                              {portalEvent.folder_count !== 1 ? 's' : ''}
+                            </p>
+                            <p className={`mt-2 text-xs font-semibold ${hasCover ? 'text-white/90' : 'text-[#10233f]'}`}>
+                              Tap to open event
+                            </p>
+                          </div>
+                        </Link>
+                      ) : (
+                        <>
                       <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white/80 text-[#10233f] backdrop-blur-sm sm:h-10 sm:w-10">
                         {portalEvent.qr_logo_url ? (
                           // eslint-disable-next-line @next/next/no-img-element
@@ -542,11 +578,13 @@ export default function AdminEventsClient() {
                           </div>
                         ) : null}
                       </div>
+                        </>
+                      )}
                       {isMobile ? (
                         <button
                           aria-expanded={isMobileExpanded}
                           aria-label={isMobileExpanded ? `Collapse ${portalEvent.name}` : `Expand ${portalEvent.name}`}
-                          className={`pointer-events-auto shrink-0 rounded-xl border p-2.5 transition ${
+                          className={`shrink-0 rounded-xl border p-2.5 transition ${
                             hasCover
                               ? 'border-white/30 bg-white/15 text-white hover:bg-white/25'
                               : 'border-[#1428AE]/20 bg-white/80 text-[#10233f] hover:bg-white'
@@ -564,7 +602,7 @@ export default function AdminEventsClient() {
                     </div>
 
                       <div
-                        className={`pointer-events-auto flex w-full shrink-0 md:w-auto ${showFullEventDetails ? 'flex' : 'hidden md:flex'}`}
+                        className={`flex w-full shrink-0 md:w-auto ${showFullEventDetails ? 'flex' : 'hidden md:flex'}`}
                       >
                         <input
                           accept="image/*"
@@ -670,12 +708,22 @@ export default function AdminEventsClient() {
                       </div>
                     </div>
 
+                    {isMobile && isMobileExpanded && !isEditing ? (
+                      <Link
+                        className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-[#10233f] shadow-sm transition hover:bg-white/90"
+                        href={workspacePath}
+                      >
+                        <Settings2 className="h-4 w-4" />
+                        Open event workspace
+                      </Link>
+                    ) : null}
+
                     <div
-                      className={`pointer-events-auto grid items-stretch gap-3 sm:mt-5 md:grid-cols-2 ${showFullEventDetails ? 'mt-4' : 'hidden md:mt-4 md:grid'}`}
+                      className={`grid items-stretch gap-3 sm:mt-5 md:grid-cols-2 ${showFullEventDetails ? 'mt-4' : 'hidden md:mt-4 md:grid'}`}
                     >
                       <div className="flex h-full flex-col rounded-xl border border-white/30 bg-white/45 p-3 backdrop-blur-sm sm:rounded-2xl sm:p-4">
                         <div className="flex flex-1 flex-col gap-4 sm:flex-row sm:items-stretch">
-                          <div className="flex min-w-0 flex-1 flex-col">
+                          <div className="pointer-events-auto flex min-w-0 flex-1 flex-col">
                             <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-[#10233f]">
                               <Camera className="h-4 w-4 shrink-0 text-[#c6603d]" />
                               Photographer link
@@ -774,7 +822,7 @@ export default function AdminEventsClient() {
 
                       <div className="flex h-full flex-col rounded-xl border border-white/30 bg-white/45 p-3 backdrop-blur-sm sm:rounded-2xl sm:p-4">
                         <div className="flex flex-1 flex-col gap-4 sm:flex-row sm:items-stretch">
-                          <div className="flex min-w-0 flex-1 flex-col">
+                          <div className="pointer-events-auto flex min-w-0 flex-1 flex-col">
                             <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-[#10233f]">
                               <Download className="h-4 w-4 shrink-0 text-[#2563eb]" />
                               Public download link
