@@ -3,8 +3,9 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Check, ChevronLeft, ChevronRight, Folder, ImageIcon, PanelLeft, Pencil, RefreshCw, Search, Settings2, Trash2, Upload, X, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, Folder, ImageIcon, LayoutGrid, List, PanelLeft, Pencil, RefreshCw, Search, Settings2, Trash2, Upload, X, AlertCircle, CheckCircle2 } from 'lucide-react'
 
+import AdminFolderDriveTable, { type AdminDriveRow } from '@/components/portals/AdminFolderDriveTable'
 import FolderTree from '@/components/portals/FolderTree'
 import AdminWorkspaceNav from '@/components/portals/AdminWorkspaceNav'
 import EventFaceBackgroundScanner from '@/components/people/EventFaceBackgroundScanner'
@@ -133,6 +134,7 @@ export default function AdminWorkspaceClient({ eventSlug }: { eventSlug: string 
   const [bulkRenameOpen, setBulkRenameOpen] = useState(false)
   const [bulkRenameBase, setBulkRenameBase] = useState('')
   const [isBulkRenaming, setIsBulkRenaming] = useState(false)
+  const [folderDisplayMode, setFolderDisplayMode] = useState<'grid' | 'list'>('list')
 
   const selectedFolder = useMemo(
     () => folders.find((f) => f.id === selectedFolderId) ?? null,
@@ -151,9 +153,35 @@ export default function AdminWorkspaceClient({ eventSlug }: { eventSlug: string 
 
   const hasChildFolders = childFolders.length > 0
 
+  const rootFolders = useMemo(
+    () =>
+      folders
+        .filter((folder) => !folder.parent_folder_id)
+        .sort((a, b) => {
+          if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order
+          return b.created_at.localeCompare(a.created_at)
+        }),
+    [folders],
+  )
+
   const filteredPhotos = useMemo(
     () => filterPortalPhotosByFileName(photos, photoSearch),
     [photos, photoSearch],
+  )
+
+  const currentDriveRows = useMemo((): AdminDriveRow[] => {
+    const rows: AdminDriveRow[] = childFolders.map((folder) => ({ kind: 'folder', folder }))
+    if (!hasChildFolders) {
+      for (const photo of filteredPhotos) {
+        rows.push({ kind: 'photo', photo })
+      }
+    }
+    return rows
+  }, [childFolders, filteredPhotos, hasChildFolders])
+
+  const rootDriveRows = useMemo(
+    (): AdminDriveRow[] => rootFolders.map((folder) => ({ kind: 'folder', folder })),
+    [rootFolders],
   )
 
   const selectedPhotos = useMemo(() => {
@@ -711,20 +739,75 @@ export default function AdminWorkspaceClient({ eventSlug }: { eventSlug: string 
             </button>
 
             {!selectedFolder ? (
-              <div className="flex min-h-[280px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200/80 bg-white/60 px-6 py-12 text-center sm:min-h-[360px]">
-                <ImageIcon className="mb-3 h-10 w-10 text-slate-300" />
-                <p className="text-base font-medium text-[#10233f]">Select a folder</p>
-                <p className="mt-1 max-w-sm text-sm text-slate-500">
-                  Choose a folder to rename it, manage photos, or delete uploads.
-                </p>
-                <button
-                  className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#10233f] px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-[#10233f]/15 transition hover:bg-[#1a3358] lg:hidden"
-                  onClick={() => setFoldersPanelOpen(true)}
-                  type="button"
-                >
-                  <PanelLeft className="h-4 w-4" />
-                  Browse folders
-                </button>
+              <div>
+                <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h2 className="text-lg font-semibold text-[#10233f]">All folders</h2>
+                    <p className="text-sm text-slate-500">
+                      Browse event folders in a Google Drive-style list.
+                    </p>
+                  </div>
+                  <div className="inline-flex self-start rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+                    <button
+                      aria-label="List view"
+                      className={`inline-flex min-h-9 items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                        folderDisplayMode === 'list'
+                          ? 'bg-[#10233f] text-white'
+                          : 'text-slate-600 hover:text-[#10233f]'
+                      }`}
+                      onClick={() => setFolderDisplayMode('list')}
+                      type="button"
+                    >
+                      <List className="h-4 w-4" />
+                      List
+                    </button>
+                    <button
+                      aria-label="Grid view"
+                      className={`inline-flex min-h-9 items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                        folderDisplayMode === 'grid'
+                          ? 'bg-[#10233f] text-white'
+                          : 'text-slate-600 hover:text-[#10233f]'
+                      }`}
+                      onClick={() => setFolderDisplayMode('grid')}
+                      type="button"
+                    >
+                      <LayoutGrid className="h-4 w-4" />
+                      Grid
+                    </button>
+                  </div>
+                </div>
+
+                {folderDisplayMode === 'list' ? (
+                  <AdminFolderDriveTable onOpenFolder={handleFolderSelect} rows={rootDriveRows} />
+                ) : (
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {rootFolders.map((folder, index) => {
+                      const colors = getSubFolderCardColorByIndex(index)
+                      return (
+                        <button
+                          className={`group rounded-xl border-2 p-4 text-left transition ${colors.card}`}
+                          key={folder.id}
+                          onClick={() => handleFolderSelect(folder.id)}
+                          type="button"
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className={`rounded-lg bg-white/70 p-2 ${colors.icon}`}>
+                              <Folder className="h-5 w-5" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className={`truncate text-sm font-semibold ${colors.title}`}>
+                                {folder.folder_name}
+                              </p>
+                              <p className={`mt-1 text-xs ${colors.meta}`}>
+                                {folder.owner_name || folder.uploader_name || folder.uploader_code}
+                              </p>
+                            </div>
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             ) : (
               <>
@@ -736,14 +819,42 @@ export default function AdminWorkspaceClient({ eventSlug }: { eventSlug: string 
                     <h2 className="min-w-0 flex-1 truncate text-xl font-semibold text-[#10233f] sm:text-2xl">
                       {selectedFolder.folder_name}
                     </h2>
-                    <button
-                      className="inline-flex min-h-[44px] shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-[#10233f] shadow-sm transition hover:bg-slate-50"
-                      onClick={openFolderManage}
-                      type="button"
-                    >
-                      <Settings2 className="h-4 w-4" />
-                      Manage
-                    </button>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+                        <button
+                          aria-label="List view"
+                          className={`inline-flex min-h-9 items-center justify-center rounded-lg px-2.5 py-2 transition ${
+                            folderDisplayMode === 'list'
+                              ? 'bg-[#10233f] text-white'
+                              : 'text-slate-600 hover:text-[#10233f]'
+                          }`}
+                          onClick={() => setFolderDisplayMode('list')}
+                          type="button"
+                        >
+                          <List className="h-4 w-4" />
+                        </button>
+                        <button
+                          aria-label="Grid view"
+                          className={`inline-flex min-h-9 items-center justify-center rounded-lg px-2.5 py-2 transition ${
+                            folderDisplayMode === 'grid'
+                              ? 'bg-[#10233f] text-white'
+                              : 'text-slate-600 hover:text-[#10233f]'
+                          }`}
+                          onClick={() => setFolderDisplayMode('grid')}
+                          type="button"
+                        >
+                          <LayoutGrid className="h-4 w-4" />
+                        </button>
+                      </div>
+                      <button
+                        className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-[#10233f] shadow-sm transition hover:bg-slate-50"
+                        onClick={openFolderManage}
+                        type="button"
+                      >
+                        <Settings2 className="h-4 w-4" />
+                        Manage
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -968,49 +1079,61 @@ export default function AdminWorkspaceClient({ eventSlug }: { eventSlug: string 
                   </div>
                 ) : (
                   <>
-                    {hasChildFolders ? (
+                    {hasChildFolders || (folderDisplayMode === 'list' && currentDriveRows.length > 0) ? (
                       <div className="mb-6">
                         <div className="mb-3 flex items-center justify-between gap-3">
                           <div>
-                            <h3 className="text-sm font-semibold text-[#10233f]">Sub-folders</h3>
+                            <h3 className="text-sm font-semibold text-[#10233f]">
+                              {hasChildFolders ? 'Sub-folders' : 'Files'}
+                            </h3>
                             <p className="text-xs text-slate-500">
-                              Open a sub-folder to manage its uploads.
+                              {hasChildFolders
+                                ? 'Open a sub-folder to manage its uploads.'
+                                : 'Open a file to preview it.'}
                             </p>
                           </div>
                           <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
-                            {childFolders.length}
+                            {currentDriveRows.length}
                           </span>
                         </div>
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                          {childFolders.map((folder, index) => {
-                            const colors = getSubFolderCardColorByIndex(index)
+                        {folderDisplayMode === 'list' ? (
+                          <AdminFolderDriveTable
+                            onOpenFolder={handleFolderSelect}
+                            onOpenPhoto={openLightbox}
+                            rows={currentDriveRows}
+                          />
+                        ) : (
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                            {childFolders.map((folder, index) => {
+                              const colors = getSubFolderCardColorByIndex(index)
 
-                            return (
-                              <button
-                                className={`group rounded-xl border-2 p-4 text-left transition ${colors.card}`}
-                                key={folder.id}
-                                onClick={() => handleFolderSelect(folder.id)}
-                                type="button"
-                              >
-                                <div className="flex items-start gap-3">
-                                  <div className={`rounded-lg bg-white/70 p-2 ${colors.icon}`}>
-                                    <Folder className="h-5 w-5" />
+                              return (
+                                <button
+                                  className={`group rounded-xl border-2 p-4 text-left transition ${colors.card}`}
+                                  key={folder.id}
+                                  onClick={() => handleFolderSelect(folder.id)}
+                                  type="button"
+                                >
+                                  <div className="flex items-start gap-3">
+                                    <div className={`rounded-lg bg-white/70 p-2 ${colors.icon}`}>
+                                      <Folder className="h-5 w-5" />
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                      <p className={`truncate text-sm font-semibold ${colors.title}`}>
+                                        {folder.folder_name}
+                                      </p>
+                                      <p className={`mt-1 text-xs ${colors.meta}`}>
+                                        {folder.photo_count === 1
+                                          ? '1 photo'
+                                          : `${folder.photo_count} photos`}
+                                      </p>
+                                    </div>
                                   </div>
-                                  <div className="min-w-0 flex-1">
-                                    <p className={`truncate text-sm font-semibold ${colors.title}`}>
-                                      {folder.folder_name}
-                                    </p>
-                                    <p className={`mt-1 text-xs ${colors.meta}`}>
-                                      {folder.photo_count === 1
-                                        ? '1 photo'
-                                        : `${folder.photo_count} photos`}
-                                    </p>
-                                  </div>
-                                </div>
-                              </button>
-                            )
-                          })}
-                        </div>
+                                </button>
+                              )
+                            })}
+                          </div>
+                        )}
                       </div>
                     ) : null}
 
@@ -1023,7 +1146,7 @@ export default function AdminWorkspaceClient({ eventSlug }: { eventSlug: string 
                           <p className="text-sm text-slate-500">No photos in this folder.</p>
                         </div>
                       )
-                    ) : (
+                    ) : folderDisplayMode === 'list' && !hasChildFolders ? null : (
                       <div>
                         {hasChildFolders ? (
                           <h3 className="mb-3 text-sm font-semibold text-[#10233f]">Photos in this folder</h3>

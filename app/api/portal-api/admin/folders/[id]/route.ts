@@ -29,7 +29,7 @@ export async function GET(
     await requirePortalAdmin(adminCode)
     const event = await requirePortalEventBySlug(eventSlug)
     await assertPortalFolderInEvent(id, event.id)
-    const photos = await listPortalPhotos(id)
+    const photos = await listPortalPhotos(id, { eventId: event.id })
     return NextResponse.json({ photos })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to load photos.'

@@ -32,6 +32,14 @@ export type PersonPhoto = {
   created_at: string
 }
 
+export type PhotoFaceAnnotation = {
+  face_id: string
+  person_id: string
+  person_name: string
+  face_thumbnail_url: string | null
+  bounding_box: BoundingBox
+}
+
 export type DetectedFace = {
   embedding: number[]
   bounding_box: BoundingBox

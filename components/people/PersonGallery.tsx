@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Check, CheckSquare, Pencil, Square, Trash2, UserX, X } from 'lucide-react'
 
+import PhotoFaceOverlay from '@/components/people/PhotoFaceOverlay'
 import {
   Dialog,
   DialogContent,
@@ -22,6 +23,7 @@ type PersonGalleryProps = {
   eventId?: string
   onDetachPhotos?: (photoIds: string[]) => Promise<void>
   onRemovePhotos?: (photoIds: string[]) => Promise<void>
+  peopleBasePath?: string
   personId?: string
   photos: PersonPhoto[]
 }
@@ -32,6 +34,7 @@ export default function PersonGallery({
   eventId,
   onDetachPhotos,
   onRemovePhotos,
+  peopleBasePath,
   personId,
   photos,
 }: PersonGalleryProps) {
@@ -391,11 +394,14 @@ export default function PersonGallery({
         >
           <div className="max-w-5xl text-center" onClick={(e) => e.stopPropagation()}>
             <p className="mb-3 truncate text-sm font-medium text-white">{activePhoto.original_file_name}</p>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              alt={activePhoto.original_file_name}
-              className="max-h-[70vh] w-auto max-w-full rounded-lg object-contain shadow-2xl"
-              src={activePhoto.image_url}
+            <PhotoFaceOverlay
+              getPersonHref={
+                peopleBasePath
+                  ? (id) => `${peopleBasePath.replace(/\/$/, '')}/${id}`
+                  : undefined
+              }
+              highlightPersonId={personId}
+              photo={activePhoto}
             />
             {onDetachPhotos || onRemovePhotos ? (
               <div className="mt-4 flex flex-col items-center gap-2">

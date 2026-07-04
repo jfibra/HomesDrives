@@ -7,10 +7,13 @@ import {
   createSupabaseAdminClient,
   getStoragePrefix,
 } from '@/lib/server/albums'
-import { deleteFacesForPhoto } from '@/lib/faces'
+import { deleteFacesForPhoto, insertFace } from '@/lib/faces'
+import { dedupeBySpatialOverlap, boundingBoxArea } from '@/lib/face-dedupe'
 import { detectFacesInImage } from '@/lib/server/insightface-client'
 import { normalizeBoundingBox } from '@/lib/face-geometry'
-import { storeDetectedFace } from '@/lib/vector-search'
+import { ensurePersonNameFromPhotoIfUnknown } from '@/lib/people'
+import { derivePersonNameFromFileName } from '@/lib/person-name-from-file'
+import { matchOrCreatePerson } from '@/lib/vector-search'
 import type { DetectedFace } from '@/lib/types/people'
 
 const IMAGE_EXTENSIONS = /\.(jpe?g|png|webp|bmp|gif|heic|heif|avif)$/i
@@ -168,12 +171,18 @@ export async function processPhotoFaces(photoId: string): Promise<{ facesDetecte
   await deleteFacesForPhoto(photoId)
 
   const imageBuffer = await downloadPhotoBuffer(photo)
-  const detectedFaces = await detectFacesInImage(imageBuffer)
+  const detectedFaces = dedupeBySpatialOverlap(await detectFacesInImage(imageBuffer))
 
   if (detectedFaces.length === 0) {
     await markPhotoFacesScanned(photoId)
     return { facesDetected: 0 }
   }
+
+  const suggestedName = derivePersonNameFromFileName(photo.original_file_name)
+  const bestByPerson = new Map<
+    string,
+    { detectedFace: DetectedFace; faceThumbnailUrl: string | null }
+  >()
 
   for (let index = 0; index < detectedFaces.length; index++) {
     const detectedFace = detectedFaces[index]
@@ -190,17 +199,37 @@ export async function processPhotoFaces(photoId: string): Promise<{ facesDetecte
       console.warn('[face-pipeline] thumbnail upload failed:', thumbError)
     }
 
-    await storeDetectedFace({
-      photoId,
-      detectedFace,
+    const match = await matchOrCreatePerson({
+      embedding: detectedFace.embedding,
       eventId,
-      faceThumbnailUrl,
-      originalFileName: photo.original_file_name,
+      suggestedName,
+    })
+
+    if (!match.isNewPerson && photo.original_file_name) {
+      await ensurePersonNameFromPhotoIfUnknown(match.personId, photo.original_file_name)
+    }
+
+    const existing = bestByPerson.get(match.personId)
+    if (
+      !existing ||
+      boundingBoxArea(detectedFace.bounding_box) > boundingBoxArea(existing.detectedFace.bounding_box)
+    ) {
+      bestByPerson.set(match.personId, { detectedFace, faceThumbnailUrl })
+    }
+  }
+
+  for (const [personId, matched] of bestByPerson) {
+    await insertFace({
+      photoId,
+      personId,
+      embedding: matched.detectedFace.embedding,
+      faceThumbnailUrl: matched.faceThumbnailUrl,
+      boundingBox: matched.detectedFace.bounding_box,
     })
   }
 
   await markPhotoFacesScanned(photoId)
-  return { facesDetected: detectedFaces.length }
+  return { facesDetected: bestByPerson.size }
 }
 
 export function enqueuePhotoFaceProcessing(photoId: string) {

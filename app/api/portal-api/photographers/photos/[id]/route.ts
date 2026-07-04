@@ -27,8 +27,8 @@ export async function DELETE(
       return NextResponse.json({ error: 'Missing eventSlug.' }, { status: 400 })
     }
 
-    const { event, photographer } = await requirePhotographerSessionFromRequest(request, eventSlug)
-    await deletePortalPhotoForUploader(id, PHOTOGRAPHER_PORTAL_CODE, event.id, photographer.id)
+    const { event } = await requirePhotographerSessionFromRequest(request, eventSlug)
+    await deletePortalPhotoForUploader(id, PHOTOGRAPHER_PORTAL_CODE, event.id)
     return NextResponse.json({ success: true })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to delete photo.'

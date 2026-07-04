@@ -28,7 +28,7 @@ export async function GET(
 
     const { event, photographer } = await requirePhotographerSessionFromRequest(request, eventSlug)
     await assertPortalFolderInEvent(id, event.id)
-    const photos = await listPortalPhotos(id, { portalPhotographerId: photographer.id })
+    const photos = await listPortalPhotos(id)
     return NextResponse.json({ photos })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to load photos.'

@@ -9,6 +9,8 @@ export type PortalFolder = {
   is_public_visible: boolean
   sort_order: number
   portal_event_id?: string | null
+  portal_photographer_id?: string | null
+  owner_name?: string | null
 }
 
 export type PortalEvent = {
@@ -35,6 +37,10 @@ export type PortalPhoto = {
   original_file_name: string
   file_size_bytes: number
   created_at: string
+  uploader_name?: string | null
+  uploader_code?: string | null
+  portal_photographer_id?: string | null
+  owner_name?: string | null
 }
 
 export type PortalPhotoPreview = PortalPhoto & {

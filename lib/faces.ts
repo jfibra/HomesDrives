@@ -1,5 +1,6 @@
 import { createSupabaseAdminClient } from '@/lib/server/albums'
-import type { BoundingBox, Face } from '@/lib/types/people'
+import { dedupePhotoFaceAnnotations } from '@/lib/face-dedupe'
+import type { BoundingBox, Face, PhotoFaceAnnotation } from '@/lib/types/people'
 import { FACE_EMBEDDING_DIMENSIONS } from '@/lib/types/people'
 import { createPerson, refreshPersonPhotoCount, updatePersonCover } from '@/lib/people'
 import { derivePersonNameFromFileName } from '@/lib/person-name-from-file'
@@ -65,6 +66,36 @@ export async function getFacesByPhotoId(photoId: string): Promise<Face[]> {
 
   if (error) throw new Error(error.message)
   return (data ?? []).map((row) => mapFace(row as Record<string, unknown>))
+}
+
+export async function getPhotoFaceAnnotations(photoId: string): Promise<PhotoFaceAnnotation[]> {
+  const faces = await getFacesByPhotoId(photoId)
+  if (faces.length === 0) return []
+
+  const supabase = createSupabaseAdminClient()
+  const personIds = [...new Set(faces.map((face) => face.person_id))]
+  const { data: people, error } = await supabase.from('people').select('id, name').in('id', personIds)
+
+  if (error) throw new Error(error.message)
+
+  const nameById = new Map(
+    (people ?? []).map((row) => [
+      String((row as Record<string, unknown>).id),
+      typeof (row as Record<string, unknown>).name === 'string'
+        ? String((row as Record<string, unknown>).name)
+        : 'Unknown',
+    ]),
+  )
+
+  return dedupePhotoFaceAnnotations(
+    faces.map((face) => ({
+      face_id: face.id,
+      person_id: face.person_id,
+      person_name: nameById.get(face.person_id) ?? 'Unknown',
+      face_thumbnail_url: face.face_thumbnail_url,
+      bounding_box: face.bounding_box,
+    })),
+  )
 }
 
 export async function detachPhotoFromPerson(params: {

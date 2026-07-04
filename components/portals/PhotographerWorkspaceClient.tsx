@@ -1381,7 +1381,8 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
           >
             <div className="mb-4 flex items-center justify-between gap-2">
               <div>
-                <h2 className="text-sm font-semibold text-[#10233f]">Your folders</h2>
+                <h2 className="text-sm font-semibold text-[#10233f]">Shared folders</h2>
+                <p className="text-xs text-slate-500">All photographers use the same event folders</p>
                 <p className="text-xs text-slate-500">
                   {photographerName
                     ? `Saved for ${photographerName} on this device`

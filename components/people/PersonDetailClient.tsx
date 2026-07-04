@@ -167,6 +167,7 @@ export default function PersonDetailClient({
         eventId={eventId}
         onDetachPhotos={detachPhotos}
         onRemovePhotos={removePhotos}
+        peopleBasePath={backHref}
         personId={person.id}
         photos={photosResult.items}
       />

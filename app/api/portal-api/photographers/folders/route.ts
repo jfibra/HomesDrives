@@ -26,9 +26,7 @@ export async function GET(request: Request) {
     }
 
     const { event, photographer } = await requirePhotographerSessionFromRequest(request, eventSlug)
-    const folders = await listPortalFoldersForUploader(PHOTOGRAPHER_PORTAL_CODE, event.id, {
-      portalPhotographerId: photographer.id,
-    })
+    const folders = await listPortalFoldersForUploader(PHOTOGRAPHER_PORTAL_CODE, event.id)
     return NextResponse.json({
       event: publicEventResponse(event),
       folders,
@@ -64,7 +62,7 @@ export async function POST(request: Request) {
       folderName,
       parentFolderId,
       eventId: event.id,
-      portalPhotographerId: photographer.id,
+      portalPhotographerId: null,
     })
     return NextResponse.json({ folder }, { status: 201 })
   } catch (error) {

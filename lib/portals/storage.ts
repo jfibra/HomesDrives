@@ -37,12 +37,75 @@ import {
 } from './upload-file-utils'
 
 const PORTAL_FOLDER_SELECT =
-  'id, parent_folder_id, uploader_code, uploader_name, folder_name, created_at, is_public_visible, sort_order, portal_event_id'
+  'id, parent_folder_id, uploader_code, uploader_name, folder_name, created_at, is_public_visible, sort_order, portal_event_id, portal_photographer_id'
 
-type PortalFolderRow = Omit<PortalFolder, 'photo_count'>
+const PORTAL_PHOTO_SELECT =
+  'id, folder_id, image_url, original_file_name, file_size_bytes, created_at, uploader_name, uploader_code, portal_photographer_id'
+
+type PortalFolderRow = Omit<PortalFolder, 'photo_count' | 'owner_name'>
+
+async function getEventPhotographerNameMap(eventId: string) {
+  const supabaseAdmin = createSupabaseAdminClient()
+  const { data, error } = await supabaseAdmin
+    .from('portal_event_photographers')
+    .select('id, full_name')
+    .eq('portal_event_id', eventId)
+
+  if (error) throw new Error(error.message)
+
+  const map = new Map<string, string>()
+  for (const row of data ?? []) {
+    map.set(String(row.id), typeof row.full_name === 'string' ? row.full_name : 'Unknown')
+  }
+  return map
+}
+
+function resolvePortalOwnerName(
+  photographerNames: Map<string, string>,
+  params: {
+    portalPhotographerId?: string | null
+    uploaderName?: string | null
+    uploaderCode?: string | null
+  },
+) {
+  if (params.portalPhotographerId) {
+    const photographerName = photographerNames.get(params.portalPhotographerId)
+    if (photographerName?.trim()) return photographerName.trim()
+  }
+
+  if (
+    !params.portalPhotographerId &&
+    params.uploaderCode === PHOTOGRAPHER_PORTAL_CODE
+  ) {
+    return 'Shared'
+  }
+
+  if (params.uploaderName?.trim()) return params.uploaderName.trim()
+  if (params.uploaderCode?.trim()) return params.uploaderCode.trim()
+  return '—'
+}
+
+function enrichPortalFoldersWithOwners(
+  folders: Array<PortalFolderRow & { photo_count: number }>,
+  photographerNames: Map<string, string>,
+): PortalFolder[] {
+  return folders.map((folder) => ({
+    ...folder,
+    owner_name: resolvePortalOwnerName(photographerNames, {
+      portalPhotographerId: folder.portal_photographer_id,
+      uploaderName: folder.uploader_name,
+      uploaderCode: folder.uploader_code,
+    }),
+  }))
+}
 
 function mapPortalFolderRow(
-  row: PortalFolderRow & { is_public_visible?: boolean; sort_order?: number; portal_event_id?: string | null },
+  row: PortalFolderRow & {
+    is_public_visible?: boolean
+    sort_order?: number
+    portal_event_id?: string | null
+    portal_photographer_id?: string | null
+  },
 ): PortalFolderRow {
   return {
     ...row,
@@ -50,6 +113,7 @@ function mapPortalFolderRow(
     is_public_visible: row.is_public_visible ?? true,
     sort_order: row.sort_order ?? 0,
     portal_event_id: row.portal_event_id ?? null,
+    portal_photographer_id: row.portal_photographer_id ?? null,
   }
 }
 
@@ -127,10 +191,14 @@ export async function listPortalFoldersForAdmin(eventId: string): Promise<Portal
   if (error) throw new Error(error.message)
   const rows = (data ?? []).map((row) => mapPortalFolderRow(row as PortalFolderRow))
   const counts = await countPhotosByFolderIds(rows.map((r) => r.id))
-  return rows.map((row) => ({
-    ...row,
-    photo_count: counts.get(row.id) ?? 0,
-  }))
+  const photographerNames = await getEventPhotographerNameMap(eventId)
+  return enrichPortalFoldersWithOwners(
+    rows.map((row) => ({
+      ...row,
+      photo_count: counts.get(row.id) ?? 0,
+    })),
+    photographerNames,
+  )
 }
 
 export async function listPortalFoldersForUploader(
@@ -439,7 +507,11 @@ export async function deletePortalPhotoForUploader(
   if (selectError) throw new Error(selectError.message)
   if (!photo) throw new Error('Photo not found.')
   if (photo.uploader_code !== uploaderCode) throw new Error('Photo not found.')
-  if (portalPhotographerId && photo.portal_photographer_id !== portalPhotographerId) {
+  if (
+    portalPhotographerId &&
+    photo.portal_photographer_id &&
+    photo.portal_photographer_id !== portalPhotographerId
+  ) {
     throw new Error('Photo not found.')
   }
 
@@ -524,12 +596,27 @@ export async function listPortalPhotosForFolderTree(
 
 export async function listPortalPhotos(
   folderId: string,
-  options?: { portalPhotographerId?: string | null },
+  options?: { portalPhotographerId?: string | null; eventId?: string },
 ): Promise<PortalPhoto[]> {
   const supabaseAdmin = createSupabaseAdminClient()
+
+  let eventId = options?.eventId
+  if (!eventId) {
+    const { data: folderRow, error: folderError } = await supabaseAdmin
+      .from('albums_folders')
+      .select('portal_event_id')
+      .eq('id', folderId)
+      .maybeSingle()
+
+    if (folderError) throw new Error(folderError.message)
+    eventId = folderRow?.portal_event_id ? String(folderRow.portal_event_id) : undefined
+  }
+
+  const photographerNames = eventId ? await getEventPhotographerNameMap(eventId) : new Map<string, string>()
+
   let query = supabaseAdmin
     .from('albums_photos')
-    .select('id, folder_id, image_url, original_file_name, file_size_bytes, created_at')
+    .select(PORTAL_PHOTO_SELECT)
     .eq('folder_id', folderId)
 
   if (options?.portalPhotographerId) {
@@ -539,7 +626,19 @@ export async function listPortalPhotos(
   const { data, error } = await query
 
   if (error) throw new Error(error.message)
-  return sortPortalPhotosByFileName((data ?? []) as PortalPhoto[])
+  return sortPortalPhotosByFileName(
+    (data ?? []).map((row) => {
+      const photo = row as PortalPhoto
+      return {
+        ...photo,
+        owner_name: resolvePortalOwnerName(photographerNames, {
+          portalPhotographerId: photo.portal_photographer_id,
+          uploaderName: photo.uploader_name,
+          uploaderCode: photo.uploader_code,
+        }),
+      }
+    }),
+  )
 }
 
 type PortalPhotoFile = {
@@ -672,7 +771,11 @@ async function getPortalFolderForUploader(
   if (eventId && folder.portal_event_id !== eventId) {
     throw new Error('Folder not found.')
   }
-  if (portalPhotographerId && folder.portal_photographer_id !== portalPhotographerId) {
+  if (
+    portalPhotographerId &&
+    folder.portal_photographer_id &&
+    folder.portal_photographer_id !== portalPhotographerId
+  ) {
     throw new Error('Folder not found.')
   }
   return folder
@@ -704,12 +807,7 @@ export async function createPortalUploadPresigns(params: {
   portalPhotographerId?: string | null
 }): Promise<PortalUploadPresign[]> {
   const user = await getPortalUser(params.uploaderCode)
-  await getPortalFolderForUploader(
-    params.folderId,
-    params.uploaderCode,
-    params.eventId,
-    params.portalPhotographerId,
-  )
+  await getPortalFolderForUploader(params.folderId, params.uploaderCode, params.eventId)
 
   if (params.files.length === 0) {
     throw new Error('Choose at least one file.')
@@ -793,12 +891,7 @@ export async function registerPortalPhotoUploads(params: {
   verifyStoredBytes?: boolean
 }) {
   const user = await getPortalUser(params.uploaderCode)
-  const folder = await getPortalFolderForUploader(
-    params.folderId,
-    params.uploaderCode,
-    params.eventId,
-    params.portalPhotographerId,
-  )
+  const folder = await getPortalFolderForUploader(params.folderId, params.uploaderCode, params.eventId)
   const supabaseAdmin = createSupabaseAdminClient()
 
   if (params.uploads.length === 0) {
