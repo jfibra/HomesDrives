@@ -29,17 +29,25 @@ type YouTubeJson = {
 
 const BASE_YT_DLP_FLAGS = ['--no-warnings', '--no-check-certificates', '--no-playlist']
 
-/** Fallback strategies when YouTube returns 403 for default formats. */
-const YOUTUBE_DOWNLOAD_STRATEGIES: Array<{ label: string; flags: string[]; format: string }> = [
+type YouTubeDownloadStrategy = {
+  label: string
+  flags: string[]
+  format: string
+  /** When true, extract audio from a combined video+audio stream via ffmpeg. */
+  extractAudio?: boolean
+}
+
+/** Fallback strategies when YouTube blocks formats or returns none for a selector. */
+const YOUTUBE_DOWNLOAD_STRATEGIES: YouTubeDownloadStrategy[] = [
   {
     label: 'web_safari',
     flags: ['--extractor-args', 'youtube:player_client=default,web_safari;player_js_version=actual'],
-    format: 'bestaudio/best',
+    format: 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best',
   },
   {
     label: 'no_android_sdkless',
     flags: ['--extractor-args', 'youtube:player_client=default,-android_sdkless'],
-    format: 'bestaudio/best',
+    format: 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best',
   },
   {
     label: 'ios_m3u8',
@@ -52,7 +60,13 @@ const YOUTUBE_DOWNLOAD_STRATEGIES: Array<{ label: string; flags: string[]; forma
   {
     label: 'android_vr',
     flags: ['--extractor-args', 'youtube:player_client=android_vr,web'],
-    format: 'bestaudio/best',
+    format: 'bestaudio[ext=m4a]/bestaudio/best',
+  },
+  {
+    label: 'best_extract_audio',
+    flags: [],
+    format: 'best',
+    extractAudio: true,
   },
   {
     label: 'default',
@@ -216,7 +230,9 @@ async function runYtDlp(url: string, flags: string[]) {
 }
 
 function isRetryableYouTubeError(message: string) {
-  return /403|forbidden|unable to download|sign in|not a bot|confirm you|cookies/i.test(message)
+  return /403|forbidden|unable to download|sign in|not a bot|confirm you|cookies|format is not available|requested format|no video formats|only images are available/i.test(
+    message,
+  )
 }
 
 async function runYtDlpWithStrategies(
@@ -272,19 +288,22 @@ export async function getYouTubeTrackPreview(rawUrl: string): Promise<YouTubeTra
 async function downloadWithStrategy(
   url: string,
   workDir: string,
-  strategy: (typeof YOUTUBE_DOWNLOAD_STRATEGIES)[number],
+  strategy: YouTubeDownloadStrategy,
 ) {
   const outputBase = join(workDir, 'track')
-  await runYtDlp(
-    url,
-    buildYtDlpFlags([
-      ...strategy.flags,
-      '-f',
-      strategy.format,
-      '--output',
-      `${outputBase}.%(ext)s`,
-    ]),
-  )
+  const commandFlags = [
+    ...strategy.flags,
+    '-f',
+    strategy.format,
+    '--output',
+    `${outputBase}.%(ext)s`,
+  ]
+
+  if (strategy.extractAudio) {
+    commandFlags.push('--extract-audio', '--audio-format', 'm4a', '--audio-quality', '0')
+  }
+
+  await runYtDlp(url, buildYtDlpFlags(commandFlags))
 }
 
 export async function downloadYouTubeAudio(rawUrl: string) {
