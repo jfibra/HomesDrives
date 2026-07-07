@@ -29,6 +29,10 @@ type YouTubeJson = {
 
 const BASE_YT_DLP_FLAGS = ['--no-warnings', '--no-check-certificates', '--no-playlist']
 
+/** Prefer DASH/https audio; HLS (m3u8) streams often 403 from EC2/datacenter IPs. */
+const PREFER_DASH_AUDIO_FORMAT =
+  'bestaudio[protocol!=m3u8_native][ext=m4a]/bestaudio[protocol!=m3u8_native][ext=webm]/bestaudio[protocol!=m3u8_native]/bestaudio/best'
+
 type YouTubeDownloadStrategy = {
   label: string
   flags: string[]
@@ -42,36 +46,33 @@ const YOUTUBE_DOWNLOAD_STRATEGIES: YouTubeDownloadStrategy[] = [
   {
     label: 'web_safari',
     flags: ['--extractor-args', 'youtube:player_client=default,web_safari;player_js_version=actual'],
-    format: 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best',
+    format: PREFER_DASH_AUDIO_FORMAT,
+  },
+  {
+    label: 'tv_embedded',
+    flags: ['--extractor-args', 'youtube:player_client=tv_embedded,web'],
+    format: PREFER_DASH_AUDIO_FORMAT,
   },
   {
     label: 'no_android_sdkless',
     flags: ['--extractor-args', 'youtube:player_client=default,-android_sdkless'],
-    format: 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best',
-  },
-  {
-    label: 'ios_m3u8',
-    flags: [
-      '--extractor-args',
-      'youtube:player_client=default,ios,-android_sdkless;formats=missing_pot',
-    ],
-    format: 'ba[protocol=m3u8_native]/bestaudio/best',
+    format: PREFER_DASH_AUDIO_FORMAT,
   },
   {
     label: 'android_vr',
     flags: ['--extractor-args', 'youtube:player_client=android_vr,web'],
-    format: 'bestaudio[ext=m4a]/bestaudio/best',
+    format: PREFER_DASH_AUDIO_FORMAT,
   },
   {
     label: 'best_extract_audio',
     flags: [],
-    format: 'best',
+    format: 'best[protocol!=m3u8_native]/best',
     extractAudio: true,
   },
   {
     label: 'default',
     flags: [],
-    format: 'bestaudio/best',
+    format: PREFER_DASH_AUDIO_FORMAT,
   },
 ]
 
@@ -260,6 +261,19 @@ function normalizeYtDlpError(error: unknown) {
     )
   }
 
+  if (/cookies are no longer valid|likely been rotated/i.test(detail)) {
+    return (
+      'YouTube cookies on the server are expired. Re-export fresh youtube.com-only cookies and upload to EC2, ' +
+      'or remove YT_DLP_COOKIES_FILE from .env for public videos.'
+    )
+  }
+
+  if (/downloaded file is empty|fragment not found/i.test(detail)) {
+    return (
+      'YouTube audio download failed (stream blocked). Try without expired cookies, use another link, or upload an MP3.'
+    )
+  }
+
   if (/signature solving|challenge solving|only images are available|ejs/i.test(detail)) {
     return (
       'YouTube challenge solving failed on the server. Install Deno on EC2 (recommended) or Node 22+, ' +
@@ -284,7 +298,7 @@ async function runYtDlp(url: string, flags: string[]) {
 }
 
 function isRetryableYouTubeError(message: string) {
-  return /403|forbidden|unable to download|sign in|not a bot|confirm you|cookies|format is not available|requested format|no video formats|only images are available|signature solving|challenge solving|ejs/i.test(
+  return /403|forbidden|unable to download|sign in|not a bot|confirm you|cookies|format is not available|requested format|no video formats|only images are available|signature solving|challenge solving|ejs|downloaded file is empty|fragment not found/i.test(
     message,
   )
 }
