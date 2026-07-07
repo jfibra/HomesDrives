@@ -194,6 +194,6 @@ NEXT_PUBLIC_REELS_API_URL=http://YOUR_EC2_IP:8001
 | YouTube "Sign in / not a bot" | Export fresh youtube.com cookies (see 2c). POT does not fix this. Remove `YT_DLP_SKIP_COOKIES=1`. |
 | YouTube "cookies are no longer valid" | Re-export cookies. Do not export all sites — youtube.com only. |
 | Cookies work locally but not on EC2 | Set `YT_DLP_PROXY` to a residential proxy in `.env` |
-| yt-dlp 403 on format 18 / empty HLS file | Automatic **Piped API** fallback (no config needed). Test: `curl -s https://pipedapi.adminforge.de/streams/VIDEO_ID \| head` |
+| yt-dlp 403 on format 18 / empty HLS file | Automatic **Piped API** fallback. Test: `curl -s https://api.piped.private.coffee/streams/VIDEO_ID \| python3 -m json.tool \| head` |
 
 Job files are stored at `.data/reels-jobs/` on EC2.
