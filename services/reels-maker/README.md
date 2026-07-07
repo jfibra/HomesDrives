@@ -1,4 +1,4 @@
-# AI Reels Maker (legacy pathh)
+# AI Reels Maker (legacy path)
 
 Reels Maker now runs as **`services/reels-api/`** on EC2 — same pattern as InsightFace.
 
