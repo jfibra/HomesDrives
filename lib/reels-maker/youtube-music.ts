@@ -6,6 +6,7 @@ import { dirname, join } from 'path'
 import { promisify } from 'util'
 
 import { normalizeYouTubeUrl, parseYouTubeVideoId } from '@/lib/reels-maker/youtube-url'
+import { downloadAudioViaPiped, fetchPipedStreams } from '@/lib/reels-maker/youtube-piped'
 import { safeRemoveDir } from '@/lib/reels-maker/safe-rm'
 
 const execFileAsync = promisify(execFile)
@@ -80,11 +81,25 @@ const MWEB_POT_STRATEGY: YouTubeDownloadStrategy = {
   format: PREFER_DASH_AUDIO_FORMAT,
 }
 
-/** Single-file progressive https (e.g. format 18) — extract audio via ffmpeg. Works on EC2 when only muxed formats exist. */
+/** Format 18 progressive https with mweb + POT — needed for GVS on EC2. */
+const FORMAT_18_MWEB_POT: YouTubeDownloadStrategy = {
+  label: 'format_18_mweb_pot',
+  flags: [
+    ...youtubeExtractorArgs('youtube:player_client=default,mweb', 'player_js_version=actual'),
+    ...potProviderArgs(),
+  ],
+  format: '18/best[protocol=https]',
+  extractAudio: true,
+}
+
+/** Single-file progressive https (e.g. format 18) — extract audio via ffmpeg. */
 const PROGRESSIVE_HTTPS_EXTRACT: YouTubeDownloadStrategy = {
   label: 'progressive_https_extract',
-  flags: [],
-  format: 'best[protocol=https]/bestvideo[ext=mp4][protocol=https]+bestaudio[protocol!=m3u8]/best[protocol=https]',
+  flags: [
+    ...youtubeExtractorArgs('youtube:player_client=default,mweb', 'player_js_version=actual'),
+    ...potProviderArgs(),
+  ],
+  format: 'best[protocol=https]/18/bestvideo[ext=mp4][protocol=https]+bestaudio[protocol!=m3u8]',
   extractAudio: true,
 }
 
@@ -165,7 +180,7 @@ function youtubeDownloadStrategies() {
 
   if (hasCookies) {
     const cookieStrategies: YouTubeDownloadStrategy[] = [
-      // EC2 often only exposes progressive https (not separate audio); extract with ffmpeg.
+      FORMAT_18_MWEB_POT,
       PROGRESSIVE_HTTPS_EXTRACT,
       {
         label: 'mweb_cookies_pot',
@@ -476,15 +491,27 @@ export async function getYouTubeTrackPreview(rawUrl: string): Promise<YouTubeTra
     throw new Error('Paste a valid YouTube link (watch, Shorts, or youtu.be).')
   }
 
-  const info = await fetchYouTubeJson(url)
-  const thumbnailUrl = info.thumbnail ?? info.thumbnails?.[info.thumbnails.length - 1]?.url ?? null
+  try {
+    const info = await fetchYouTubeJson(url)
+    const thumbnailUrl = info.thumbnail ?? info.thumbnails?.[info.thumbnails.length - 1]?.url ?? null
 
-  return {
-    videoId,
-    title: info.title?.trim() || 'YouTube track',
-    durationSeconds: typeof info.duration === 'number' ? info.duration : null,
-    thumbnailUrl,
-    channel: info.channel?.trim() || info.uploader?.trim() || null,
+    return {
+      videoId,
+      title: info.title?.trim() || 'YouTube track',
+      durationSeconds: typeof info.duration === 'number' ? info.duration : null,
+      thumbnailUrl,
+      channel: info.channel?.trim() || info.uploader?.trim() || null,
+    }
+  } catch (ytDlpError) {
+    console.warn('[reels-maker/youtube] preview via yt-dlp failed, trying Piped:', ytDlpError)
+    const piped = await fetchPipedStreams(videoId)
+    return {
+      videoId,
+      title: piped.title?.trim() || 'YouTube track',
+      durationSeconds: typeof piped.duration === 'number' ? piped.duration : null,
+      thumbnailUrl: piped.thumbnailUrl ?? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+      channel: piped.uploader?.trim() || 'YouTube',
+    }
   }
 }
 
@@ -558,6 +585,36 @@ export async function downloadYouTubeAudio(rawUrl: string) {
     }
 
     throw lastError ?? new Error('YouTube download failed.')
+  } catch (ytDlpFailure) {
+    if (!videoId) {
+      throw ytDlpFailure
+    }
+
+    console.warn('[reels-maker/youtube] yt-dlp failed, trying Piped API fallback:', ytDlpFailure)
+
+    try {
+      const piped = await downloadAudioViaPiped(videoId)
+      console.info('[reels-maker/youtube] downloaded audio using Piped API fallback')
+
+      return {
+        buffer: piped.buffer,
+        fileName: `youtube-${videoId}.${piped.extension}`,
+        mimeType: piped.mimeType,
+        preview: {
+          videoId,
+          title: piped.title,
+          durationSeconds: piped.durationSeconds,
+          thumbnailUrl: piped.thumbnailUrl,
+          channel: piped.channel,
+        },
+      }
+    } catch (pipedError) {
+      const pipedMessage = pipedError instanceof Error ? pipedError.message : String(pipedError)
+      const ytMessage = ytDlpFailure instanceof Error ? ytDlpFailure.message : String(ytDlpFailure)
+      throw new Error(
+        `YouTube download failed from this server. ${ytMessage} Piped fallback: ${pipedMessage} Upload an MP3 instead.`,
+      )
+    }
   } finally {
     await safeRemoveDir(workDir)
   }
