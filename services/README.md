@@ -10,7 +10,7 @@ Heavy workloads run on **EC2**. The main Next.js app stays on **Vercel**.
 | **InsightFace / Buildings** | EC2 | 8000 |
 | **AI Reels Maker API** | EC2 | 8001 |
 
-## Architecture (same pattern for both AI services)
+## Architectureee (same pattern for both AI services)
 
 ```
 Vercel (drive.homes.ph)

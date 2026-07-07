@@ -111,5 +111,6 @@ NEXT_PUBLIC_REELS_API_URL=http://YOUR_EC2_IP:8001
 | 401 Unauthorized | Match `REELS_API_SECRET` on Vercel and EC2, or clear it on both |
 | Upload fails | Browser must call EC2 directly — set `NEXT_PUBLIC_REELS_API_URL` |
 | FFmpeg not found | `apt install ffmpeg`, set `FFMPEG_PATH=/usr/bin/ffmpeg` |
+| `spawn yt-dlp ENOENT` | Run `node node_modules/youtube-dl-exec/scripts/postinstall.js`, set `YT_DLP_PATH` in `.env`, `pm2 restart reels-api --update-env` |
 
 Job files are stored at `.data/reels-jobs/` on EC2.

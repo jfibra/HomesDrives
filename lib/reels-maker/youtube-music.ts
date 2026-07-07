@@ -74,22 +74,39 @@ const YOUTUBE_JSON_STRATEGIES: Array<{ label: string; flags: string[] }> = [
 ]
 
 function resolveYtDlpBinary() {
+  const bundledUnix = join(process.cwd(), 'node_modules', 'youtube-dl-exec', 'bin', 'yt-dlp')
+  const bundledWin = join(process.cwd(), 'node_modules', 'youtube-dl-exec', 'bin', 'yt-dlp.exe')
   const candidates = [
     process.env.YT_DLP_PATH,
     process.env.YOUTUBE_DL_PATH,
-    join(process.cwd(), 'node_modules', 'youtube-dl-exec', 'bin', 'yt-dlp.exe'),
-    join(process.cwd(), 'node_modules', 'youtube-dl-exec', 'bin', 'yt-dlp'),
-    'yt-dlp',
-  ].filter((value): value is string => Boolean(value))
+    bundledUnix,
+    bundledWin,
+  ].filter((value): value is string => Boolean(value?.trim()))
 
   for (const candidate of candidates) {
-    if (candidate === 'yt-dlp' || existsSync(candidate)) {
+    if (existsSync(candidate)) {
       return candidate
     }
   }
 
+  for (const name of ['yt-dlp', 'youtube-dl']) {
+    try {
+      const whichCmd = process.platform === 'win32' ? 'where' : 'which'
+      const resolved = execFileSync(whichCmd, [name], { encoding: 'utf8' })
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .find(Boolean)
+      if (resolved && existsSync(resolved)) {
+        return resolved
+      }
+    } catch {
+      // not on PATH
+    }
+  }
+
   throw new Error(
-    'yt-dlp was not found. Run npm install, or set YT_DLP_PATH in .env to your yt-dlp binary.',
+    'yt-dlp was not found. On EC2 run: node node_modules/youtube-dl-exec/scripts/postinstall.js ' +
+      'then set YT_DLP_PATH in .env, or install system yt-dlp (curl to /usr/local/bin/yt-dlp).',
   )
 }
 
