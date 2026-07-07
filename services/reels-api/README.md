@@ -181,6 +181,15 @@ NEXT_PUBLIC_REELS_API_URL=http://YOUR_EC2_IP:8001
 | POST | `/api/reels-maker/jobs/:jobId/render` |
 | GET | `/api/reels-maker/jobs/:jobId/video` |
 | POST | `/api/reels-maker/youtube/preview` |
+| POST | `/api/reels-maker/youtube/stream-info` |
+
+## YouTube music on EC2
+
+YouTube blocks AWS/datacenter IPs for audio downloads. The reels UI **downloads music in the user's browser** (residential IP), then uploads the file to EC2. Server-side yt-dlp/Piped/Invidious fallbacks remain for local dev only.
+
+Optional: set `COBALT_API_KEY` on Vercel and EC2 for a reliable stream tunnel when Invidious/Piped fail in the browser. Get a key from a [self-hosted Cobalt instance](https://github.com/imputnet/cobalt) or an instance owner.
+
+Remove any incorrect `YT_DLP_PROXY` pointing at your own EC2 IP — use a residential proxy provider if you need server-side yt-dlp.
 
 ## Troubleshooting
 
@@ -195,6 +204,6 @@ NEXT_PUBLIC_REELS_API_URL=http://YOUR_EC2_IP:8001
 | YouTube "cookies are no longer valid" | Re-export cookies. Do not export all sites — youtube.com only. |
 | Cookies work locally but not on EC2 | Set `YT_DLP_PROXY` to a residential proxy in `.env` |
 | yt-dlp 403 on format 18 / empty HLS file | Auto fallbacks: Piped → Invidious (`?local=true`). Test: `npx tsx scripts/test-youtube-piped.mjs VIDEO_ID invidious` |
-| All fallbacks fail (0-byte file) | Set `YT_DLP_PROXY` to a **residential** proxy, or upload MP3 in the UI |
+| All fallbacks fail (0-byte file) | YouTube is now downloaded in the **browser**, not EC2. Set `COBALT_API_KEY` or use Upload MP3 |
 
 Job files are stored at `.data/reels-jobs/` on EC2.

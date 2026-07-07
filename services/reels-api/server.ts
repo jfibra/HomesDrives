@@ -14,6 +14,7 @@ import {
   handleReelJobsPost,
   handleYouTubeCookiesUpload,
   handleYouTubePreview,
+  handleYouTubeStreamInfo,
 } from '../../lib/reels-maker/api-handlers'
 
 config({ path: resolve(process.cwd(), '.env') })
@@ -94,6 +95,7 @@ app.get('/api/reels-maker/jobs/:jobId/video', (c) =>
 )
 
 app.post('/api/reels-maker/youtube/preview', (c) => handleYouTubePreview(c.req.raw))
+app.post('/api/reels-maker/youtube/stream-info', (c) => handleYouTubeStreamInfo(c.req.raw))
 app.put('/api/reels-maker/youtube/cookies', (c) => handleYouTubeCookiesUpload(c.req.raw))
 
 console.log(`[reels-api] listening on http://0.0.0.0:${PORT}`)

@@ -17,6 +17,7 @@ import { ReelsMakerCreateFlow, STEPS } from '@/app/reels-maker/reels-maker-creat
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { reelsMakerApiPath } from '@/lib/reels-maker/api-base'
+import { downloadYouTubeAudioInBrowser } from '@/lib/reels-maker/youtube-browser-download'
 import { REEL_TEMPLATES } from '@/lib/reels-maker/templates'
 import { getReelVideoPlaybackUrl } from '@/lib/reels-maker/reel-playback'
 import type { ReelDraftSummary, ReelJob, ReelLogoPosition, ReelTemplateId } from '@/lib/reels-maker/types'
@@ -484,20 +485,58 @@ export default function ReelsMakerClient() {
         ...createdJob,
         status: 'uploading',
         progress: 12,
-        message: youtubeMusicUrl.trim()
-          ? 'Uploading photos and downloading YouTube music…'
-          : 'Uploading photos to cloud…',
+        message: youtubeMusicUrl.trim() && !musicFile
+          ? 'Downloading YouTube music in your browser…'
+          : youtubeMusicUrl.trim()
+            ? 'Uploading photos and downloading YouTube music…'
+            : 'Uploading photos to cloud…',
       })
+
+      let musicForUpload = musicFile
+      if (!musicForUpload && youtubeMusicUrl.trim()) {
+        try {
+          musicForUpload = await downloadYouTubeAudioInBrowser(youtubeMusicUrl.trim(), {
+            onProgress: ({ loaded, total }) => {
+              const pct = total ? Math.min(99, Math.round((loaded / total) * 100)) : null
+              setJob((current) =>
+                current
+                  ? {
+                      ...current,
+                      message:
+                        pct != null
+                          ? `Downloading YouTube music in your browser… ${pct}%`
+                          : 'Downloading YouTube music in your browser…',
+                    }
+                  : current,
+              )
+            },
+          })
+        } catch (youtubeDownloadError) {
+          throw new Error(
+            youtubeDownloadError instanceof Error
+              ? youtubeDownloadError.message
+              : 'Unable to download YouTube music in your browser.',
+          )
+        }
+      }
+
+      setJob((current) =>
+        current
+          ? {
+              ...current,
+              message: 'Uploading photos to cloud…',
+              progress: Math.max(current.progress, 18),
+            }
+          : current,
+      )
 
       const formData = new FormData()
       for (const item of media) {
         formData.append('files', item.file, item.file.name)
       }
       formData.append('mediaNotes', JSON.stringify(media.map((item) => item.note.trim())))
-      if (musicFile) {
-        formData.append('music', musicFile, musicFile.name)
-      } else if (youtubeMusicUrl.trim()) {
-        formData.append('youtubeMusicUrl', youtubeMusicUrl.trim())
+      if (musicForUpload) {
+        formData.append('music', musicForUpload, musicForUpload.name)
       }
       if (logoFile && logoEnabled) {
         formData.append('logo', logoFile, logoFile.name)

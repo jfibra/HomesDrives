@@ -342,6 +342,26 @@ export async function handleYouTubePreview(request: Request): Promise<Response> 
   }
 }
 
+export async function handleYouTubeStreamInfo(request: Request): Promise<Response> {
+  try {
+    const body = (await request.json()) as { url?: string }
+    const url = body.url?.trim() ?? ''
+    if (!url || !isValidYouTubeMusicUrl(url)) {
+      return Response.json({ error: 'Paste a valid YouTube music link.' }, { status: 400 })
+    }
+
+    const { resolveYouTubeStreamInfo } = await import('@/lib/reels-maker/youtube-stream-info')
+    const stream = await resolveYouTubeStreamInfo(url)
+    return Response.json({ stream })
+  } catch (error) {
+    console.error('[reels-maker/youtube/stream-info]', error)
+    return Response.json(
+      { error: error instanceof Error ? error.message : 'Unable to resolve YouTube audio stream.' },
+      { status: 500 },
+    )
+  }
+}
+
 const YOUTUBE_COOKIES_PATH = join(process.cwd(), '.data', 'youtube-cookies.txt')
 
 export async function handleYouTubeCookiesUpload(request: Request): Promise<Response> {
