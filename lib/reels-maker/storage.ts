@@ -1,4 +1,5 @@
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { randomUUID } from 'crypto'
 import sharp from 'sharp'
 
@@ -8,6 +9,7 @@ import {
   getStoragePrefix,
   uploadOriginalMediaObject,
 } from '@/lib/server/albums'
+import { DEFAULT_PRESIGN_EXPIRY_SECONDS } from '@/lib/photo-upload-limits'
 import { analyzeMediaQuality, dedupeMediaByFileName } from '@/lib/reels-maker/media-quality'
 import type { ReelMediaKind, ReelUploadedMedia } from '@/lib/reels-maker/types'
 
@@ -56,6 +58,76 @@ async function optimizeImageBuffer(buffer: Buffer, mimeType: string) {
     return pipeline.webp({ quality: 92 }).toBuffer()
   }
   return pipeline.jpeg({ quality: 92, mozjpeg: true }).toBuffer()
+}
+
+export async function createReelPresignedUpload(params: {
+  fileName: string
+  contentType: string
+}) {
+  const bucketName = getBucketName()
+  const storagePath = buildReelsStoragePath(params.fileName)
+  const storageClient = createStorageClient()
+  const contentType = params.contentType || 'application/octet-stream'
+
+  const uploadUrl = await getSignedUrl(
+    storageClient,
+    new PutObjectCommand({
+      Bucket: bucketName,
+      Key: storagePath,
+      ContentType: contentType,
+    }),
+    { expiresIn: DEFAULT_PRESIGN_EXPIRY_SECONDS },
+  )
+
+  return {
+    bucketName,
+    storagePath,
+    uploadUrl,
+    contentType,
+  }
+}
+
+export async function registerReelMediaFromStorage(params: {
+  fileName: string
+  mimeType: string
+  bucketName: string
+  storagePath: string
+  userNote?: string
+}): Promise<ReelUploadedMedia> {
+  const buffer = await downloadReelObject(params.bucketName, params.storagePath)
+  const kind: ReelMediaKind = isVideoFile(params.fileName, params.mimeType) ? 'video' : 'image'
+  const quality = await analyzeMediaQuality(buffer, kind)
+
+  return {
+    id: randomUUID(),
+    kind,
+    fileName: params.fileName,
+    mimeType: params.mimeType,
+    bucketName: params.bucketName,
+    storagePath: params.storagePath,
+    publicUrl: buildPublicImageUrl(params.bucketName, params.storagePath),
+    width: quality.width,
+    height: quality.height,
+    durationSeconds: null,
+    qualityScore: quality.qualityScore,
+    rejected: quality.rejected,
+    rejectReason: quality.rejectReason,
+    userNote: params.userNote?.trim() || undefined,
+  }
+}
+
+export async function registerReelLogoFromStorage(params: {
+  fileName: string
+  mimeType: string
+  bucketName: string
+  storagePath: string
+}) {
+  const buffer = await downloadReelObject(params.bucketName, params.storagePath)
+  return uploadReelLogoFile({
+    fileName: params.fileName,
+    mimeType: params.mimeType,
+    buffer,
+  })
 }
 
 export async function uploadReelMediaFile(params: {

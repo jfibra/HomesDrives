@@ -40,7 +40,20 @@ function loadTurnstileScript() {
       script.async = true
       script.defer = true
       script.dataset.reelsTurnstile = '1'
-      script.onload = () => resolve()
+      script.onload = () => {
+        const waitForTurnstile = (attempt = 0) => {
+          if (window.turnstile) {
+            resolve()
+            return
+          }
+          if (attempt >= 40) {
+            reject(new Error('Turnstile failed to initialize.'))
+            return
+          }
+          window.setTimeout(() => waitForTurnstile(attempt + 1), 50)
+        }
+        waitForTurnstile()
+      }
       script.onerror = () => reject(new Error('Turnstile failed to load.'))
       document.head.appendChild(script)
     })

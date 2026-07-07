@@ -9,6 +9,8 @@ import {
   handleReelJobGet,
   handleReelJobRender,
   handleReelJobUpload,
+  handleReelJobUploadFinalize,
+  handleReelJobUploadPresign,
   handleReelJobVideo,
   handleReelJobsGet,
   handleReelJobsPost,
@@ -84,6 +86,14 @@ app.delete('/api/reels-maker/jobs/:jobId', (c) => handleReelJobDelete(c.req.para
 
 app.post('/api/reels-maker/jobs/:jobId/upload', (c) =>
   handleReelJobUpload(c.req.param('jobId'), c.req.raw),
+)
+
+app.post('/api/reels-maker/jobs/:jobId/upload/presign', (c) =>
+  handleReelJobUploadPresign(c.req.param('jobId'), c.req.raw),
+)
+
+app.post('/api/reels-maker/jobs/:jobId/upload/finalize', (c) =>
+  handleReelJobUploadFinalize(c.req.param('jobId'), c.req.raw),
 )
 
 app.post('/api/reels-maker/jobs/:jobId/render', (c) =>

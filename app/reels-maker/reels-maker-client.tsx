@@ -20,13 +20,16 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
 import { reelsMakerApiPath } from '@/lib/reels-maker/api-base'
 import { formatApiError } from '@/lib/reels-maker/api-errors'
+import { uploadReelJobAssets } from '@/lib/reels-maker/reels-upload-client'
+import { TurnstileChallenge } from '@/lib/reels-maker/turnstile-challenge'
 import { downloadYouTubeAudioInBrowser } from '@/lib/reels-maker/youtube-browser-download'
-import { requestTurnstileToken, resetTurnstileContainer } from '@/lib/reels-maker/youtube-turnstile'
+import { resetTurnstileContainer } from '@/lib/reels-maker/youtube-turnstile'
 import { REEL_TEMPLATES } from '@/lib/reels-maker/templates'
 import { getReelVideoPlaybackUrl } from '@/lib/reels-maker/reel-playback'
 import type { ReelDraftSummary, ReelJob, ReelLogoPosition, ReelTemplateId } from '@/lib/reels-maker/types'
@@ -242,34 +245,33 @@ export default function ReelsMakerClient() {
     })
   }, [])
 
-  useEffect(() => {
-    if (!turnstileOpen || !turnstileSitekey || !turnstileContainerRef.current) return
-
-    let cancelled = false
-
-    void requestTurnstileToken(turnstileSitekey, turnstileContainerRef.current)
-      .then((token) => {
-        if (cancelled) return
-        turnstilePendingRef.current?.resolve(token)
-        turnstilePendingRef.current = null
-        setTurnstileOpen(false)
-        setTurnstileSitekey(null)
-        resetTurnstileContainer(turnstileContainerRef.current)
-      })
-      .catch((error) => {
-        if (cancelled) return
-        const message = error instanceof Error ? error : new Error(String(error))
-        turnstilePendingRef.current?.reject(message)
-        turnstilePendingRef.current = null
-        setTurnstileOpen(false)
-        setTurnstileSitekey(null)
-        resetTurnstileContainer(turnstileContainerRef.current)
-      })
-
-    return () => {
-      cancelled = true
+  const closeTurnstileDialog = useCallback((error?: Error) => {
+    if (error && turnstilePendingRef.current) {
+      turnstilePendingRef.current.reject(error)
     }
-  }, [turnstileOpen, turnstileSitekey])
+    turnstilePendingRef.current = null
+    resetTurnstileContainer(turnstileContainerRef.current)
+    setTurnstileOpen(false)
+    setTurnstileSitekey(null)
+  }, [])
+
+  const handleTurnstileToken = useCallback(
+    (token: string) => {
+      turnstilePendingRef.current?.resolve(token)
+      turnstilePendingRef.current = null
+      resetTurnstileContainer(turnstileContainerRef.current)
+      setTurnstileOpen(false)
+      setTurnstileSitekey(null)
+    },
+    [],
+  )
+
+  const handleTurnstileError = useCallback(
+    (error: Error) => {
+      closeTurnstileDialog(error)
+    },
+    [closeTurnstileDialog],
+  )
 
   const isProcessing = useMemo(() => {
     if (!job) return false
@@ -589,23 +591,17 @@ export default function ReelsMakerClient() {
           : current,
       )
 
-      const formData = new FormData()
-      for (const item of media) {
-        formData.append('files', item.file, item.file.name)
-      }
-      formData.append('mediaNotes', JSON.stringify(media.map((item) => item.note.trim())))
-      if (musicForUpload) {
-        formData.append('music', musicForUpload, musicForUpload.name)
-      }
-      if (logoFile && logoEnabled) {
-        formData.append('logo', logoFile, logoFile.name)
-        formData.append('logoEnabled', 'true')
-        formData.append('logoPosition', logoPosition)
-      } else {
-        formData.append('logoEnabled', 'false')
-      }
-
-      const uploadData = await postJobUpload(newJobId, formData)
+      const uploadData = await uploadReelJobAssets(
+        newJobId,
+        {
+          media: media.map((item) => ({ file: item.file, note: item.note })),
+          music: musicForUpload,
+          logo: logoFile,
+          logoEnabled,
+          logoPosition,
+        },
+        reelsMakerApiPath,
+      )
       setJob(uploadData.job as ReelJob)
       if (typeof uploadData.warning === 'string' && uploadData.warning.trim()) {
         setError(uploadData.warning)
@@ -985,23 +981,37 @@ export default function ReelsMakerClient() {
       <Dialog
         onOpenChange={(open) => {
           if (!open && turnstilePendingRef.current) {
-            turnstilePendingRef.current.reject(new Error('Security check was cancelled.'))
-            turnstilePendingRef.current = null
-            resetTurnstileContainer(turnstileContainerRef.current)
-            setTurnstileSitekey(null)
+            closeTurnstileDialog(new Error('Security check was cancelled.'))
           }
-          setTurnstileOpen(open)
         }}
         open={turnstileOpen}
       >
-        <DialogContent className="max-w-sm" showCloseButton={false}>
+        <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Verify to download YouTube audio</DialogTitle>
             <DialogDescription>
-              Complete this quick check so we can fetch the track from your browser.
+              Invidious and Piped could not fetch this track, so we use a backup service (Cobalt)
+              that requires a quick Cloudflare security check in your browser.
             </DialogDescription>
           </DialogHeader>
-          <div className="flex justify-center py-2" ref={turnstileContainerRef} />
+          {turnstileSitekey ? (
+            <div ref={turnstileContainerRef}>
+              <TurnstileChallenge
+                onError={handleTurnstileError}
+                onToken={handleTurnstileToken}
+                sitekey={turnstileSitekey}
+              />
+            </div>
+          ) : null}
+          <DialogFooter className="sm:justify-center">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => closeTurnstileDialog(new Error('Security check was cancelled.'))}
+            >
+              Cancel
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

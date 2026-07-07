@@ -10,7 +10,7 @@ import {
   startReelJob,
 } from '@/lib/reels-maker/pipeline'
 import { parseReelResultStorage } from '@/lib/reels-maker/reel-playback'
-import { uploadReelLogoFile, uploadReelMediaFile, uploadReelMusicFile } from '@/lib/reels-maker/storage'
+import { uploadReelLogoFile, uploadReelMediaFile, uploadReelMusicFile, createReelPresignedUpload, registerReelLogoFromStorage, registerReelMediaFromStorage } from '@/lib/reels-maker/storage'
 import type { CreateReelJobInput, ReelLogoPosition, ReelTemplateId } from '@/lib/reels-maker/types'
 import { mkdir, writeFile } from 'fs/promises'
 import { join } from 'path'
@@ -22,6 +22,7 @@ import {
 } from '@/lib/reels-maker/youtube-music'
 import { isValidYouTubeMusicUrl } from '@/lib/reels-maker/youtube-url'
 import { formatApiError } from '@/lib/reels-maker/api-errors'
+import { MAX_PHOTO_UPLOAD_BYTES, MAX_VIDEO_UPLOAD_BYTES } from '@/lib/photo-upload-limits'
 import { createStorageClient } from '@/lib/server/albums'
 
 const TEMPLATE_IDS: ReelTemplateId[] = [
@@ -240,6 +241,163 @@ export async function handleReelJobUpload(jobId: string, request: Request): Prom
     return Response.json({ job: jobAfterUpload, uploadedMedia })
   } catch (error) {
     console.error('[reels-maker/upload]', error)
+    return Response.json(
+      { error: formatApiError(error, 'Upload failed.') },
+      { status: 500 },
+    )
+  }
+}
+
+const MAX_REEL_MUSIC_UPLOAD_BYTES = 50 * 1024 * 1024
+
+function maxBytesForReelRole(role: string, mimeType: string) {
+  if (role === 'music') return MAX_REEL_MUSIC_UPLOAD_BYTES
+  if (mimeType.startsWith('video/')) return MAX_VIDEO_UPLOAD_BYTES
+  return MAX_PHOTO_UPLOAD_BYTES
+}
+
+export async function handleReelJobUploadPresign(jobId: string, request: Request): Promise<Response> {
+  const job = getReelJob(jobId)
+  if (!job) {
+    return Response.json({ error: 'Job not found.' }, { status: 404 })
+  }
+
+  try {
+    const body = (await request.json()) as {
+      files?: Array<{
+        clientId?: string
+        fileName?: string
+        contentType?: string
+        size?: number
+        role?: 'media' | 'music' | 'logo'
+      }>
+    }
+
+    const files = body.files ?? []
+    if (!files.length) {
+      return Response.json({ error: 'No files requested for upload.' }, { status: 400 })
+    }
+
+    const uploads = []
+    for (const file of files) {
+      const clientId = file.clientId?.trim()
+      const fileName = file.fileName?.trim()
+      const role = file.role
+      const contentType = file.contentType?.trim() || 'application/octet-stream'
+      const size = Number(file.size ?? 0)
+
+      if (!clientId || !fileName || !role) {
+        return Response.json({ error: 'Invalid presign request.' }, { status: 400 })
+      }
+
+      const maxBytes = maxBytesForReelRole(role, contentType)
+      if (size <= 0 || size > maxBytes) {
+        return Response.json({ error: `"${fileName}" exceeds the upload size limit.` }, { status: 400 })
+      }
+
+      const presigned = await createReelPresignedUpload({ fileName, contentType })
+      uploads.push({
+        clientId,
+        role,
+        uploadUrl: presigned.uploadUrl,
+        bucketName: presigned.bucketName,
+        storagePath: presigned.storagePath,
+        contentType: presigned.contentType,
+      })
+    }
+
+    return Response.json({ uploads })
+  } catch (error) {
+    console.error('[reels-maker/upload/presign]', error)
+    return Response.json(
+      { error: formatApiError(error, 'Unable to prepare uploads.') },
+      { status: 500 },
+    )
+  }
+}
+
+export async function handleReelJobUploadFinalize(jobId: string, request: Request): Promise<Response> {
+  const job = getReelJob(jobId)
+  if (!job) {
+    return Response.json({ error: 'Job not found.' }, { status: 404 })
+  }
+
+  try {
+    const body = (await request.json()) as {
+      uploads?: Array<{
+        role?: 'media' | 'music' | 'logo'
+        fileName?: string
+        mimeType?: string
+        bucketName?: string
+        storagePath?: string
+        userNote?: string
+      }>
+      logoEnabled?: boolean
+      logoPosition?: string
+    }
+
+    const logoEnabled = body.logoEnabled === true
+    const logoPosition = parseLogoPosition(String(body.logoPosition ?? 'top-right'))
+    const uploads = body.uploads ?? []
+
+    let jobAfterUpload = job
+    const uploadedMedia = []
+
+    for (const upload of uploads) {
+      const role = upload.role
+      const fileName = upload.fileName?.trim()
+      const mimeType = upload.mimeType?.trim() || 'application/octet-stream'
+      const bucketName = upload.bucketName?.trim()
+      const storagePath = upload.storagePath?.trim()
+
+      if (!role || !fileName || !bucketName || !storagePath) {
+        return Response.json({ error: 'Invalid finalize upload payload.' }, { status: 400 })
+      }
+
+      if (role === 'media') {
+        const media = await registerReelMediaFromStorage({
+          fileName,
+          mimeType,
+          bucketName,
+          storagePath,
+          userNote: upload.userNote,
+        })
+        uploadedMedia.push(media)
+        continue
+      }
+
+      if (role === 'music') {
+        const updated = attachReelJobMusic(jobId, bucketName, storagePath)
+        if (updated) jobAfterUpload = updated
+        continue
+      }
+
+      if (role === 'logo') {
+        if (!mimeType.startsWith('image/')) {
+          return Response.json({ error: 'Logo must be a PNG, JPG, or WEBP image.' }, { status: 400 })
+        }
+        const logo = await registerReelLogoFromStorage({
+          fileName,
+          mimeType,
+          bucketName,
+          storagePath,
+        })
+        const updated = attachReelJobLogo(jobId, logo, {
+          enabled: logoEnabled,
+          position: logoPosition,
+        })
+        if (updated) jobAfterUpload = updated
+      }
+    }
+
+    if (uploadedMedia.length) {
+      const updated = attachReelJobMedia(jobId, uploadedMedia)
+      if (updated) jobAfterUpload = updated
+    }
+
+    return Response.json({ job: jobAfterUpload, uploadedMedia })
+  } catch (error) {
+    console.error('[reels-maker/upload/finalize]', error)
     return Response.json(
       { error: formatApiError(error, 'Upload failed.') },
       { status: 500 },
