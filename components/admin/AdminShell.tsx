@@ -15,6 +15,7 @@ import {
   Shield,
   Users,
   Wand2,
+  Film,
 } from 'lucide-react'
 
 type AdminContext = {
@@ -174,6 +175,13 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
       href: '/poster-generator',
       icon: <Wand2 className="h-4 w-4" />,
       matcher: (p) => p === '/poster-generator',
+      section: 'questionnaires',
+    },
+    {
+      label: 'AI Reels Maker',
+      href: '/reels-maker',
+      icon: <Film className="h-4 w-4" />,
+      matcher: (p) => p === '/reels-maker',
       section: 'questionnaires',
     },
   ]
