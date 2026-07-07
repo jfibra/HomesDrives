@@ -192,6 +192,13 @@ function normalizeYtDlpError(error: unknown) {
     )
   }
 
+  if (/sign in|not a bot|confirm you/i.test(detail)) {
+    return (
+      'YouTube blocked this server (bot check). Upload an MP3 instead, or ask your admin to add ' +
+      'YT_DLP_COOKIES_FILE on EC2 with exported YouTube login cookies.'
+    )
+  }
+
   return detail || 'YouTube download failed.'
 }
 
@@ -209,7 +216,7 @@ async function runYtDlp(url: string, flags: string[]) {
 }
 
 function isRetryableYouTubeError(message: string) {
-  return /403|forbidden|unable to download|sign in|bot|cookies/i.test(message)
+  return /403|forbidden|unable to download|sign in|not a bot|confirm you|cookies/i.test(message)
 }
 
 async function runYtDlpWithStrategies(
