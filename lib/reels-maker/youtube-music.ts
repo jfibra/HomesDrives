@@ -6,6 +6,7 @@ import { dirname, join } from 'path'
 import { promisify } from 'util'
 
 import { normalizeYouTubeUrl, parseYouTubeVideoId } from '@/lib/reels-maker/youtube-url'
+import { downloadAudioViaInvidious } from '@/lib/reels-maker/youtube-invidious'
 import { downloadAudioViaPiped, fetchPipedStreams } from '@/lib/reels-maker/youtube-piped'
 import { safeRemoveDir } from '@/lib/reels-maker/safe-rm'
 
@@ -609,11 +610,33 @@ export async function downloadYouTubeAudio(rawUrl: string) {
         },
       }
     } catch (pipedError) {
-      const pipedMessage = pipedError instanceof Error ? pipedError.message : String(pipedError)
-      const ytMessage = ytDlpFailure instanceof Error ? ytDlpFailure.message : String(ytDlpFailure)
-      throw new Error(
-        `YouTube download failed from this server. ${ytMessage} Piped fallback: ${pipedMessage} Upload an MP3 instead.`,
-      )
+      console.warn('[reels-maker/youtube] Piped failed, trying Invidious fallback:', pipedError)
+
+      try {
+        const invidious = await downloadAudioViaInvidious(videoId)
+        console.info('[reels-maker/youtube] downloaded audio using Invidious API fallback')
+
+        return {
+          buffer: invidious.buffer,
+          fileName: `youtube-${videoId}.${invidious.extension}`,
+          mimeType: invidious.mimeType,
+          preview: {
+            videoId,
+            title: invidious.title,
+            durationSeconds: invidious.durationSeconds,
+            thumbnailUrl: invidious.thumbnailUrl,
+            channel: invidious.channel,
+          },
+        }
+      } catch (invidiousError) {
+        const pipedMessage = pipedError instanceof Error ? pipedError.message : String(pipedError)
+        const invidiousMessage =
+          invidiousError instanceof Error ? invidiousError.message : String(invidiousError)
+        const ytMessage = ytDlpFailure instanceof Error ? ytDlpFailure.message : String(ytDlpFailure)
+        throw new Error(
+          `YouTube download is blocked on this server (AWS IP). Upload an MP3 instead, or set YT_DLP_PROXY to a residential proxy. Details: ${invidiousMessage}`,
+        )
+      }
     }
   } finally {
     await safeRemoveDir(workDir)
