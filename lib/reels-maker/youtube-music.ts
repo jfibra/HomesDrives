@@ -152,8 +152,23 @@ function detectJsRuntimeFlag() {
   return []
 }
 
+/** YouTube signature/n-challenge scripts (yt-dlp-ejs). Required on many 2026+ videos. */
+function detectRemoteComponentsFlag() {
+  const configured = process.env.YT_DLP_REMOTE_COMPONENTS?.trim()
+  if (configured && /^(none|off|false|0)$/i.test(configured)) {
+    return []
+  }
+
+  return ['--remote-components', configured || 'ejs:github']
+}
+
 function buildYtDlpFlags(extra: string[] = []) {
-  const flags = [...BASE_YT_DLP_FLAGS, ...detectJsRuntimeFlag(), ...extra]
+  const flags = [
+    ...BASE_YT_DLP_FLAGS,
+    ...detectJsRuntimeFlag(),
+    ...detectRemoteComponentsFlag(),
+    ...extra,
+  ]
   const ffmpegLocation = resolveFfmpegLocation()
   if (ffmpegLocation) {
     flags.push('--ffmpeg-location', ffmpegLocation)
@@ -213,6 +228,13 @@ function normalizeYtDlpError(error: unknown) {
     )
   }
 
+  if (/signature solving|challenge solving|only images are available|ejs/i.test(detail)) {
+    return (
+      'YouTube challenge solving failed on the server. Ensure yt-dlp is up to date, set ' +
+      'YT_DLP_JS_RUNTIMES and YT_DLP_REMOTE_COMPONENTS=ejs:github in EC2 .env, then restart reels-api.'
+    )
+  }
+
   return detail || 'YouTube download failed.'
 }
 
@@ -230,7 +252,7 @@ async function runYtDlp(url: string, flags: string[]) {
 }
 
 function isRetryableYouTubeError(message: string) {
-  return /403|forbidden|unable to download|sign in|not a bot|confirm you|cookies|format is not available|requested format|no video formats|only images are available/i.test(
+  return /403|forbidden|unable to download|sign in|not a bot|confirm you|cookies|format is not available|requested format|no video formats|only images are available|signature solving|challenge solving|ejs/i.test(
     message,
   )
 }
