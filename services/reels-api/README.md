@@ -45,16 +45,41 @@ FFMPEG_PATH=/usr/bin/ffmpeg
 YT_DLP_PATH=/usr/local/bin/yt-dlp
 YT_DLP_JS_RUNTIMES=deno:/root/.deno/bin/deno
 YT_DLP_REMOTE_COMPONENTS=ejs:github
-YT_DLP_COOKIES_FILE=/root/HomesDrives/.data/youtube-cookies.txt
+# PO Token provider (recommended on EC2 — run: bash scripts/setup-yt-dlp-pot-ec2.sh)
+YT_DLP_POT_ENABLED=1
+YT_DLP_POT_BASE_URL=http://127.0.0.1:4416
+YT_DLP_SKIP_COOKIES=1
+# Optional fallback if POT is unavailable: export youtube.com-only cookies
+# YT_DLP_COOKIES_FILE=/root/HomesDrives/.data/youtube-cookies.txt
 ```
 
-### 2b. Install Deno (required for YouTube links)
+### 2b. Install Deno + PO Token provider (required for YouTube links)
 
 yt-dlp needs **Deno** (recommended) or **Node 22+** to solve YouTube JS challenges. Node 20 is not enough.
+
+EC2 datacenter IPs are often flagged by YouTube. Use the **bgutil PO Token provider** (no browser cookies needed):
 
 ```bash
 curl -fsSL https://deno.land/install.sh | sh
 /root/.deno/bin/deno --version
+
+cd ~/HomesDrives
+git pull
+bash scripts/setup-yt-dlp-pot-ec2.sh
+```
+
+Add to `.env`:
+
+```
+YT_DLP_POT_ENABLED=1
+YT_DLP_POT_BASE_URL=http://127.0.0.1:4416
+YT_DLP_SKIP_COOKIES=1
+```
+
+Restart workers:
+
+```bash
+pm2 restart reels-api bgutil-pot --update-env
 ```
 
 Test a download:
@@ -62,10 +87,11 @@ Test a download:
 ```bash
 /usr/local/bin/yt-dlp \
   --js-runtimes deno:/root/.deno/bin/deno \
-  --cookies /root/HomesDrives/.data/youtube-cookies.txt \
-  -f bestaudio/best \
+  --extractor-args 'youtube:player_client=default,mweb' \
+  -f 'bestaudio[protocol!=m3u8_native]/bestaudio/best' \
   -o '/tmp/test.%(ext)s' \
-  'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+  'https://www.youtube.com/watch?v=WerQABDxisM'
+ls -la /tmp/test*
 ```
 
 ### 3. Start with PM2
@@ -136,6 +162,7 @@ NEXT_PUBLIC_REELS_API_URL=http://YOUR_EC2_IP:8001
 | Upload fails | Browser must call EC2 directly — set `NEXT_PUBLIC_REELS_API_URL` |
 | FFmpeg not found | `apt install ffmpeg`, set `FFMPEG_PATH=/usr/bin/ffmpeg` |
 | `spawn yt-dlp ENOENT` | Run `node node_modules/youtube-dl-exec/scripts/postinstall.js`, set `YT_DLP_PATH` in `.env`, `pm2 restart reels-api --update-env` |
-| YouTube "Sign in / not a bot" | YouTube blocks EC2 IPs. Export cookies (see below) or upload MP3 instead |
+| YouTube "Sign in / not a bot" | Run `bash scripts/setup-yt-dlp-pot-ec2.sh`, set `YT_DLP_POT_ENABLED=1`, `pm2 restart reels-api bgutil-pot --update-env` |
+| YouTube "cookies are no longer valid" | Set `YT_DLP_SKIP_COOKIES=1` and remove or refresh `YT_DLP_COOKIES_FILE` |
 
 Job files are stored at `.data/reels-jobs/` on EC2.

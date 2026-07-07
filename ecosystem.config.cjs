@@ -29,5 +29,12 @@ module.exports = {
       autorestart: true,
       max_restarts: 10,
     },
+    {
+      name: 'bgutil-pot',
+      script: './scripts/run-bgutil-pot.sh',
+      interpreter: 'bash',
+      autorestart: true,
+      max_restarts: 10,
+    },
   ],
 }

@@ -41,6 +41,41 @@ type YouTubeDownloadStrategy = {
   extractAudio?: boolean
 }
 
+function resolvePotBaseUrl(): string | null {
+  const baseUrl = process.env.YT_DLP_POT_BASE_URL?.trim()
+  if (baseUrl) return baseUrl
+
+  const enabled = process.env.YT_DLP_POT_ENABLED?.trim()
+  if (enabled && /^(1|true|yes|on)$/i.test(enabled)) {
+    return 'http://127.0.0.1:4416'
+  }
+
+  return null
+}
+
+function youtubeExtractorArgs(...parts: string[]) {
+  return ['--extractor-args', parts.join(';')]
+}
+
+/** bgutil POT provider args when the HTTP server is not on the default port. */
+function potProviderArgs(): string[] {
+  const baseUrl = resolvePotBaseUrl()
+  if (!baseUrl || baseUrl === 'http://127.0.0.1:4416') {
+    return []
+  }
+
+  return youtubeExtractorArgs(`youtubepot-bgutilhttp:base_url=${baseUrl}`)
+}
+
+const MWEB_POT_STRATEGY: YouTubeDownloadStrategy = {
+  label: 'mweb_pot',
+  flags: [
+    ...youtubeExtractorArgs('youtube:player_client=default,mweb', 'player_js_version=actual'),
+    ...potProviderArgs(),
+  ],
+  format: PREFER_DASH_AUDIO_FORMAT,
+}
+
 /** Fallback strategies when YouTube blocks formats or returns none for a selector. */
 const YOUTUBE_DOWNLOAD_STRATEGIES: YouTubeDownloadStrategy[] = [
   {
@@ -76,6 +111,14 @@ const YOUTUBE_DOWNLOAD_STRATEGIES: YouTubeDownloadStrategy[] = [
   },
 ]
 
+const MWEB_POT_JSON_STRATEGY = {
+  label: 'mweb_pot',
+  flags: [
+    ...youtubeExtractorArgs('youtube:player_client=default,mweb', 'player_js_version=actual'),
+    ...potProviderArgs(),
+  ],
+}
+
 const YOUTUBE_JSON_STRATEGIES: Array<{ label: string; flags: string[] }> = [
   {
     label: 'web_safari',
@@ -87,6 +130,20 @@ const YOUTUBE_JSON_STRATEGIES: Array<{ label: string; flags: string[] }> = [
   },
   { label: 'default', flags: [] },
 ]
+
+function youtubeJsonStrategies() {
+  if (!resolvePotBaseUrl()) return YOUTUBE_JSON_STRATEGIES
+  return [MWEB_POT_JSON_STRATEGY, ...YOUTUBE_JSON_STRATEGIES]
+}
+
+function youtubeDownloadStrategies() {
+  if (!resolvePotBaseUrl()) return YOUTUBE_DOWNLOAD_STRATEGIES
+  return [MWEB_POT_STRATEGY, ...YOUTUBE_DOWNLOAD_STRATEGIES]
+}
+
+function shouldSkipCookies() {
+  return /^(1|true|yes|on)$/i.test(process.env.YT_DLP_SKIP_COOKIES?.trim() || '')
+}
 
 function resolveYtDlpBinary() {
   const bundledUnix = join(process.cwd(), 'node_modules', 'youtube-dl-exec', 'bin', 'yt-dlp')
@@ -207,9 +264,11 @@ function buildYtDlpFlags(extra: string[] = []) {
     flags.push('--ffmpeg-location', ffmpegLocation)
   }
 
-  const cookiesFile = process.env.YT_DLP_COOKIES_FILE?.trim()
-  if (cookiesFile && existsSync(cookiesFile)) {
-    flags.push('--cookies', cookiesFile)
+  if (!shouldSkipCookies()) {
+    const cookiesFile = process.env.YT_DLP_COOKIES_FILE?.trim()
+    if (cookiesFile && existsSync(cookiesFile)) {
+      flags.push('--cookies', cookiesFile)
+    }
   }
 
   const cookiesBrowser = process.env.YT_DLP_COOKIES_BROWSER?.trim()
@@ -256,8 +315,8 @@ function normalizeYtDlpError(error: unknown) {
 
   if (/sign in|not a bot|confirm you/i.test(detail)) {
     return (
-      'YouTube blocked this server (bot check). Upload an MP3 instead, or ask your admin to add ' +
-      'YT_DLP_COOKIES_FILE on EC2 with exported YouTube login cookies.'
+      'YouTube blocked this server (bot check). On EC2 run: bash scripts/setup-yt-dlp-pot-ec2.sh ' +
+      'then set YT_DLP_POT_ENABLED=1 in .env and restart reels-api. Or upload an MP3 instead.'
     )
   }
 
@@ -327,7 +386,7 @@ async function runYtDlpWithStrategies(
 }
 
 async function fetchYouTubeJson(url: string) {
-  const stdout = await runYtDlpWithStrategies(url, YOUTUBE_JSON_STRATEGIES, () => [
+  const stdout = await runYtDlpWithStrategies(url, youtubeJsonStrategies(), () => [
     '--dump-single-json',
     '--skip-download',
   ])
@@ -385,7 +444,7 @@ export async function downloadYouTubeAudio(rawUrl: string) {
   let lastError: Error | null = null
 
   try {
-    for (const strategy of YOUTUBE_DOWNLOAD_STRATEGIES) {
+    for (const strategy of youtubeDownloadStrategies()) {
       try {
         await downloadWithStrategy(url, workDir, strategy)
 
