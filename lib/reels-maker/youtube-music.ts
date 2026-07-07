@@ -80,6 +80,14 @@ const MWEB_POT_STRATEGY: YouTubeDownloadStrategy = {
   format: PREFER_DASH_AUDIO_FORMAT,
 }
 
+/** Single-file progressive https (e.g. format 18) — extract audio via ffmpeg. Works on EC2 when only muxed formats exist. */
+const PROGRESSIVE_HTTPS_EXTRACT: YouTubeDownloadStrategy = {
+  label: 'progressive_https_extract',
+  flags: [],
+  format: 'best[protocol=https]/bestvideo[ext=mp4][protocol=https]+bestaudio[protocol!=m3u8]/best[protocol=https]',
+  extractAudio: true,
+}
+
 /** Fallback strategies when YouTube blocks formats or returns none for a selector. */
 const YOUTUBE_DOWNLOAD_STRATEGIES: YouTubeDownloadStrategy[] = [
   {
@@ -157,6 +165,8 @@ function youtubeDownloadStrategies() {
 
   if (hasCookies) {
     const cookieStrategies: YouTubeDownloadStrategy[] = [
+      // EC2 often only exposes progressive https (not separate audio); extract with ffmpeg.
+      PROGRESSIVE_HTTPS_EXTRACT,
       {
         label: 'mweb_cookies_pot',
         flags: [
@@ -178,7 +188,7 @@ function youtubeDownloadStrategies() {
     ]
 
     const withoutDupes = strategies.filter(
-      (s) => !['web_safari', 'mweb_pot'].includes(s.label),
+      (s) => !['web_safari', 'mweb_pot', 'best_extract_audio'].includes(s.label),
     )
     return [...cookieStrategies, ...withoutDupes]
   }

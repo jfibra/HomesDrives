@@ -110,24 +110,17 @@ pm2 restart reels-api bgutil-pot --update-env
 bash scripts/validate-yt-dlp-ec2.sh
 ```
 
-Test a download (with cookies — **must** avoid m3u8/HLS):
+Test a download (with cookies — uses progressive https + ffmpeg extract):
 
 ```bash
 /usr/local/bin/yt-dlp \
   --js-runtimes deno:/root/.deno/bin/deno \
   --cookies /root/HomesDrives/.data/youtube-cookies.txt \
-  --extractor-args 'youtube:player_client=default,mweb' \
-  -f 'bestaudio[protocol=https]/bestaudio[protocol=http_dash_segments]/bestaudio[ext=m4a]/bestaudio[ext=webm]' \
+  -f 'best[protocol=https]' \
+  --extract-audio --audio-format m4a \
   -o '/tmp/test.%(ext)s' \
   'https://www.youtube.com/watch?v=WerQABDxisM'
 ls -la /tmp/test*
-```
-
-If that fails, list available formats (pick a non-m3u8 `audio only` id):
-
-```bash
-/usr/local/bin/yt-dlp -F --cookies /root/HomesDrives/.data/youtube-cookies.txt \
-  'https://www.youtube.com/watch?v=WerQABDxisM' | head -40
 ```
 
 ### 3. Start with PM2
