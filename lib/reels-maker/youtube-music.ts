@@ -485,6 +485,31 @@ async function fetchYouTubeJson(url: string) {
   return JSON.parse(stdout) as YouTubeJson
 }
 
+async function fetchYouTubeOEmbedPreview(videoId: string, url: string): Promise<YouTubeTrackPreview> {
+  const response = await fetch(
+    `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`,
+    { signal: AbortSignal.timeout(15_000) },
+  )
+
+  if (!response.ok) {
+    throw new Error(`YouTube oEmbed returned HTTP ${response.status}.`)
+  }
+
+  const data = (await response.json()) as {
+    title?: string
+    author_name?: string
+    thumbnail_url?: string
+  }
+
+  return {
+    videoId,
+    title: data.title?.trim() || 'YouTube track',
+    durationSeconds: null,
+    thumbnailUrl: data.thumbnail_url ?? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+    channel: data.author_name?.trim() || 'YouTube',
+  }
+}
+
 export async function getYouTubeTrackPreview(rawUrl: string): Promise<YouTubeTrackPreview> {
   const videoId = parseYouTubeVideoId(rawUrl)
   const url = normalizeYouTubeUrl(rawUrl)
@@ -505,13 +530,18 @@ export async function getYouTubeTrackPreview(rawUrl: string): Promise<YouTubeTra
     }
   } catch (ytDlpError) {
     console.warn('[reels-maker/youtube] preview via yt-dlp failed, trying Piped:', ytDlpError)
-    const piped = await fetchPipedStreams(videoId)
-    return {
-      videoId,
-      title: piped.title?.trim() || 'YouTube track',
-      durationSeconds: typeof piped.duration === 'number' ? piped.duration : null,
-      thumbnailUrl: piped.thumbnailUrl ?? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
-      channel: piped.uploader?.trim() || 'YouTube',
+    try {
+      const piped = await fetchPipedStreams(videoId)
+      return {
+        videoId,
+        title: piped.title?.trim() || 'YouTube track',
+        durationSeconds: typeof piped.duration === 'number' ? piped.duration : null,
+        thumbnailUrl: piped.thumbnailUrl ?? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+        channel: piped.uploader?.trim() || 'YouTube',
+      }
+    } catch (pipedError) {
+      console.warn('[reels-maker/youtube] preview via Piped failed, trying oEmbed:', pipedError)
+      return fetchYouTubeOEmbedPreview(videoId, url)
     }
   }
 }
