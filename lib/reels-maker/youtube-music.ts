@@ -29,9 +29,13 @@ type YouTubeJson = {
 
 const BASE_YT_DLP_FLAGS = ['--no-warnings', '--no-check-certificates', '--no-playlist']
 
-/** Prefer DASH/https audio; HLS (m3u8) streams often 403 from EC2/datacenter IPs. */
+/** Prefer DASH/https audio only — never fall back to HLS (m3u8 403s on EC2). */
 const PREFER_DASH_AUDIO_FORMAT =
-  'bestaudio[protocol!=m3u8_native][ext=m4a]/bestaudio[protocol!=m3u8_native][ext=webm]/bestaudio[protocol!=m3u8_native]/bestaudio/best'
+  'bestaudio[protocol=https]/bestaudio[protocol=http_dash_segments]/bestaudio[ext=m4a][protocol!=m3u8]/bestaudio[ext=webm][protocol!=m3u8]/bestaudio[acodec^=mp4a][protocol!=m3u8]/bestaudio[protocol!=m3u8_native][protocol!=m3u8]'
+
+/** Extract audio from a progressive/DASH mux when no bare audio stream exists. */
+const EXTRACT_AUDIO_FROM_MUXED_FORMAT =
+  'best[protocol=https]/best[protocol=http_dash_segments]/bestvideo[ext=mp4][protocol!=m3u8]+bestaudio[protocol!=m3u8]/best[protocol!=m3u8_native][protocol!=m3u8]'
 
 type YouTubeDownloadStrategy = {
   label: string
@@ -101,7 +105,7 @@ const YOUTUBE_DOWNLOAD_STRATEGIES: YouTubeDownloadStrategy[] = [
   {
     label: 'best_extract_audio',
     flags: [],
-    format: 'best[protocol!=m3u8_native]/best',
+    format: EXTRACT_AUDIO_FROM_MUXED_FORMAT,
     extractAudio: true,
   },
   {
@@ -144,18 +148,41 @@ function youtubeJsonStrategies() {
 
 function youtubeDownloadStrategies() {
   const strategies = [...YOUTUBE_DOWNLOAD_STRATEGIES]
-  if (resolvePotBaseUrl()) {
+  const hasCookies = Boolean(resolveCookiesFile())
+  const hasPot = Boolean(resolvePotBaseUrl())
+
+  if (hasPot) {
     strategies.unshift(MWEB_POT_STRATEGY)
   }
-  if (resolveCookiesFile()) {
-    // Logged-in session bypasses the EC2 bot wall; prefer web_safari first.
-    const cookieFirst: YouTubeDownloadStrategy = {
-      label: 'web_safari_cookies',
-      flags: ['--extractor-args', 'youtube:player_client=default,web_safari;player_js_version=actual'],
-      format: PREFER_DASH_AUDIO_FORMAT,
-    }
-    return [cookieFirst, ...strategies.filter((s) => s.label !== 'web_safari')]
+
+  if (hasCookies) {
+    const cookieStrategies: YouTubeDownloadStrategy[] = [
+      {
+        label: 'mweb_cookies_pot',
+        flags: [
+          ...youtubeExtractorArgs('youtube:player_client=default,mweb', 'player_js_version=actual'),
+          ...potProviderArgs(),
+        ],
+        format: PREFER_DASH_AUDIO_FORMAT,
+      },
+      {
+        label: 'web_cookies',
+        flags: ['--extractor-args', 'youtube:player_client=default,web;player_js_version=actual'],
+        format: PREFER_DASH_AUDIO_FORMAT,
+      },
+      {
+        label: 'web_safari_cookies',
+        flags: ['--extractor-args', 'youtube:player_client=default,web_safari;player_js_version=actual'],
+        format: PREFER_DASH_AUDIO_FORMAT,
+      },
+    ]
+
+    const withoutDupes = strategies.filter(
+      (s) => !['web_safari', 'mweb_pot'].includes(s.label),
+    )
+    return [...cookieStrategies, ...withoutDupes]
   }
+
   return strategies
 }
 
