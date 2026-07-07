@@ -140,16 +140,48 @@ function resolveFfmpegLocation() {
   return null
 }
 
-function detectJsRuntimeFlag() {
+function resolveJsRuntime(): string {
   const configured = process.env.YT_DLP_JS_RUNTIMES?.trim()
-  if (configured) return ['--js-runtimes', configured]
+  if (configured) return configured
 
-  const nodeBin = process.execPath
-  if (nodeBin && existsSync(nodeBin)) {
-    return ['--js-runtimes', `node:${nodeBin}`]
+  const home = process.env.HOME || '/root'
+  const denoCandidates = [
+    join(home, '.deno', 'bin', 'deno'),
+    '/usr/local/bin/deno',
+  ]
+
+  for (const deno of denoCandidates) {
+    if (existsSync(deno)) {
+      return `deno:${deno}`
+    }
   }
 
-  return []
+  try {
+    const whichCmd = process.platform === 'win32' ? 'where' : 'which'
+    const resolved = execFileSync(whichCmd, ['deno'], { encoding: 'utf8' })
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean)
+    if (resolved && existsSync(resolved)) {
+      return `deno:${resolved}`
+    }
+  } catch {
+    // deno not on PATH
+  }
+
+  // Node 22+ works; Node 20 (common on nvm) cannot solve YouTube EJS challenges.
+  const nodeBin = process.execPath
+  if (nodeBin && existsSync(nodeBin)) {
+    return `node:${nodeBin}`
+  }
+
+  return ''
+}
+
+function detectJsRuntimeFlag() {
+  const runtime = resolveJsRuntime()
+  if (!runtime) return []
+  return ['--js-runtimes', runtime]
 }
 
 /** YouTube signature/n-challenge scripts (yt-dlp-ejs). Required on many 2026+ videos. */
@@ -230,8 +262,8 @@ function normalizeYtDlpError(error: unknown) {
 
   if (/signature solving|challenge solving|only images are available|ejs/i.test(detail)) {
     return (
-      'YouTube challenge solving failed on the server. Ensure yt-dlp is up to date, set ' +
-      'YT_DLP_JS_RUNTIMES and YT_DLP_REMOTE_COMPONENTS=ejs:github in EC2 .env, then restart reels-api.'
+      'YouTube challenge solving failed on the server. Install Deno on EC2 (recommended) or Node 22+, ' +
+      'set YT_DLP_JS_RUNTIMES=deno:/root/.deno/bin/deno in .env, then restart reels-api.'
     )
   }
 

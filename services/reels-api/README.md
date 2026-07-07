@@ -42,6 +42,30 @@ AWS_REGION=...
 AWS_S3_ENDPOINT=...
 AWS_S3_PREFIX=homesph
 FFMPEG_PATH=/usr/bin/ffmpeg
+YT_DLP_PATH=/usr/local/bin/yt-dlp
+YT_DLP_JS_RUNTIMES=deno:/root/.deno/bin/deno
+YT_DLP_REMOTE_COMPONENTS=ejs:github
+YT_DLP_COOKIES_FILE=/root/HomesDrives/.data/youtube-cookies.txt
+```
+
+### 2b. Install Deno (required for YouTube links)
+
+yt-dlp needs **Deno** (recommended) or **Node 22+** to solve YouTube JS challenges. Node 20 is not enough.
+
+```bash
+curl -fsSL https://deno.land/install.sh | sh
+/root/.deno/bin/deno --version
+```
+
+Test a download:
+
+```bash
+/usr/local/bin/yt-dlp \
+  --js-runtimes deno:/root/.deno/bin/deno \
+  --cookies /root/HomesDrives/.data/youtube-cookies.txt \
+  -f bestaudio/best \
+  -o '/tmp/test.%(ext)s' \
+  'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
 ```
 
 ### 3. Start with PM2
