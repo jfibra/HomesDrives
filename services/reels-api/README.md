@@ -45,12 +45,14 @@ FFMPEG_PATH=/usr/bin/ffmpeg
 YT_DLP_PATH=/usr/local/bin/yt-dlp
 YT_DLP_JS_RUNTIMES=deno:/root/.deno/bin/deno
 YT_DLP_REMOTE_COMPONENTS=ejs:github
-# PO Token provider (recommended on EC2 — run: bash scripts/setup-yt-dlp-pot-ec2.sh)
+# PO Token provider — prevents 403 on audio streams (NOT the bot-check wall)
+# bash scripts/setup-yt-dlp-pot-ec2.sh
 YT_DLP_POT_ENABLED=1
 YT_DLP_POT_BASE_URL=http://127.0.0.1:4416
-YT_DLP_SKIP_COOKIES=1
-# Optional fallback if POT is unavailable: export youtube.com-only cookies
-# YT_DLP_COOKIES_FILE=/root/HomesDrives/.data/youtube-cookies.txt
+# Fresh youtube.com cookies required on AWS to pass bot check:
+YT_DLP_COOKIES_FILE=/root/HomesDrives/.data/youtube-cookies.txt
+# Optional residential proxy if cookies alone fail:
+# YT_DLP_PROXY=socks5h://user:pass@host:port
 ```
 
 ### 2b. Install Deno + PO Token provider (required for YouTube links)
@@ -73,21 +75,47 @@ Add to `.env`:
 ```
 YT_DLP_POT_ENABLED=1
 YT_DLP_POT_BASE_URL=http://127.0.0.1:4416
-YT_DLP_SKIP_COOKIES=1
+YT_DLP_COOKIES_FILE=/root/HomesDrives/.data/youtube-cookies.txt
 ```
+
+**POT alone does not bypass the bot check.** AWS datacenter IPs need **fresh YouTube login cookies** (or a residential proxy).
+
+### 2c. Export and upload YouTube cookies
+
+1. Open **Chrome incognito** → go to [youtube.com](https://www.youtube.com) and sign in (use a secondary Google account if you prefer).
+2. In the **same tab**, visit `https://www.youtube.com/robots.txt`
+3. Install [Get cookies.txt LOCALLY](https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc) → export **youtube.com only**.
+4. Upload to EC2 (pick one):
+
+```bash
+# Option A: curl from your PC (replace SECRET and path)
+curl -X PUT "http://YOUR_EC2_IP:8001/api/reels-maker/youtube/cookies" \
+  -H "x-reels-api-secret: YOUR_REELS_API_SECRET" \
+  -H "Content-Type: text/plain" \
+  --data-binary @cookies.txt
+
+# Option B: scp then on EC2
+mkdir -p ~/HomesDrives/.data
+# scp cookies.txt root@EC2:~/HomesDrives/.data/youtube-cookies.txt
+chmod 600 ~/HomesDrives/.data/youtube-cookies.txt
+```
+
+5. **Remove** `YT_DLP_SKIP_COOKIES=1` from `.env` if present.
+6. Close the incognito window immediately after export.
 
 Restart workers:
 
 ```bash
 pm2 restart reels-api bgutil-pot --update-env
+bash scripts/validate-yt-dlp-ec2.sh
 ```
 
-Test a download:
+Test a download (with cookies):
 
 ```bash
 /usr/local/bin/yt-dlp \
   --js-runtimes deno:/root/.deno/bin/deno \
-  --extractor-args 'youtube:player_client=default,mweb' \
+  --cookies /root/HomesDrives/.data/youtube-cookies.txt \
   -f 'bestaudio[protocol!=m3u8_native]/bestaudio/best' \
   -o '/tmp/test.%(ext)s' \
   'https://www.youtube.com/watch?v=WerQABDxisM'
@@ -162,7 +190,8 @@ NEXT_PUBLIC_REELS_API_URL=http://YOUR_EC2_IP:8001
 | Upload fails | Browser must call EC2 directly — set `NEXT_PUBLIC_REELS_API_URL` |
 | FFmpeg not found | `apt install ffmpeg`, set `FFMPEG_PATH=/usr/bin/ffmpeg` |
 | `spawn yt-dlp ENOENT` | Run `node node_modules/youtube-dl-exec/scripts/postinstall.js`, set `YT_DLP_PATH` in `.env`, `pm2 restart reels-api --update-env` |
-| YouTube "Sign in / not a bot" | Run `bash scripts/setup-yt-dlp-pot-ec2.sh`, set `YT_DLP_POT_ENABLED=1`, `pm2 restart reels-api bgutil-pot --update-env` |
-| YouTube "cookies are no longer valid" | Set `YT_DLP_SKIP_COOKIES=1` and remove or refresh `YT_DLP_COOKIES_FILE` |
+| YouTube "Sign in / not a bot" | Export fresh youtube.com cookies (see 2c). POT does not fix this. Remove `YT_DLP_SKIP_COOKIES=1`. |
+| YouTube "cookies are no longer valid" | Re-export cookies. Do not export all sites — youtube.com only. |
+| Cookies work locally but not on EC2 | Set `YT_DLP_PROXY` to a residential proxy in `.env` |
 
 Job files are stored at `.data/reels-jobs/` on EC2.

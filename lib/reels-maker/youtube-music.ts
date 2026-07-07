@@ -132,17 +132,55 @@ const YOUTUBE_JSON_STRATEGIES: Array<{ label: string; flags: string[] }> = [
 ]
 
 function youtubeJsonStrategies() {
-  if (!resolvePotBaseUrl()) return YOUTUBE_JSON_STRATEGIES
-  return [MWEB_POT_JSON_STRATEGY, ...YOUTUBE_JSON_STRATEGIES]
+  const strategies = [...YOUTUBE_JSON_STRATEGIES]
+  if (resolvePotBaseUrl()) {
+    strategies.unshift(MWEB_POT_JSON_STRATEGY)
+  }
+  if (resolveCookiesFile()) {
+    return strategies
+  }
+  return strategies
 }
 
 function youtubeDownloadStrategies() {
-  if (!resolvePotBaseUrl()) return YOUTUBE_DOWNLOAD_STRATEGIES
-  return [MWEB_POT_STRATEGY, ...YOUTUBE_DOWNLOAD_STRATEGIES]
+  const strategies = [...YOUTUBE_DOWNLOAD_STRATEGIES]
+  if (resolvePotBaseUrl()) {
+    strategies.unshift(MWEB_POT_STRATEGY)
+  }
+  if (resolveCookiesFile()) {
+    // Logged-in session bypasses the EC2 bot wall; prefer web_safari first.
+    const cookieFirst: YouTubeDownloadStrategy = {
+      label: 'web_safari_cookies',
+      flags: ['--extractor-args', 'youtube:player_client=default,web_safari;player_js_version=actual'],
+      format: PREFER_DASH_AUDIO_FORMAT,
+    }
+    return [cookieFirst, ...strategies.filter((s) => s.label !== 'web_safari')]
+  }
+  return strategies
 }
 
 function shouldSkipCookies() {
   return /^(1|true|yes|on)$/i.test(process.env.YT_DLP_SKIP_COOKIES?.trim() || '')
+}
+
+function resolveCookiesFile(): string | null {
+  const configured = process.env.YT_DLP_COOKIES_FILE?.trim()
+  if (configured && existsSync(configured)) {
+    return configured
+  }
+
+  const defaultPath = join(process.cwd(), '.data', 'youtube-cookies.txt')
+  if (!shouldSkipCookies() && existsSync(defaultPath)) {
+    return defaultPath
+  }
+
+  return configured || null
+}
+
+function detectProxyFlag(): string[] {
+  const proxy = process.env.YT_DLP_PROXY?.trim()
+  if (!proxy) return []
+  return ['--proxy', proxy]
 }
 
 function resolveYtDlpBinary() {
@@ -257,6 +295,7 @@ function buildYtDlpFlags(extra: string[] = []) {
     ...BASE_YT_DLP_FLAGS,
     ...detectJsRuntimeFlag(),
     ...detectRemoteComponentsFlag(),
+    ...detectProxyFlag(),
     ...extra,
   ]
   const ffmpegLocation = resolveFfmpegLocation()
@@ -265,8 +304,8 @@ function buildYtDlpFlags(extra: string[] = []) {
   }
 
   if (!shouldSkipCookies()) {
-    const cookiesFile = process.env.YT_DLP_COOKIES_FILE?.trim()
-    if (cookiesFile && existsSync(cookiesFile)) {
+    const cookiesFile = resolveCookiesFile()
+    if (cookiesFile) {
       flags.push('--cookies', cookiesFile)
     }
   }
@@ -315,8 +354,8 @@ function normalizeYtDlpError(error: unknown) {
 
   if (/sign in|not a bot|confirm you/i.test(detail)) {
     return (
-      'YouTube blocked this server (bot check). On EC2 run: bash scripts/setup-yt-dlp-pot-ec2.sh ' +
-      'then set YT_DLP_POT_ENABLED=1 in .env and restart reels-api. Or upload an MP3 instead.'
+      'YouTube blocked this server (bot check). Export fresh youtube.com-only cookies and upload to EC2 ' +
+      '(see services/reels-api/README.md), or set YT_DLP_PROXY to a residential proxy. Or upload an MP3 instead.'
     )
   }
 

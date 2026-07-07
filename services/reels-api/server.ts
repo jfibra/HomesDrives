@@ -12,6 +12,7 @@ import {
   handleReelJobVideo,
   handleReelJobsGet,
   handleReelJobsPost,
+  handleYouTubeCookiesUpload,
   handleYouTubePreview,
 } from '../../lib/reels-maker/api-handlers'
 
@@ -53,7 +54,7 @@ app.use('*', cors({
     if (!origin) return allowed[0] ?? ''
     return allowed.includes(origin) ? origin : allowed[0] ?? ''
   },
-  allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Range', 'x-reels-api-secret'],
   exposeHeaders: ['Content-Range', 'Accept-Ranges', 'Content-Length'],
   maxAge: 86400,
@@ -93,6 +94,7 @@ app.get('/api/reels-maker/jobs/:jobId/video', (c) =>
 )
 
 app.post('/api/reels-maker/youtube/preview', (c) => handleYouTubePreview(c.req.raw))
+app.put('/api/reels-maker/youtube/cookies', (c) => handleYouTubeCookiesUpload(c.req.raw))
 
 console.log(`[reels-api] listening on http://0.0.0.0:${PORT}`)
 

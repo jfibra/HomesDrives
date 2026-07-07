@@ -12,7 +12,14 @@ import {
 import { parseReelResultStorage } from '@/lib/reels-maker/reel-playback'
 import { uploadReelLogoFile, uploadReelMediaFile, uploadReelMusicFile } from '@/lib/reels-maker/storage'
 import type { CreateReelJobInput, ReelLogoPosition, ReelTemplateId } from '@/lib/reels-maker/types'
-import { getYouTubeTrackPreview, downloadYouTubeAudio } from '@/lib/reels-maker/youtube-music'
+import { mkdir, writeFile } from 'fs/promises'
+import { join } from 'path'
+
+import {
+  downloadYouTubeAudio,
+  getYouTubeTrackPreview,
+  probeYtDlpBinary,
+} from '@/lib/reels-maker/youtube-music'
 import { isValidYouTubeMusicUrl } from '@/lib/reels-maker/youtube-url'
 import { createStorageClient } from '@/lib/server/albums'
 
@@ -332,5 +339,49 @@ export async function handleYouTubePreview(request: Request): Promise<Response> 
       { error: error instanceof Error ? error.message : 'Unable to load YouTube track.' },
       { status: 500 },
     )
+  }
+}
+
+const YOUTUBE_COOKIES_PATH = join(process.cwd(), '.data', 'youtube-cookies.txt')
+
+export async function handleYouTubeCookiesUpload(request: Request): Promise<Response> {
+  try {
+    const text = (await request.text()).trim()
+    if (!text) {
+      return Response.json({ error: 'Paste Netscape-format cookies in the request body.' }, { status: 400 })
+    }
+
+    if (!/^# Netscape HTTP Cookie File/m.test(text) && !/\.youtube\.com\t/i.test(text)) {
+      return Response.json(
+        {
+          error:
+            'Invalid cookies file. Export youtube.com-only cookies using the "Get cookies.txt LOCALLY" browser extension.',
+        },
+        { status: 400 },
+      )
+    }
+
+    if (!/\.youtube\.com\t/i.test(text)) {
+      return Response.json({ error: 'No youtube.com cookies found. Export from youtube.com only.' }, { status: 400 })
+    }
+
+    await mkdir(join(process.cwd(), '.data'), { recursive: true })
+    await writeFile(YOUTUBE_COOKIES_PATH, `${text}\n`, { mode: 0o600 })
+
+    try {
+      probeYtDlpBinary()
+    } catch {
+      // non-fatal
+    }
+
+    return Response.json({
+      ok: true,
+      path: YOUTUBE_COOKIES_PATH,
+      message:
+        'Cookies saved. On EC2: remove YT_DLP_SKIP_COOKIES from .env, set YT_DLP_COOKIES_FILE to this path, then pm2 restart reels-api --update-env',
+    })
+  } catch (error) {
+    console.error('[reels-maker/youtube/cookies]', error)
+    return Response.json({ error: 'Unable to save YouTube cookies.' }, { status: 500 })
   }
 }
