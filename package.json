@@ -70,6 +70,12 @@
     "youtube-dl-exec": "^3.1.8",
     "zod": "^3.24.1"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "ffmpeg-static",
+      "youtube-dl-exec"
+    ]
+  },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.0",
     "@types/node": "^22",
