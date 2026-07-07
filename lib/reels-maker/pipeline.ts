@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 
 import { generateReelStoryPlan } from '@/lib/reels-maker/gemini-story'
+import { formatApiError } from '@/lib/reels-maker/api-errors'
 import { generateVoiceOverAudio, resolveVoiceOutroLine, fitVoiceScriptToScenes, buildVoiceOverDisplayScript } from '@/lib/reels-maker/voice-over'
 import { createReelJob, getReelJob, setReelJobStatus, updateReelJob } from '@/lib/reels-maker/job-store'
 import { selectBestMedia, uploadRenderedReel } from '@/lib/reels-maker/storage'
@@ -163,7 +164,7 @@ async function processReelJob(jobId: string) {
   } catch (error) {
     console.error('[reels-maker/pipeline]', jobId, error)
     setReelJobStatus(jobId, 'failed', 'Rendering failed', 100, {
-      error: error instanceof Error ? error.message : 'Rendering failed.',
+      error: formatApiError(error, 'Rendering failed.'),
     })
   }
 }

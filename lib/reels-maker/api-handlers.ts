@@ -21,6 +21,7 @@ import {
   probeYtDlpBinary,
 } from '@/lib/reels-maker/youtube-music'
 import { isValidYouTubeMusicUrl } from '@/lib/reels-maker/youtube-url'
+import { formatApiError } from '@/lib/reels-maker/api-errors'
 import { createStorageClient } from '@/lib/server/albums'
 
 const TEMPLATE_IDS: ReelTemplateId[] = [
@@ -45,6 +46,26 @@ function isTemplateId(value: string): value is ReelTemplateId {
 
 function parseLogoPosition(value: string): ReelLogoPosition {
   return LOGO_POSITIONS.includes(value as ReelLogoPosition) ? (value as ReelLogoPosition) : 'top-right'
+}
+
+async function readUploadedBlob(
+  entry: FormDataEntryValue | null,
+  fallbackName: string,
+  fallbackMimeType: string,
+) {
+  if (!entry) return null
+
+  const blob =
+    entry instanceof File ? entry : entry instanceof Blob && entry.size > 0 ? entry : null
+
+  if (!blob || blob.size === 0) return null
+
+  const fileName =
+    entry instanceof File && entry.name.trim() ? entry.name.trim() : fallbackName
+  const mimeType = blob.type?.trim() || fallbackMimeType
+  const buffer = Buffer.from(await blob.arrayBuffer())
+
+  return { fileName, mimeType, buffer }
 }
 
 function toWebStream(body: unknown) {
@@ -121,9 +142,17 @@ export async function handleReelJobUpload(jobId: string, request: Request): Prom
 
   try {
     const formData = await request.formData()
-    const files = formData.getAll('files').filter((entry): entry is File => entry instanceof File)
-    const musicFile = formData.get('music')
-    const logoFile = formData.get('logo')
+    const files = (
+      await Promise.all(
+        formData
+          .getAll('files')
+          .map((entry, index) =>
+            readUploadedBlob(entry, `media-${index + 1}`, 'application/octet-stream'),
+          ),
+      )
+    ).filter((file): file is NonNullable<typeof file> => Boolean(file))
+    const musicUpload = await readUploadedBlob(formData.get('music'), 'music.mp3', 'audio/mpeg')
+    const logoUpload = await readUploadedBlob(formData.get('logo'), 'logo.png', 'image/png')
     const logoEnabled = String(formData.get('logoEnabled') ?? 'false') === 'true'
     const logoPosition = parseLogoPosition(String(formData.get('logoPosition') ?? 'top-right'))
     const youtubeMusicUrl = String(formData.get('youtubeMusicUrl') ?? '').trim()
@@ -142,11 +171,10 @@ export async function handleReelJobUpload(jobId: string, request: Request): Prom
 
     const uploadedMedia = await Promise.all(
       files.map(async (file, index) => {
-        const buffer = Buffer.from(await file.arrayBuffer())
         return uploadReelMediaFile({
-          fileName: file.name,
-          mimeType: file.type,
-          buffer,
+          fileName: file.fileName,
+          mimeType: file.mimeType,
+          buffer: file.buffer,
           userNote: mediaNotes[index] || undefined,
         })
       }),
@@ -158,12 +186,11 @@ export async function handleReelJobUpload(jobId: string, request: Request): Prom
       if (updated) jobAfterUpload = updated
     }
 
-    if (musicFile instanceof File) {
-      const musicBuffer = Buffer.from(await musicFile.arrayBuffer())
+    if (musicUpload) {
       const music = await uploadReelMusicFile({
-        fileName: musicFile.name,
-        mimeType: musicFile.type,
-        buffer: musicBuffer,
+        fileName: musicUpload.fileName,
+        mimeType: musicUpload.mimeType,
+        buffer: musicUpload.buffer,
       })
       const updated = attachReelJobMusic(jobId, music.bucketName, music.storagePath)
       if (updated) jobAfterUpload = updated
@@ -194,15 +221,14 @@ export async function handleReelJobUpload(jobId: string, request: Request): Prom
       }
     }
 
-    if (logoFile instanceof File && logoFile.size > 0) {
-      if (!logoFile.type.startsWith('image/')) {
+    if (logoUpload) {
+      if (!logoUpload.mimeType.startsWith('image/')) {
         return Response.json({ error: 'Logo must be a PNG, JPG, or WEBP image.' }, { status: 400 })
       }
-      const logoBuffer = Buffer.from(await logoFile.arrayBuffer())
       const logo = await uploadReelLogoFile({
-        fileName: logoFile.name,
-        mimeType: logoFile.type,
-        buffer: logoBuffer,
+        fileName: logoUpload.fileName,
+        mimeType: logoUpload.mimeType,
+        buffer: logoUpload.buffer,
       })
       const updated = attachReelJobLogo(jobId, logo, {
         enabled: logoEnabled,
@@ -215,7 +241,7 @@ export async function handleReelJobUpload(jobId: string, request: Request): Prom
   } catch (error) {
     console.error('[reels-maker/upload]', error)
     return Response.json(
-      { error: error instanceof Error ? error.message : 'Upload failed.' },
+      { error: formatApiError(error, 'Upload failed.') },
       { status: 500 },
     )
   }

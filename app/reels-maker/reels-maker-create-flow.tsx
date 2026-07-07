@@ -530,7 +530,7 @@ export function ReelsMakerCreateFlow(props: ReelsMakerCreateFlowProps) {
                     YouTube link
                   </label>
                   <p className="text-xs" style={{ color: 'var(--ds-on-surface-variant)' }}>
-                    Music downloads in your browser, then uploads automatically. If it fails, use Upload MP3.
+                    Music downloads in your browser, then uploads automatically. A quick security check may appear. If it fails, use Upload MP3.
                   </p>
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <div className="relative flex-1">

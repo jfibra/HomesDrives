@@ -16,8 +16,17 @@ import {
 import { ReelsMakerCreateFlow, STEPS } from '@/app/reels-maker/reels-maker-create-flow'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { reelsMakerApiPath } from '@/lib/reels-maker/api-base'
+import { formatApiError } from '@/lib/reels-maker/api-errors'
 import { downloadYouTubeAudioInBrowser } from '@/lib/reels-maker/youtube-browser-download'
+import { requestTurnstileToken, resetTurnstileContainer } from '@/lib/reels-maker/youtube-turnstile'
 import { REEL_TEMPLATES } from '@/lib/reels-maker/templates'
 import { getReelVideoPlaybackUrl } from '@/lib/reels-maker/reel-playback'
 import type { ReelDraftSummary, ReelJob, ReelLogoPosition, ReelTemplateId } from '@/lib/reels-maker/types'
@@ -151,10 +160,12 @@ async function postJobUpload(jobId: string, formData: FormData) {
       const data = await readApiJson(response)
       if (response.ok) return data
       lastError = new Error(
-        (data.error as string) ||
-          (response.status === 404
+        formatApiError(
+          data.error,
+          response.status === 404
             ? 'Reel job expired after a server restart. Click Generate Reel again.'
-            : 'Upload failed.'),
+            : 'Upload failed.',
+        ),
       )
       if (response.status !== 404) break
     } catch (error) {
@@ -197,13 +208,20 @@ export default function ReelsMakerClient() {
   const musicInputRef = useRef<HTMLInputElement>(null)
   const logoInputRef = useRef<HTMLInputElement>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const turnstileContainerRef = useRef<HTMLDivElement>(null)
+  const turnstilePendingRef = useRef<{
+    resolve: (token: string) => void
+    reject: (error: Error) => void
+  } | null>(null)
+  const [turnstileOpen, setTurnstileOpen] = useState(false)
+  const [turnstileSitekey, setTurnstileSitekey] = useState<string | null>(null)
 
   const loadDrafts = useCallback(async () => {
     setIsLoadingDrafts(true)
     try {
       const response = await fetch(reelsMakerApiPath('/api/reels-maker/jobs'), { cache: 'no-store' })
       const data = await readApiJson(response)
-      if (!response.ok) throw new Error(String(data.error || 'Unable to load drafts.'))
+      if (!response.ok) throw new Error(formatApiError(data.error, 'Unable to load drafts.'))
       setDrafts(Array.isArray(data.drafts) ? (data.drafts as ReelDraftSummary[]) : [])
     } catch {
       setDrafts([])
@@ -215,6 +233,43 @@ export default function ReelsMakerClient() {
   useEffect(() => {
     void loadDrafts()
   }, [loadDrafts])
+
+  const requestTurnstile = useCallback((sitekey: string) => {
+    return new Promise<string>((resolve, reject) => {
+      turnstilePendingRef.current = { resolve, reject }
+      setTurnstileSitekey(sitekey)
+      setTurnstileOpen(true)
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!turnstileOpen || !turnstileSitekey || !turnstileContainerRef.current) return
+
+    let cancelled = false
+
+    void requestTurnstileToken(turnstileSitekey, turnstileContainerRef.current)
+      .then((token) => {
+        if (cancelled) return
+        turnstilePendingRef.current?.resolve(token)
+        turnstilePendingRef.current = null
+        setTurnstileOpen(false)
+        setTurnstileSitekey(null)
+        resetTurnstileContainer(turnstileContainerRef.current)
+      })
+      .catch((error) => {
+        if (cancelled) return
+        const message = error instanceof Error ? error : new Error(String(error))
+        turnstilePendingRef.current?.reject(message)
+        turnstilePendingRef.current = null
+        setTurnstileOpen(false)
+        setTurnstileSitekey(null)
+        resetTurnstileContainer(turnstileContainerRef.current)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [turnstileOpen, turnstileSitekey])
 
   const isProcessing = useMemo(() => {
     if (!job) return false
@@ -259,7 +314,7 @@ export default function ReelsMakerClient() {
       try {
         const response = await fetch(reelsMakerApiPath(`/api/reels-maker/jobs/${id}`), { cache: 'no-store' })
         const data = await readApiJson(response)
-        if (!response.ok) throw new Error(String(data.error || 'Unable to load job status.'))
+        if (!response.ok) throw new Error(formatApiError(data.error, 'Unable to load job status.'))
         const nextJob = data.job as ReelJob
         setJob(nextJob)
         if (nextJob.caption && !caption) setCaption(nextJob.caption)
@@ -349,7 +404,7 @@ export default function ReelsMakerClient() {
       const response = await fetch(reelsMakerApiPath(`/api/reels-maker/jobs/${draftId}`), { method: 'DELETE' })
       if (!response.ok) {
         const data = await readApiJson(response)
-        throw new Error((data.error as string) || 'Unable to delete draft.')
+        throw new Error(formatApiError(data.error, 'Unable to delete draft.'))
       }
       if (jobId === draftId) {
         setJob(null)
@@ -439,7 +494,7 @@ export default function ReelsMakerClient() {
         cache: 'no-store',
       })
       const data = await readApiJson(response)
-      if (!response.ok) throw new Error(String(data.error || 'Unable to load YouTube track.'))
+      if (!response.ok) throw new Error(formatApiError(data.error, 'Unable to load YouTube track.'))
       setYoutubePreview(data.preview as YouTubeTrackPreview)
       setMusicFile(null)
     } catch (loadError) {
@@ -475,7 +530,7 @@ export default function ReelsMakerClient() {
         cache: 'no-store',
       })
       const createData = await readApiJson(createResponse)
-      if (!createResponse.ok) throw new Error((createData.error as string) || 'Unable to start job.')
+      if (!createResponse.ok) throw new Error(formatApiError(createData.error, 'Unable to start job.'))
 
       const createdJob = createData.job as ReelJob
       const newJobId = createdJob.id
@@ -496,6 +551,10 @@ export default function ReelsMakerClient() {
       if (!musicForUpload && youtubeMusicUrl.trim()) {
         try {
           musicForUpload = await downloadYouTubeAudioInBrowser(youtubeMusicUrl.trim(), {
+            requestTurnstile,
+            onStatus: (message) => {
+              setJob((current) => (current ? { ...current, message } : current))
+            },
             onProgress: ({ loaded, total }) => {
               const pct = total ? Math.min(99, Math.round((loaded / total) * 100)) : null
               setJob((current) =>
@@ -566,7 +625,9 @@ export default function ReelsMakerClient() {
         cache: 'no-store',
       })
       const renderData = await readApiJson(renderResponse)
-      if (!renderResponse.ok) throw new Error((renderData.error as string) || 'Render failed to start.')
+      if (!renderResponse.ok) {
+        throw new Error(formatApiError(renderData.error, 'Render failed to start.'))
+      }
 
       setJob((current) =>
         current
@@ -920,6 +981,29 @@ export default function ReelsMakerClient() {
           videoPlaybackUrl={videoPlaybackUrl}
         />
       )}
+
+      <Dialog
+        onOpenChange={(open) => {
+          if (!open && turnstilePendingRef.current) {
+            turnstilePendingRef.current.reject(new Error('Security check was cancelled.'))
+            turnstilePendingRef.current = null
+            resetTurnstileContainer(turnstileContainerRef.current)
+            setTurnstileSitekey(null)
+          }
+          setTurnstileOpen(open)
+        }}
+        open={turnstileOpen}
+      >
+        <DialogContent className="max-w-sm" showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>Verify to download YouTube audio</DialogTitle>
+            <DialogDescription>
+              Complete this quick check so we can fetch the track from your browser.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-center py-2" ref={turnstileContainerRef} />
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

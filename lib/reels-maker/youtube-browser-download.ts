@@ -1,49 +1,26 @@
-import { reelsMakerApiPath } from '@/lib/reels-maker/api-base'
+import { resolveCobaltBrowserAudio } from '@/lib/reels-maker/youtube-cobalt-browser'
 import {
   resolveYouTubeStreamInBrowser,
   type BrowserYouTubeStream,
 } from '@/lib/reels-maker/youtube-browser-resolve'
+import { parseYouTubeVideoId } from '@/lib/reels-maker/youtube-url'
 
 export type YouTubeBrowserDownloadProgress = {
   loaded: number
   total: number | null
 }
 
-async function readApiJson(response: Response) {
-  const text = await response.text()
-  if (!text.trim()) return {}
-  try {
-    return JSON.parse(text) as Record<string, unknown>
-  } catch {
-    return { error: text }
-  }
-}
-
-async function resolveStreamViaApi(youtubeUrl: string): Promise<BrowserYouTubeStream> {
-  const response = await fetch(reelsMakerApiPath('/api/reels-maker/youtube/stream-info'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ url: youtubeUrl }),
-    cache: 'no-store',
-  })
-  const data = await readApiJson(response)
-  if (!response.ok) {
-    throw new Error(String(data.error || 'Unable to resolve YouTube audio stream.'))
-  }
-
-  const stream = data.stream as BrowserYouTubeStream & { source: 'invidious' | 'cobalt' | 'piped' }
-  if (!stream?.streamUrl) {
-    throw new Error('Stream lookup returned an invalid response.')
-  }
-
-  return stream
+export type YouTubeBrowserDownloadOptions = {
+  onProgress?: (progress: YouTubeBrowserDownloadProgress) => void
+  onStatus?: (message: string) => void
+  requestTurnstile?: (sitekey: string) => Promise<string>
 }
 
 async function downloadStreamUrl(
-  stream: BrowserYouTubeStream,
+  streamUrl: string,
   onProgress?: (progress: YouTubeBrowserDownloadProgress) => void,
 ) {
-  const response = await fetch(stream.streamUrl, { cache: 'no-store' })
+  const response = await fetch(streamUrl, { cache: 'no-store' })
   if (!response.ok) {
     throw new Error(`Audio download failed with HTTP ${response.status}.`)
   }
@@ -91,28 +68,43 @@ function toMusicFile(stream: BrowserYouTubeStream, buffer: ArrayBuffer) {
   return new File([buffer], fileName, { type: mimeType })
 }
 
+function toCobaltMusicFile(videoId: string, fileName: string, buffer: ArrayBuffer) {
+  const safeName = fileName.endsWith('.mp3') ? fileName : `youtube-${videoId}.mp3`
+  return new File([buffer], safeName, { type: 'audio/mpeg' })
+}
+
 /**
  * Downloads YouTube audio in the user's browser (residential IP), then returns a File
  * ready to upload to reels-api. Avoids AWS/datacenter CDN blocks on EC2.
  */
 export async function downloadYouTubeAudioInBrowser(
   youtubeUrl: string,
-  options?: {
-    onProgress?: (progress: YouTubeBrowserDownloadProgress) => void
-  },
+  options?: YouTubeBrowserDownloadOptions,
 ): Promise<File> {
-  const resolveAttempts = [
-    () => resolveYouTubeStreamInBrowser(youtubeUrl),
-    () => resolveStreamViaApi(youtubeUrl),
-  ]
+  const videoId = parseYouTubeVideoId(youtubeUrl)
+  if (!videoId) {
+    throw new Error('Paste a valid YouTube music link.')
+  }
 
   let lastError: Error | null = null
 
-  for (const resolve of resolveAttempts) {
+  options?.onStatus?.('Looking up YouTube audio stream…')
+  try {
+    const stream = await resolveYouTubeStreamInBrowser(youtubeUrl)
+    options?.onStatus?.('Downloading YouTube music in your browser…')
+    const buffer = await downloadStreamUrl(stream.streamUrl, options?.onProgress)
+    return toMusicFile(stream, buffer)
+  } catch (error) {
+    lastError = error instanceof Error ? error : new Error(String(error))
+  }
+
+  if (options?.requestTurnstile) {
     try {
-      const stream = await resolve()
-      const buffer = await downloadStreamUrl(stream, options?.onProgress)
-      return toMusicFile(stream, buffer)
+      options.onStatus?.('Complete the security check to download YouTube audio…')
+      const cobalt = await resolveCobaltBrowserAudio(youtubeUrl, options.requestTurnstile)
+      options.onStatus?.('Downloading YouTube music in your browser…')
+      const buffer = await downloadStreamUrl(cobalt.streamUrl, options?.onProgress)
+      return toCobaltMusicFile(videoId, cobalt.fileName, buffer)
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error))
     }
