@@ -1,47 +1,52 @@
 # HomesDrives EC2 Services
 
-Services that need a real server (FFmpeg, long jobs, ML models) run on **EC2**. Vercel is fine for static UI and light APIs, but **AI Reels Maker must run on EC2**.
+Heavy workloads run on **EC2**. The main Next.js app stays on **Vercel**.
 
 ## What runs where
 
 | Component | Where | Port |
 |-----------|--------|------|
-| **Next.js app** (includes Reels Maker UI + API) | EC2 | 3000 |
-| **InsightFace / Building vision** | EC2 | 8000 |
-| Preview / marketing (optional) | Vercel | — |
+| **Next.js app** (UI) | Vercel | 443 |
+| **InsightFace / Buildings** | EC2 | 8000 |
+| **AI Reels Maker API** | EC2 | 8001 |
 
-Reels Maker code lives in the main app (`app/reels-maker/`, `lib/reels-maker/`). There is no separate Python microservice for reels — you deploy the **whole repo** on EC2 and run `pnpm build && pnpm start`.
+## Architecture (same pattern for both AI services)
+
+```
+Vercel (drive.homes.ph)
+    │
+    ├─ People/Faces ──► INSIGHTFACE_API_URL ──► EC2 :8000
+    │
+    └─ Reels Maker UI ──► NEXT_PUBLIC_REELS_API_URL ──► EC2 :8001
+```
 
 ## Folder layout
 
 ```
 services/
   insightface-api/   ← Python FastAPI (faces + buildings)
-  reels-maker/       ← EC2 deployment guide for reels (runs inside Next.js)
-ecosystem.config.cjs ← PM2: starts both services from repo root
+  reels-api/         ← Node reels worker (FFmpeg, yt-dlp, Gemini)
+ecosystem.config.cjs ← PM2 starts both on EC2
 ```
 
-## Quick start (EC2 Ubuntu)
-
-See **[reels-maker/README.md](./reels-maker/README.md)** for the full step-by-step console commands.
-
-After first setup, every deploy is:
+## EC2 deploy (after git pull)
 
 ```bash
-cd ~/HomesDrives          # your clone path
+cd ~/HomesDrives
 git pull
-pnpm install
-pnpm build
+source ~/.nvm/nvm.sh && nvm use 20
+npm install
 pm2 restart ecosystem.config.cjs
 ```
 
-## Environment
+See **[reels-api/README.md](./reels-api/README.md)** for full reels setup and Vercel env vars.
 
-Copy `.env.sample` to `.env` in the **repo root** on EC2. Required for reels:
+## Vercel env vars (reels)
 
-- `GEMINI_API_KEY`
-- `AWS_S3_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_S3_ENDPOINT`
-- `INSIGHTFACE_API_URL=http://127.0.0.1:8000`
-- `NEXT_PUBLIC_APP_URL=https://your-domain`
+```
+NEXT_PUBLIC_REELS_API_URL=http://YOUR_EC2_IP:8001
+REELS_API_URL=http://YOUR_EC2_IP:8001
+REELS_API_SECRET=your-shared-secret
+```
 
-Optional: `FFMPEG_PATH` if system ffmpeg is not on PATH.
+Redeploy Vercel after changing these.

@@ -1,6 +1,8 @@
-import { NextResponse } from 'next/server'
-
-import { deleteReelJob, getReelJob } from '@/lib/reels-maker/job-store'
+import {
+  handleReelJobDelete,
+  handleReelJobGet,
+} from '@/lib/reels-maker/api-handlers'
+import { proxyReelsApiRequest } from '@/lib/server/reels-api-proxy'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -9,23 +11,16 @@ type RouteContext = {
   params: Promise<{ jobId: string }>
 }
 
-export async function GET(_request: Request, context: RouteContext) {
+export async function GET(request: Request, context: RouteContext) {
   const { jobId } = await context.params
-  const job = getReelJob(jobId)
-  if (!job) {
-    return NextResponse.json({ error: 'Job not found.' }, { status: 404 })
-  }
-  return NextResponse.json(
-    { job },
-    { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } },
-  )
+  const proxied = await proxyReelsApiRequest(request, `/api/reels-maker/jobs/${jobId}`)
+  if (proxied) return proxied
+  return handleReelJobGet(jobId)
 }
 
-export async function DELETE(_request: Request, context: RouteContext) {
+export async function DELETE(request: Request, context: RouteContext) {
   const { jobId } = await context.params
-  const deleted = deleteReelJob(jobId)
-  if (!deleted) {
-    return NextResponse.json({ error: 'Draft not found.' }, { status: 404 })
-  }
-  return NextResponse.json({ deleted: true })
+  const proxied = await proxyReelsApiRequest(request, `/api/reels-maker/jobs/${jobId}`)
+  if (proxied) return proxied
+  return handleReelJobDelete(jobId)
 }

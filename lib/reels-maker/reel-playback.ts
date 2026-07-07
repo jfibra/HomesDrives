@@ -1,3 +1,5 @@
+import { reelsMakerApiPath } from '@/lib/reels-maker/api-base'
+
 export function parseReelResultStorage(resultUrl: string) {
   try {
     const parsed = new URL(resultUrl)
@@ -13,8 +15,8 @@ export function parseReelResultStorage(resultUrl: string) {
   }
 }
 
-/** Same-origin stream URL so drafts play reliably in the browser (range requests + no S3 CORS issues). */
+/** Same-origin or EC2 stream URL for draft playback (range requests + no S3 CORS issues). */
 export function getReelVideoPlaybackUrl(jobId: string, resultUrl?: string | null) {
   if (!jobId || !resultUrl) return null
-  return `/api/reels-maker/jobs/${jobId}/video`
+  return reelsMakerApiPath(`/api/reels-maker/jobs/${jobId}/video`)
 }

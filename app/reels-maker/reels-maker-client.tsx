@@ -16,6 +16,7 @@ import {
 import { ReelsMakerCreateFlow, STEPS } from '@/app/reels-maker/reels-maker-create-flow'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { reelsMakerApiPath } from '@/lib/reels-maker/api-base'
 import { REEL_TEMPLATES } from '@/lib/reels-maker/templates'
 import { getReelVideoPlaybackUrl } from '@/lib/reels-maker/reel-playback'
 import type { ReelDraftSummary, ReelJob, ReelLogoPosition, ReelTemplateId } from '@/lib/reels-maker/types'
@@ -127,7 +128,7 @@ async function readApiJson(response: Response): Promise<Record<string, unknown>>
 
 async function waitForJob(jobId: string) {
   for (let attempt = 0; attempt < 5; attempt++) {
-    const response = await fetch(`/api/reels-maker/jobs/${jobId}`, { cache: 'no-store' })
+    const response = await fetch(reelsMakerApiPath(`/api/reels-maker/jobs/${jobId}`), { cache: 'no-store' })
     if (response.ok) return
     await new Promise((resolve) => setTimeout(resolve, 200))
   }
@@ -139,7 +140,7 @@ async function postJobUpload(jobId: string, formData: FormData) {
     if (attempt > 0) {
       await new Promise((resolve) => setTimeout(resolve, 800 * attempt))
     }
-    const response = await fetch(`/api/reels-maker/jobs/${jobId}/upload`, {
+    const response = await fetch(reelsMakerApiPath(`/api/reels-maker/jobs/${jobId}/upload`), {
       method: 'POST',
       body: formData,
       cache: 'no-store',
@@ -199,7 +200,7 @@ export default function ReelsMakerClient() {
   const loadDrafts = useCallback(async () => {
     setIsLoadingDrafts(true)
     try {
-      const response = await fetch('/api/reels-maker/jobs', { cache: 'no-store' })
+      const response = await fetch(reelsMakerApiPath('/api/reels-maker/jobs'), { cache: 'no-store' })
       const data = await readApiJson(response)
       if (!response.ok) throw new Error(String(data.error || 'Unable to load drafts.'))
       setDrafts(Array.isArray(data.drafts) ? (data.drafts as ReelDraftSummary[]) : [])
@@ -255,7 +256,7 @@ export default function ReelsMakerClient() {
 
     const refreshJob = async () => {
       try {
-        const response = await fetch(`/api/reels-maker/jobs/${id}`, { cache: 'no-store' })
+        const response = await fetch(reelsMakerApiPath(`/api/reels-maker/jobs/${id}`), { cache: 'no-store' })
         const data = await readApiJson(response)
         if (!response.ok) throw new Error(String(data.error || 'Unable to load job status.'))
         const nextJob = data.job as ReelJob
@@ -344,7 +345,7 @@ export default function ReelsMakerClient() {
 
   async function deleteDraft(draftId: string) {
     try {
-      const response = await fetch(`/api/reels-maker/jobs/${draftId}`, { method: 'DELETE' })
+      const response = await fetch(reelsMakerApiPath(`/api/reels-maker/jobs/${draftId}`), { method: 'DELETE' })
       if (!response.ok) {
         const data = await readApiJson(response)
         throw new Error((data.error as string) || 'Unable to delete draft.')
@@ -430,7 +431,7 @@ export default function ReelsMakerClient() {
     setYoutubeError('')
     setIsLoadingYoutube(true)
     try {
-      const response = await fetch('/api/reels-maker/youtube/preview', {
+      const response = await fetch(reelsMakerApiPath('/api/reels-maker/youtube/preview'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ url }),
@@ -459,7 +460,7 @@ export default function ReelsMakerClient() {
     setActiveStep(5)
 
     try {
-      const createResponse = await fetch('/api/reels-maker/jobs', {
+      const createResponse = await fetch(reelsMakerApiPath('/api/reels-maker/jobs'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({
@@ -512,7 +513,7 @@ export default function ReelsMakerClient() {
         setError(uploadData.warning)
       }
 
-      const renderResponse = await fetch(`/api/reels-maker/jobs/${newJobId}/render`, {
+      const renderResponse = await fetch(reelsMakerApiPath(`/api/reels-maker/jobs/${newJobId}/render`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({
