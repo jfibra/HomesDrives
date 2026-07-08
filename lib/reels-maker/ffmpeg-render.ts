@@ -20,6 +20,7 @@ import { applyLogoOverlayToVideo } from '@/lib/reels-maker/ffmpeg-logo'
 import { scalePlanForVoiceDuration } from '@/lib/reels-maker/plan-timing'
 import { downloadReelObject } from '@/lib/reels-maker/storage'
 import { buildAnimatedTextFilters } from '@/lib/reels-maker/ffmpeg-text'
+import { buildColorGradeFilter } from '@/lib/reels-maker/ffmpeg-color-grade'
 import {
   buildBookendedSceneClips,
   buildXfadeFilterGraph,
@@ -31,7 +32,7 @@ import { getReelFrameDimensions, normalizeReelAspectRatio } from '@/lib/reels-ma
 import type { ReelAspectRatio, ReelFrameDimensions } from '@/lib/reels-maker/aspect-ratio'
 
 import { buildReelVideoEncodeArgs, REEL_SCALE_FLAGS } from '@/lib/reels-maker/render-quality'
-import type { ReelLogoPosition, ReelScenePlan, ReelStoryPlan, ReelUploadedMedia } from '@/lib/reels-maker/types'
+import type { ReelLogoPosition, ReelScenePlan, ReelStoryPlan, ReelTemplateId, ReelUploadedMedia } from '@/lib/reels-maker/types'
 
 const execFileAsync = promisify(execFile)
 
@@ -84,20 +85,23 @@ function getMotionFilter(
 ) {
   const { preScale } = buildFrameFilters(frame)
   const frames = Math.max(1, Math.round(durationSeconds * FPS))
+  // Smoothstep easing: t*t*(3-2*t) — eliminates linear robot-motion feel
+  const t = `on/${frames}`
+  const ease = `(${t})*(${t})*(3-2*(${t}))`
 
   switch (motion) {
     case 'slow-zoom-in': {
-      const z = `1.0+0.06*on/${frames}`
+      const z = `1.0+0.06*${ease}`
       return `${preScale},zoompan=z='${z}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${frame.width}x${frame.height}:fps=${FPS}`
     }
     case 'slow-zoom-out': {
-      const z = `1.06-0.06*on/${frames}`
+      const z = `1.06-0.06*${ease}`
       return `${preScale},zoompan=z='${z}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${frame.width}x${frame.height}:fps=${FPS}`
     }
     case 'gentle-pan-left':
-      return `${preScale},zoompan=z='1.04':x='(iw-iw/zoom)*on/${frames}':y='ih/2-(ih/zoom/2)':d=${frames}:s=${frame.width}x${frame.height}:fps=${FPS}`
+      return `${preScale},zoompan=z='1.04':x='(iw-iw/zoom)*${ease}':y='ih/2-(ih/zoom/2)':d=${frames}:s=${frame.width}x${frame.height}:fps=${FPS}`
     case 'gentle-pan-right':
-      return `${preScale},zoompan=z='1.04':x='(iw-iw/zoom)*(1-on/${frames})':y='ih/2-(ih/zoom/2)':d=${frames}:s=${frame.width}x${frame.height}:fps=${FPS}`
+      return `${preScale},zoompan=z='1.04':x='(iw-iw/zoom)*(1-${ease})':y='ih/2-(ih/zoom/2)':d=${frames}:s=${frame.width}x${frame.height}:fps=${FPS}`
     case 'static':
     default:
       return buildFrameFilters(frame).staticScale
@@ -139,6 +143,7 @@ async function renderImageScene(
   scene: ReelScenePlan,
   context: SceneRenderContext,
   frame: ReelFrameDimensions,
+  templateId: ReelTemplateId,
 ) {
   const outputPath = join(workDir, `scene-${index}.mp4`)
   const duration = scene.durationSeconds
@@ -147,6 +152,7 @@ async function renderImageScene(
     duration,
     frame,
   )
+  const colorGrade = buildColorGradeFilter(templateId)
   const textFilter = buildAnimatedTextFilters(scene, {
     durationSeconds: duration,
     sceneIndex: index,
@@ -169,7 +175,7 @@ async function renderImageScene(
     '-i',
     imagePath,
     '-vf',
-    `${motion}${textFilter}${bookends}`,
+    `${motion},${colorGrade}${textFilter}${bookends}`,
     '-t',
     String(duration),
     ...ENCODE_ARGS,
@@ -186,9 +192,11 @@ async function renderVideoScene(
   scene: ReelScenePlan,
   context: SceneRenderContext,
   frame: ReelFrameDimensions,
+  templateId: ReelTemplateId,
 ) {
   const outputPath = join(workDir, `scene-${index}.mp4`)
   const duration = scene.durationSeconds
+  const colorGrade = buildColorGradeFilter(templateId)
   const textFilter = buildAnimatedTextFilters(scene, {
     durationSeconds: duration,
     sceneIndex: index,
@@ -210,7 +218,7 @@ async function renderVideoScene(
     '-i',
     videoPath,
     '-vf',
-    `${staticScale}${textFilter}${bookends}`,
+    `${staticScale},${colorGrade}${textFilter}${bookends}`,
     '-t',
     String(duration),
     '-an',
@@ -221,9 +229,10 @@ async function renderVideoScene(
   return outputPath
 }
 
-async function normalizeImageToJpeg(bytes: Buffer): Promise<Buffer> {
+async function normalizeImageToJpeg(bytes: Buffer<ArrayBuffer>): Promise<Buffer<ArrayBuffer>> {
   const { default: sharp } = await import('sharp')
-  return sharp(bytes, { failOn: 'none' }).rotate().jpeg({ quality: 95 }).toBuffer()
+  const result = await sharp(bytes, { failOn: 'none' }).rotate().jpeg({ quality: 95 }).toBuffer()
+  return result as unknown as Buffer<ArrayBuffer>
 }
 
 async function downloadMediaToWorkDir(media: ReelUploadedMedia[], workDir: string) {
@@ -506,8 +515,8 @@ export async function renderReelWithFfmpeg(params: {
       }
 
       return mediaItem.kind === 'video'
-        ? renderVideoScene(workDir, index, inputPath, scene, context, frame)
-        : renderImageScene(workDir, index, inputPath, scene, context, frame)
+        ? renderVideoScene(workDir, index, inputPath, scene, context, frame, renderPlan.templateId)
+        : renderImageScene(workDir, index, inputPath, scene, context, frame, renderPlan.templateId)
     })
 
     if (!scenePaths.length) {
@@ -527,13 +536,13 @@ export async function renderReelWithFfmpeg(params: {
     if (params.logo) {
       const logoBytes = await downloadReelObject(params.logo.bucketName, params.logo.storagePath)
       const logoName = params.logo.storagePath.split('/').pop() ?? 'logo.png'
-      outputBuffer = await applyLogoOverlayToVideo(
+      outputBuffer = Buffer.from(await applyLogoOverlayToVideo(
         outputBuffer,
         logoBytes,
         logoName,
         params.logo.position,
         frame.width,
-      )
+      ))
     }
 
     let musicPath: string | undefined
@@ -551,10 +560,10 @@ export async function renderReelWithFfmpeg(params: {
     }
 
     if (musicPath || voicePath) {
-      outputBuffer = await muxAudio(outputBuffer, workDir, {
+      outputBuffer = Buffer.from(await muxAudio(outputBuffer, workDir, {
         musicPath,
         voicePath,
-      })
+      }))
     }
 
     return outputBuffer

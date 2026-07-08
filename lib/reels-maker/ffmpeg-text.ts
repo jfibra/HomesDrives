@@ -122,10 +122,14 @@ function buildTitleFilters(
   const brandFont = fontParam('brand')
   const fade = fadeIn(entranceDelay, 0.55)
   const end = durationSeconds.toFixed(2)
-  const titleSize = isHero ? (titleLines[0].length > 28 ? 48 : 62) : 54
+  // Scale font size down for longer titles
+  const titleSize = isHero
+    ? titleLines[0].length > 30 ? 46 : titleLines[0].length > 22 ? 56 : 62
+    : titleLines[0].length > 30 ? 44 : 54
   const brandDelay = Math.max(0.05, entranceDelay - 0.05)
 
-  filters.push(`drawbox=x=0:y=ih*0.04:w=iw:h=ih*0.13:color=black@0.42:t=fill:enable='between(t\\,0\\,${end})'`)
+  // Reduced opacity for cleaner cinematic look
+  filters.push(`drawbox=x=0:y=ih*0.04:w=iw:h=ih*0.13:color=black@0.32:t=fill:enable='between(t\\,0\\,${end})'`)
   filters.push(
     `drawbox=x='(iw-min(240\\,240*min(1\\,max(0\\,t-${(entranceDelay + 0.1).toFixed(2)})/0.5)))/2':y=ih*0.165:w='min(240\\,240*min(1\\,max(0\\,t-${(entranceDelay + 0.1).toFixed(2)})/0.5))':h=4:color=${TITLE_ACCENT}@0.95:t=fill:enable='between(t\\,${(entranceDelay + 0.1).toFixed(2)}\\,${end})'`,
   )
@@ -139,7 +143,7 @@ function buildTitleFilters(
   titleLines.forEach((line, lineIndex) => {
     const yExpr = slideDown(0.085 + lineIndex * 0.045, 28, entranceDelay + lineIndex * 0.05, 0.55)
     filters.push(
-      `drawtext=${titleFont}:text='${escapeDrawText(line)}':fontcolor=${TITLE_COLOR}:fontsize=${titleSize}:x=(w-text_w)/2:y='${yExpr}':alpha='${fade}':shadowcolor=black@0.65:shadowx=3:shadowy=3:borderw=2:bordercolor=${TITLE_ACCENT}@0.75:line_spacing=4`,
+      `drawtext=${titleFont}:text='${escapeDrawText(line)}':fontcolor=${TITLE_COLOR}:fontsize=${titleSize}:x=(w-text_w)/2:y='${yExpr}':alpha='${fade}':shadowcolor=black@0.75:shadowx=3:shadowy=3:borderw=2:bordercolor=${TITLE_ACCENT}@0.75:line_spacing=4`,
     )
   })
 
@@ -150,18 +154,27 @@ function buildCaptionFilters(caption: string, isLast: boolean, durationSeconds: 
   const filters: string[] = []
   const bodyFont = fontParam('body')
   const lines = wrapCaption(caption)
-  const captionDelay = 0.35
-  const captionFade = fadeIn(captionDelay, 0.5)
+  const captionDelay = 0.30
+  const captionFade = fadeIn(captionDelay, 0.45)
   const exitFadeStart = Math.max(captionDelay, durationSeconds - 1.1)
+  const end = durationSeconds.toFixed(2)
+  // Adaptive font size: shorter text gets bigger type
+  const captionSize = lines[0].length > 28 ? 33 : lines[0].length > 20 ? 37 : 41
+
+  // Single unified bottom panel — more cinematic than individual per-line boxes
+  filters.push(
+    `drawbox=x=0:y=ih*0.68:w=iw:h=ih*0.32:color=black@0.48:t=fill:enable='between(t\\,${captionDelay.toFixed(2)}\\,${end})'`,
+  )
 
   lines.forEach((line, lineIndex) => {
-    const baseY = 0.76 + lineIndex * 0.052
-    const yExpr = slideUp(baseY, 32, captionDelay + lineIndex * 0.08, 0.5)
+    const baseY = 0.755 + lineIndex * 0.058
+    const yExpr = slideUp(baseY, 28, captionDelay + lineIndex * 0.07, 0.45)
     const alpha = isLast
-      ? `if(lt(t\\,${captionDelay})\\,0\\,if(lt(t\\,${exitFadeStart})\\,if(lt(t\\,${captionDelay + 0.5})\\,(t-${captionDelay})/0.5\\,1)\\,if(lt(t\\,${durationSeconds.toFixed(2)})\\,1-(t-${exitFadeStart})/0.7\\,0)))`
+      ? `if(lt(t\\,${captionDelay})\\,0\\,if(lt(t\\,${exitFadeStart})\\,if(lt(t\\,${(captionDelay + 0.45).toFixed(2)})\\,(t-${captionDelay})/0.45\\,1)\\,if(lt(t\\,${end})\\,1-(t-${exitFadeStart})/0.7\\,0)))`
       : captionFade
+    // Text rendered with strong shadow only — panel provides the readability backdrop
     filters.push(
-      `drawtext=${bodyFont}:text='${escapeDrawText(line)}':fontcolor=${CAPTION_COLOR}:fontsize=38:x=(w-text_w)/2:y='${yExpr}':alpha='${alpha}':box=1:boxcolor=black@0.58:boxborderw=16:shadowcolor=black@0.4:shadowx=2:shadowy=2`,
+      `drawtext=${bodyFont}:text='${escapeDrawText(line)}':fontcolor=${CAPTION_COLOR}:fontsize=${captionSize}:x=(w-text_w)/2:y='${yExpr}':alpha='${alpha}':shadowcolor=black@0.80:shadowx=3:shadowy=3:borderw=1:bordercolor=black@0.60`,
     )
   })
 
