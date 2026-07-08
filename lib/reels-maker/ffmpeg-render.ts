@@ -1,6 +1,6 @@
 import { execFile } from 'child_process'
 import { mkdtemp, readFile, writeFile } from 'fs/promises'
-import { tmpdir } from 'os'
+import { cpus, tmpdir } from 'os'
 import { join } from 'path'
 import { promisify } from 'util'
 
@@ -36,7 +36,9 @@ import type { ReelLogoPosition, ReelScenePlan, ReelStoryPlan, ReelUploadedMedia 
 const execFileAsync = promisify(execFile)
 
 const FPS = 30
-const SCENE_RENDER_CONCURRENCY = 2
+const CPU_COUNT = cpus().length
+const SCENE_RENDER_CONCURRENCY = Math.max(2, Math.min(4, CPU_COUNT - 1))
+const FFMPEG_THREADS_PER_SCENE = Math.max(1, Math.floor(CPU_COUNT / SCENE_RENDER_CONCURRENCY))
 const ENCODE_ARGS = [...buildReelVideoEncodeArgs(FPS)]
 
 function buildFrameFilters(frame: ReelFrameDimensions) {
@@ -160,6 +162,8 @@ async function renderImageScene(
 
   await runFfmpeg([
     '-y',
+    '-threads',
+    String(FFMPEG_THREADS_PER_SCENE),
     '-loop',
     '1',
     '-i',
@@ -201,6 +205,8 @@ async function renderVideoScene(
 
   await runFfmpeg([
     '-y',
+    '-threads',
+    String(FFMPEG_THREADS_PER_SCENE),
     '-i',
     videoPath,
     '-vf',
