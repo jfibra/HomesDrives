@@ -42,6 +42,8 @@ export type SceneTextOptions = {
 
 function escapeDrawText(value: string) {
   return value
+    // Replace peso sign with plain P — drawtext fonts lack this Unicode glyph
+    .replace(/₱/g, 'P')
     .replace(/\\/g, '\\\\')
     .replace(/:/g, '\\:')
     .replace(/'/g, "\\'")
