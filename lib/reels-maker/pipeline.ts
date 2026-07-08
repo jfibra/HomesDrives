@@ -5,6 +5,7 @@ import { formatApiError } from '@/lib/reels-maker/api-errors'
 import { generateVoiceOverAudio, resolveVoiceOutroLine, fitVoiceScriptToScenes, buildVoiceOverDisplayScript } from '@/lib/reels-maker/voice-over'
 import { createReelJob, getReelJob, setReelJobStatus, updateReelJob } from '@/lib/reels-maker/job-store'
 import { selectBestMedia, uploadRenderedReel } from '@/lib/reels-maker/storage'
+import { normalizeReelAspectRatio } from '@/lib/reels-maker/aspect-ratio'
 import type {
   CreateReelJobInput,
   ReelJob,
@@ -22,6 +23,7 @@ export function startReelJob(input: CreateReelJobInput): ReelJob {
     createdAt: now,
     updatedAt: now,
     templateId: input.templateId,
+    aspectRatio: normalizeReelAspectRatio(input.aspectRatio),
     voiceOverEnabled: input.voiceOverEnabled,
     outroEnabled: input.outroEnabled !== false,
     outroLine: input.outroLine?.trim() || '',
@@ -149,6 +151,7 @@ async function processReelJob(jobId: string) {
     const rendered = await renderReelWithFfmpeg({
       plan: story.plan,
       media: selectedMedia,
+      aspectRatio: normalizeReelAspectRatio(job.aspectRatio),
       music,
       logo,
       voiceOver: voiceOverBuffer,

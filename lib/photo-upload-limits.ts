@@ -10,6 +10,9 @@ export const MAX_SERVER_PROXY_UPLOAD_BYTES = 4 * 1024 * 1024
 /** Max size of each video accepted by the upload API (1 GB). */
 export const MAX_VIDEO_UPLOAD_BYTES = 1024 * 1024 * 1024
 
+/** Max background music file for AI Reels Maker (50 MB). */
+export const MAX_REEL_MUSIC_UPLOAD_BYTES = 50 * 1024 * 1024
+
 /** Videos larger than this use S3 multipart upload (direct browser → S3). */
 export const MULTIPART_VIDEO_THRESHOLD_BYTES = 500 * 1024 * 1024
 

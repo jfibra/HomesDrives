@@ -11,6 +11,8 @@ import {
 } from '@/lib/reels-maker/pipeline'
 import { parseReelResultStorage } from '@/lib/reels-maker/reel-playback'
 import { uploadReelLogoFile, uploadReelMediaFile, uploadReelMusicFile, createReelPresignedUpload, registerReelLogoFromStorage, registerReelMediaFromStorage } from '@/lib/reels-maker/storage'
+import { storeMusicUploadChunk } from '@/lib/reels-maker/music-chunk-sessions'
+import { normalizeReelAspectRatio } from '@/lib/reels-maker/aspect-ratio'
 import type { CreateReelJobInput, ReelLogoPosition, ReelTemplateId } from '@/lib/reels-maker/types'
 import { mkdir, writeFile } from 'fs/promises'
 import { join } from 'path'
@@ -22,7 +24,7 @@ import {
 } from '@/lib/reels-maker/youtube-music'
 import { isValidYouTubeMusicUrl } from '@/lib/reels-maker/youtube-url'
 import { formatApiError } from '@/lib/reels-maker/api-errors'
-import { MAX_PHOTO_UPLOAD_BYTES, MAX_VIDEO_UPLOAD_BYTES } from '@/lib/photo-upload-limits'
+import { MAX_PHOTO_UPLOAD_BYTES, MAX_REEL_MUSIC_UPLOAD_BYTES, MAX_VIDEO_UPLOAD_BYTES } from '@/lib/photo-upload-limits'
 import { createStorageClient } from '@/lib/server/albums'
 
 const TEMPLATE_IDS: ReelTemplateId[] = [
@@ -102,6 +104,7 @@ export async function handleReelJobsPost(request: Request): Promise<Response> {
 
     const job = startReelJob({
       templateId,
+      aspectRatio: normalizeReelAspectRatio(body.aspectRatio),
       voiceOverEnabled: Boolean(body.voiceOverEnabled),
       outroEnabled: body.outroEnabled !== false,
       outroLine: body.outroLine,
@@ -247,8 +250,6 @@ export async function handleReelJobUpload(jobId: string, request: Request): Prom
     )
   }
 }
-
-const MAX_REEL_MUSIC_UPLOAD_BYTES = 50 * 1024 * 1024
 
 function maxBytesForReelRole(role: string, mimeType: string) {
   if (role === 'music') return MAX_REEL_MUSIC_UPLOAD_BYTES
@@ -405,6 +406,65 @@ export async function handleReelJobUploadFinalize(jobId: string, request: Reques
   }
 }
 
+export async function handleReelJobMusicChunkUpload(jobId: string, request: Request): Promise<Response> {
+  const job = getReelJob(jobId)
+  if (!job) {
+    return Response.json({ error: 'Job not found.' }, { status: 404 })
+  }
+
+  try {
+    const formData = await request.formData()
+    const uploadId = String(formData.get('uploadId') ?? '').trim()
+    const chunkIndex = Number.parseInt(String(formData.get('chunkIndex') ?? ''), 10)
+    const totalChunks = Number.parseInt(String(formData.get('totalChunks') ?? ''), 10)
+    const fileName = String(formData.get('fileName') ?? 'music.mp3').trim() || 'music.mp3'
+    const mimeType = String(formData.get('mimeType') ?? 'audio/mpeg').trim() || 'audio/mpeg'
+    const chunkUpload = await readUploadedBlob(formData.get('chunk'), fileName, mimeType)
+
+    if (!uploadId || !chunkUpload) {
+      return Response.json({ error: 'Invalid music chunk upload.' }, { status: 400 })
+    }
+
+    const result = await storeMusicUploadChunk({
+      uploadId,
+      chunkIndex,
+      totalChunks,
+      fileName,
+      mimeType,
+      chunk: chunkUpload.buffer,
+    })
+
+    if (!result.complete) {
+      return Response.json({
+        received: result.received,
+        totalChunks: result.totalChunks,
+      })
+    }
+
+    if (result.buffer.length > MAX_REEL_MUSIC_UPLOAD_BYTES) {
+      return Response.json({ error: 'Music file is too large. Maximum size is 50 MB.' }, { status: 400 })
+    }
+
+    const music = await uploadReelMusicFile({
+      fileName: result.fileName,
+      mimeType: result.mimeType,
+      buffer: result.buffer,
+    })
+    const updated = attachReelJobMusic(jobId, music.bucketName, music.storagePath)
+    if (!updated) {
+      return Response.json({ error: 'Job not found.' }, { status: 404 })
+    }
+
+    return Response.json({ job: updated })
+  } catch (error) {
+    console.error('[reels-maker/upload/music-chunk]', error)
+    return Response.json(
+      { error: formatApiError(error, 'Music upload failed.') },
+      { status: 500 },
+    )
+  }
+}
+
 export async function handleReelJobRender(jobId: string, request: Request): Promise<Response> {
   const job = getReelJob(jobId)
   if (!job) {
@@ -427,6 +487,7 @@ export async function handleReelJobRender(jobId: string, request: Request): Prom
       outroEnabled?: boolean
       outroLine?: string
       templateId?: string
+      aspectRatio?: string
     }
     if (
       body.caption !== undefined ||
@@ -434,7 +495,8 @@ export async function handleReelJobRender(jobId: string, request: Request): Prom
       body.voiceOverEnabled !== undefined ||
       body.outroEnabled !== undefined ||
       body.outroLine !== undefined ||
-      body.templateId
+      body.templateId ||
+      body.aspectRatio
     ) {
       updateReelJob(jobId, {
         caption: body.caption ?? job.caption,
@@ -443,6 +505,7 @@ export async function handleReelJobRender(jobId: string, request: Request): Prom
         outroEnabled: body.outroEnabled ?? job.outroEnabled ?? true,
         outroLine: body.outroLine ?? job.outroLine ?? '',
         templateId: (body.templateId as typeof job.templateId) ?? job.templateId,
+        aspectRatio: body.aspectRatio ? normalizeReelAspectRatio(body.aspectRatio) : job.aspectRatio,
         status: 'queued',
         error: null,
         progress: Math.max(job.progress, 38),

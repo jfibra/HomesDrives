@@ -27,17 +27,24 @@ import {
   readSceneClip,
   type SceneClip,
 } from '@/lib/reels-maker/ffmpeg-transitions'
+import { getReelFrameDimensions, normalizeReelAspectRatio } from '@/lib/reels-maker/aspect-ratio'
+import type { ReelAspectRatio, ReelFrameDimensions } from '@/lib/reels-maker/aspect-ratio'
+
+import { buildReelVideoEncodeArgs, REEL_SCALE_FLAGS } from '@/lib/reels-maker/render-quality'
 import type { ReelLogoPosition, ReelScenePlan, ReelStoryPlan, ReelUploadedMedia } from '@/lib/reels-maker/types'
 
 const execFileAsync = promisify(execFile)
 
-const OUTPUT_WIDTH = 1080
-const OUTPUT_HEIGHT = 1920
 const FPS = 30
 const SCENE_RENDER_CONCURRENCY = 2
-const ENCODE_ARGS = ['-c:v', 'libx264', '-preset', 'fast', '-crf', '20', '-pix_fmt', 'yuv420p', '-r', String(FPS)]
-const PRESCALE = `scale=1620:2880:force_original_aspect_ratio=increase:flags=lanczos,crop=1620:2880`
-const STATIC_SCALE = `scale=${OUTPUT_WIDTH}:${OUTPUT_HEIGHT}:force_original_aspect_ratio=increase:flags=lanczos,crop=${OUTPUT_WIDTH}:${OUTPUT_HEIGHT},fps=${FPS}`
+const ENCODE_ARGS = [...buildReelVideoEncodeArgs(FPS)]
+
+function buildFrameFilters(frame: ReelFrameDimensions) {
+  const scaleFlags = `flags=${REEL_SCALE_FLAGS}`
+  const preScale = `scale=${frame.preScaleWidth}:${frame.preScaleHeight}:force_original_aspect_ratio=increase:${scaleFlags},crop=${frame.preScaleWidth}:${frame.preScaleHeight}`
+  const staticScale = `scale=${frame.width}:${frame.height}:force_original_aspect_ratio=increase:${scaleFlags},crop=${frame.width}:${frame.height},fps=${FPS}`
+  return { preScale, staticScale }
+}
 
 async function resolveFfmpegBinary() {
   if (process.env.FFMPEG_PATH) return process.env.FFMPEG_PATH
@@ -68,25 +75,30 @@ async function mapPool<T, R>(items: T[], concurrency: number, worker: (item: T, 
   return results
 }
 
-function getMotionFilter(motion: ReelScenePlan['motion'], durationSeconds: number) {
+function getMotionFilter(
+  motion: ReelScenePlan['motion'],
+  durationSeconds: number,
+  frame: ReelFrameDimensions,
+) {
+  const { preScale } = buildFrameFilters(frame)
   const frames = Math.max(1, Math.round(durationSeconds * FPS))
 
   switch (motion) {
     case 'slow-zoom-in': {
       const z = `1.0+0.06*on/${frames}`
-      return `${PRESCALE},zoompan=z='${z}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${OUTPUT_WIDTH}x${OUTPUT_HEIGHT}:fps=${FPS}`
+      return `${preScale},zoompan=z='${z}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${frame.width}x${frame.height}:fps=${FPS}`
     }
     case 'slow-zoom-out': {
       const z = `1.06-0.06*on/${frames}`
-      return `${PRESCALE},zoompan=z='${z}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${OUTPUT_WIDTH}x${OUTPUT_HEIGHT}:fps=${FPS}`
+      return `${preScale},zoompan=z='${z}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${frame.width}x${frame.height}:fps=${FPS}`
     }
     case 'gentle-pan-left':
-      return `${PRESCALE},zoompan=z='1.04':x='(iw-iw/zoom)*on/${frames}':y='ih/2-(ih/zoom/2)':d=${frames}:s=${OUTPUT_WIDTH}x${OUTPUT_HEIGHT}:fps=${FPS}`
+      return `${preScale},zoompan=z='1.04':x='(iw-iw/zoom)*on/${frames}':y='ih/2-(ih/zoom/2)':d=${frames}:s=${frame.width}x${frame.height}:fps=${FPS}`
     case 'gentle-pan-right':
-      return `${PRESCALE},zoompan=z='1.04':x='(iw-iw/zoom)*(1-on/${frames})':y='ih/2-(ih/zoom/2)':d=${frames}:s=${OUTPUT_WIDTH}x${OUTPUT_HEIGHT}:fps=${FPS}`
+      return `${preScale},zoompan=z='1.04':x='(iw-iw/zoom)*(1-on/${frames})':y='ih/2-(ih/zoom/2)':d=${frames}:s=${frame.width}x${frame.height}:fps=${FPS}`
     case 'static':
     default:
-      return STATIC_SCALE
+      return buildFrameFilters(frame).staticScale
   }
 }
 
@@ -98,14 +110,14 @@ async function runFfmpeg(args: string[]) {
   await execFileAsync(binary, args, { maxBuffer: 1024 * 1024 * 64 })
 }
 
-async function renderBlackClip(workDir: string, name: string, durationSeconds: number) {
+async function renderBlackClip(workDir: string, name: string, durationSeconds: number, frame: ReelFrameDimensions) {
   const outputPath = join(workDir, `${name}.mp4`)
   await runFfmpeg([
     '-y',
     '-f',
     'lavfi',
     '-i',
-    `color=c=black:s=${OUTPUT_WIDTH}x${OUTPUT_HEIGHT}:d=${durationSeconds}:r=${FPS}`,
+    `color=c=black:s=${frame.width}x${frame.height}:d=${durationSeconds}:r=${FPS}`,
     ...ENCODE_ARGS,
     outputPath,
   ])
@@ -124,12 +136,14 @@ async function renderImageScene(
   imagePath: string,
   scene: ReelScenePlan,
   context: SceneRenderContext,
+  frame: ReelFrameDimensions,
 ) {
   const outputPath = join(workDir, `scene-${index}.mp4`)
   const duration = scene.durationSeconds
   const motion = getMotionFilter(
     resolveSceneMotion(scene.motion, duration, context),
     duration,
+    frame,
   )
   const textFilter = buildAnimatedTextFilters(scene, {
     durationSeconds: duration,
@@ -167,6 +181,7 @@ async function renderVideoScene(
   videoPath: string,
   scene: ReelScenePlan,
   context: SceneRenderContext,
+  frame: ReelFrameDimensions,
 ) {
   const outputPath = join(workDir, `scene-${index}.mp4`)
   const duration = scene.durationSeconds
@@ -182,13 +197,14 @@ async function renderVideoScene(
     isFirst: context.isFirst,
     isLast: context.isLast,
   })
+  const { staticScale } = buildFrameFilters(frame)
 
   await runFfmpeg([
     '-y',
     '-i',
     videoPath,
     '-vf',
-    `scale=${OUTPUT_WIDTH}:${OUTPUT_HEIGHT}:force_original_aspect_ratio=increase:flags=lanczos,crop=${OUTPUT_WIDTH}:${OUTPUT_HEIGHT},fps=${FPS}${textFilter}${bookends}`,
+    `${staticScale}${textFilter}${bookends}`,
     '-t',
     String(duration),
     '-an',
@@ -418,11 +434,13 @@ async function muxAudio(
 export async function renderReelWithFfmpeg(params: {
   plan: ReelStoryPlan
   media: ReelUploadedMedia[]
+  aspectRatio?: ReelAspectRatio
   music?: { bucketName: string; storagePath: string } | null
   logo?: { bucketName: string; storagePath: string; position: ReelLogoPosition } | null
   voiceOver?: Buffer | null
   voiceOverPromise?: Promise<Buffer | null> | null
 }) {
+  const frame = getReelFrameDimensions(normalizeReelAspectRatio(params.aspectRatio))
   const workDir = await mkdtemp(join(tmpdir(), 'reels-maker-'))
   const mediaById = new Map(params.media.map((item) => [item.id, item]))
 
@@ -458,8 +476,8 @@ export async function renderReelWithFfmpeg(params: {
     const [resolvedVoiceOver, mediaPaths, blackLeaderPath, blackTailPath] = await Promise.all([
       voicePromise,
       downloadMediaToWorkDir(uniqueMedia, workDir),
-      renderBlackClip(workDir, 'black-leader', BLACK_LEADER_SEC),
-      renderBlackClip(workDir, 'black-tail', BLACK_TAIL_SEC),
+      renderBlackClip(workDir, 'black-leader', BLACK_LEADER_SEC, frame),
+      renderBlackClip(workDir, 'black-tail', BLACK_TAIL_SEC, frame),
     ])
 
     const scenePaths = await mapPool(scenes, SCENE_RENDER_CONCURRENCY, async ({ scene, index, mediaItem }) => {
@@ -473,8 +491,8 @@ export async function renderReelWithFfmpeg(params: {
       }
 
       return mediaItem.kind === 'video'
-        ? renderVideoScene(workDir, index, inputPath, scene, context)
-        : renderImageScene(workDir, index, inputPath, scene, context)
+        ? renderVideoScene(workDir, index, inputPath, scene, context, frame)
+        : renderImageScene(workDir, index, inputPath, scene, context, frame)
     })
 
     if (!scenePaths.length) {
@@ -499,6 +517,7 @@ export async function renderReelWithFfmpeg(params: {
         logoBytes,
         logoName,
         params.logo.position,
+        frame.width,
       )
     }
 

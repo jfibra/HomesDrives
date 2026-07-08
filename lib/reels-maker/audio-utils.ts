@@ -2,6 +2,8 @@ import { readFile } from 'fs/promises'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 
+import { buildReelH264OutputArgs } from '@/lib/reels-maker/render-quality'
+
 const execFileAsync = promisify(execFile)
 
 export const VOICE_FADE_IN_SEC = 0.4
@@ -150,14 +152,7 @@ export async function trimVideoToDuration(
     inputPath,
     '-t',
     targetDuration.toFixed(3),
-    '-c:v',
-    'libx264',
-    '-preset',
-    'fast',
-    '-crf',
-    '20',
-    '-pix_fmt',
-    'yuv420p',
+    ...buildReelH264OutputArgs(),
     '-an',
     outputPath,
   ])
@@ -182,14 +177,7 @@ export async function padVideoToDuration(
     '-vf',
     `tpad=stop_mode=clone:stop_duration=${padSeconds.toFixed(3)}`,
     '-an',
-    '-c:v',
-    'libx264',
-    '-preset',
-    'fast',
-    '-crf',
-    '20',
-    '-pix_fmt',
-    'yuv420p',
+    ...buildReelH264OutputArgs(),
     '-t',
     targetDuration.toFixed(3),
     outputPath,

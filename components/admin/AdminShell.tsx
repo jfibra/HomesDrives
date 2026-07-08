@@ -1,21 +1,23 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { Suspense, useEffect, useState } from 'react'
 import {
   BarChart3,
   ChevronDown,
   ChevronRight,
   ClipboardList,
   FilePlus2,
+  Film,
+  FolderOpen,
   LogOut,
+  Map as MapIcon,
   Menu,
   Settings2,
   Shield,
   Users,
   Wand2,
-  Film,
 } from 'lucide-react'
 
 type AdminContext = {
@@ -42,8 +44,31 @@ function readAdminContext(): AdminContext | null {
 }
 
 export default function AdminShell({ children }: { children: React.ReactNode }) {
+  return (
+    <Suspense fallback={<AdminShellFallback />}>
+      <AdminShellInner>{children}</AdminShellInner>
+    </Suspense>
+  )
+}
+
+function AdminShellFallback() {
+  return (
+    <div
+      className="flex min-h-screen min-w-0 items-center justify-center overflow-x-hidden"
+      style={{ backgroundColor: 'var(--ds-surface)' }}
+    >
+      <div className="text-sm" style={{ color: 'var(--ds-on-surface-variant)' }}>
+        Loading admin shell...
+      </div>
+    </div>
+  )
+}
+
+function AdminShellInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? ''
+  const searchParams = useSearchParams()
   const router = useRouter()
+  const adminView = searchParams.get('view')
   const [checkState, setCheckState] = useState<CheckState>('pending')
   const [admin, setAdmin] = useState<AdminContext | null>(null)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
@@ -139,49 +164,63 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     label: string
     href: string
     icon: React.ReactNode
-    matcher: (path: string) => boolean
+    isActive: boolean
     section?: 'main' | 'questionnaires'
   }> = [
     {
       label: 'Overview',
       href: adminCodeHref,
       icon: <BarChart3 className="h-4 w-4" />,
-      matcher: (p) => p === adminCodeHref,
+      isActive: pathname === adminCodeHref && (!adminView || adminView === 'overview'),
+      section: 'main',
+    },
+    {
+      label: 'Folders',
+      href: `${adminCodeHref}?view=folders`,
+      icon: <FolderOpen className="h-4 w-4" />,
+      isActive: pathname === adminCodeHref && adminView === 'folders',
+      section: 'main',
+    },
+    {
+      label: 'Map View',
+      href: `${adminCodeHref}?view=map`,
+      icon: <MapIcon className="h-4 w-4" />,
+      isActive: pathname === adminCodeHref && adminView === 'map',
       section: 'main',
     },
     {
       label: 'User Management',
       href: `${adminCodeHref}?view=users`,
       icon: <Users className="h-4 w-4" />,
-      matcher: (p) => p === adminCodeHref && pathname.includes('users'),
+      isActive: pathname === adminCodeHref && adminView === 'users',
       section: 'main',
     },
     {
       label: 'All Questionnaires',
       href: '/questionnaires',
       icon: <ClipboardList className="h-4 w-4" />,
-      matcher: (p) => p === '/questionnaires' || p.startsWith('/questionnaires/') && !p.endsWith('/new'),
+      isActive: pathname === '/questionnaires' || (pathname.startsWith('/questionnaires/') && !pathname.endsWith('/new')),
       section: 'questionnaires',
     },
     {
       label: 'Questionnaire Builder',
       href: '/questionnaires/new',
       icon: <FilePlus2 className="h-4 w-4" />,
-      matcher: (p) => p === '/questionnaires/new',
+      isActive: pathname === '/questionnaires/new',
       section: 'questionnaires',
     },
     {
       label: 'AI Poster Generator',
       href: '/poster-generator',
       icon: <Wand2 className="h-4 w-4" />,
-      matcher: (p) => p === '/poster-generator',
+      isActive: pathname === '/poster-generator',
       section: 'questionnaires',
     },
     {
       label: 'AI Reels Maker',
       href: '/reels-maker',
       icon: <Film className="h-4 w-4" />,
-      matcher: (p) => p === '/reels-maker',
+      isActive: pathname === '/reels-maker',
       section: 'questionnaires',
     },
   ]
@@ -190,13 +229,13 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     label: string
     href: string
     icon: React.ReactNode
-    matcher: (path: string) => boolean
+    isActive: boolean
   }> = [
     {
       label: 'AI Poster Format Settings',
       href: '/settings/ai-poster-format-settings',
       icon: <Wand2 className="h-4 w-4" />,
-      matcher: (path) => path === '/settings/ai-poster-format-settings',
+      isActive: pathname === '/settings/ai-poster-format-settings',
     },
   ]
 
@@ -297,29 +336,30 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
           }`}
           style={{ borderColor: 'rgba(196,198,207,0.4)' }}
         >
-          <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-3">
+          <div
+            className="shrink-0 space-y-1 border-b p-3"
+            style={{ borderColor: 'var(--ds-outline-variant)' }}
+          >
             {navItems
               .filter((item) => item.section === 'main')
               .map((item) => (
                 <ShellNavItem
                   key={item.href}
-                  active={item.matcher(pathname)}
+                  active={item.isActive}
                   href={item.href}
                   icon={item.icon}
                   label={item.label}
                   onNavigate={() => setIsSidebarOpen(false)}
                 />
               ))}
+          </div>
 
+          <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-3">
             <div
-              className="my-2 border-t"
-              style={{ borderColor: 'var(--ds-outline-variant)' }}
-            />
-            <div
-              className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider"
+              className="px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider"
               style={{ color: 'var(--ds-on-surface-variant)' }}
             >
-              Questionnaires
+              Studio tools
             </div>
 
             {navItems
@@ -327,7 +367,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
               .map((item) => (
                 <ShellNavItem
                   key={item.href}
-                  active={item.matcher(pathname)}
+                  active={item.isActive}
                   href={item.href}
                   icon={item.icon}
                   label={item.label}
@@ -363,7 +403,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                 {settingsItems.map((item) => (
                   <ShellNavItem
                     key={item.href}
-                    active={item.matcher(pathname)}
+                    active={item.isActive}
                     href={item.href}
                     icon={item.icon}
                     label={item.label}

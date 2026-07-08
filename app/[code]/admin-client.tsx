@@ -19,6 +19,7 @@ import {
   ClipboardList,
   Edit3,
   FilePlus2,
+  Film,
   Folder,
   FolderOpen,
   HardDrive,
@@ -180,6 +181,17 @@ export default function AdminClient({ user }: { user: AdminUser }) {
   // App state
   const [activeView, setActiveView] = useState<AdminView>('overview')
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+
+  useEffect(() => {
+    const view = new URLSearchParams(window.location.search).get('view')
+    if (view === 'folders' || view === 'map' || view === 'users') {
+      setActiveView(view)
+      return
+    }
+    if (!view) {
+      setActiveView('overview')
+    }
+  }, [])
 
   // Stats
   const [stats, setStats] = useState<AdminStats | null>(null)
@@ -1020,7 +1032,10 @@ export default function AdminClient({ user }: { user: AdminUser }) {
           }`}
           style={{ borderColor: 'rgba(196,198,207,0.4)' }}
         >
-          <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-3">
+          <div
+            className="shrink-0 space-y-1 border-b p-3"
+            style={{ borderColor: 'var(--ds-outline-variant)' }}
+          >
             <NavItem
               active={activeView === 'overview'}
               icon={<BarChart3 className="h-4 w-4" />}
@@ -1059,16 +1074,14 @@ export default function AdminClient({ user }: { user: AdminUser }) {
                 setIsSidebarOpen(false)
               }}
             />
+          </div>
 
+          <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-3">
             <div
-              className="my-2 border-t"
-              style={{ borderColor: 'var(--ds-outline-variant)' }}
-            />
-            <div
-              className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider"
+              className="px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider"
               style={{ color: 'var(--ds-on-surface-variant)' }}
             >
-              Questionnaires
+              Studio tools
             </div>
 
             <NavItem
@@ -1096,6 +1109,15 @@ export default function AdminClient({ user }: { user: AdminUser }) {
               onClick={() => {
                 setIsSidebarOpen(false)
                 window.location.href = '/poster-generator'
+              }}
+            />
+            <NavItem
+              active={false}
+              icon={<Film className="h-4 w-4" />}
+              label="AI Reels Maker"
+              onClick={() => {
+                setIsSidebarOpen(false)
+                window.location.href = '/reels-maker'
               }}
             />
           </nav>

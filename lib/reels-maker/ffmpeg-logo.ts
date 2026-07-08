@@ -6,16 +6,18 @@ import { join } from 'path'
 import { promisify } from 'util'
 
 import { resolveFfmpegBinary } from '@/lib/reels-maker/audio-utils'
+import { buildReelH264OutputArgs } from '@/lib/reels-maker/render-quality'
 import { safeRemoveDir } from '@/lib/reels-maker/safe-rm'
 import type { ReelLogoPosition } from '@/lib/reels-maker/types'
 
 const execFileAsync = promisify(execFile)
 
-const OUTPUT_WIDTH = 1080
-/** Logo width as a fraction of the 1080px reel frame (was 18% — too small for branding). */
 const LOGO_WIDTH_RATIO = 0.28
-const LOGO_MAX_WIDTH = Math.round(OUTPUT_WIDTH * LOGO_WIDTH_RATIO)
 const LOGO_MARGIN = 32
+
+function logoMaxWidth(frameWidth: number) {
+  return Math.round(frameWidth * LOGO_WIDTH_RATIO)
+}
 
 function overlayCoords(position: ReelLogoPosition) {
   switch (position) {
@@ -36,6 +38,7 @@ export async function applyLogoOverlayToVideo(
   logoBuffer: Buffer,
   logoFileName: string,
   position: ReelLogoPosition,
+  frameWidth = 1080,
 ): Promise<Buffer> {
   const workDir = await mkdtemp(join(tmpdir(), 'reels-logo-'))
   const videoPath = join(workDir, 'input.mp4')
@@ -44,7 +47,7 @@ export async function applyLogoOverlayToVideo(
   const outputPath = join(workDir, 'branded.mp4')
   const ffmpeg = await resolveFfmpegBinary()
   const coords = overlayCoords(position)
-  const filter = `[1:v]scale='min(${LOGO_MAX_WIDTH}\\,iw)':-1[lg];[0:v][lg]overlay=${coords}`
+  const filter = `[1:v]scale='min(${logoMaxWidth(frameWidth)}\\,iw)':-1[lg];[0:v][lg]overlay=${coords}`
 
   try {
     await writeFile(videoPath, videoBuffer)
@@ -60,14 +63,7 @@ export async function applyLogoOverlayToVideo(
         logoPath,
         '-filter_complex',
         filter,
-        '-c:v',
-        'libx264',
-        '-preset',
-        'fast',
-        '-crf',
-        '20',
-        '-pix_fmt',
-        'yuv420p',
+        ...buildReelH264OutputArgs(),
         '-an',
         '-movflags',
         '+faststart',

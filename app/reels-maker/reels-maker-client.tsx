@@ -16,32 +16,14 @@ import {
 import { ReelsMakerCreateFlow, STEPS } from '@/app/reels-maker/reels-maker-create-flow'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import { reelsMakerApiPath } from '@/lib/reels-maker/api-base'
 import { formatApiError } from '@/lib/reels-maker/api-errors'
 import { uploadReelJobAssets } from '@/lib/reels-maker/reels-upload-client'
-import { TurnstileChallenge } from '@/lib/reels-maker/turnstile-challenge'
-import { downloadYouTubeAudioInBrowser } from '@/lib/reels-maker/youtube-browser-download'
-import { resetTurnstileContainer } from '@/lib/reels-maker/youtube-turnstile'
+import { getReelAspectRatioLabel } from '@/lib/reels-maker/aspect-ratio'
 import { REEL_TEMPLATES } from '@/lib/reels-maker/templates'
 import { getReelVideoPlaybackUrl } from '@/lib/reels-maker/reel-playback'
-import type { ReelDraftSummary, ReelJob, ReelLogoPosition, ReelTemplateId } from '@/lib/reels-maker/types'
+import type { ReelAspectRatio, ReelDraftSummary, ReelJob, ReelLogoPosition, ReelTemplateId } from '@/lib/reels-maker/types'
 import { cn } from '@/lib/utils'
-
-type YouTubeTrackPreview = {
-  videoId: string
-  title: string
-  durationSeconds: number | null
-  thumbnailUrl: string | null
-  channel: string | null
-}
 
 type LocalMedia = {
   id: string
@@ -185,6 +167,7 @@ export default function ReelsMakerClient() {
   const [drafts, setDrafts] = useState<ReelDraftSummary[]>([])
   const [isLoadingDrafts, setIsLoadingDrafts] = useState(false)
   const [templateId, setTemplateId] = useState<ReelTemplateId>('cinematic')
+  const [aspectRatio, setAspectRatio] = useState<ReelAspectRatio>('portrait')
   const [voiceOverEnabled, setVoiceOverEnabled] = useState(true)
   const [outroEnabled, setOutroEnabled] = useState(true)
   const [outroLine, setOutroLine] = useState('Available now. Visit us today.')
@@ -196,10 +179,6 @@ export default function ReelsMakerClient() {
   const [logoPreviewUrl, setLogoPreviewUrl] = useState<string | null>(null)
   const [logoEnabled, setLogoEnabled] = useState(false)
   const [logoPosition, setLogoPosition] = useState<ReelLogoPosition>('top-right')
-  const [youtubeMusicUrl, setYoutubeMusicUrl] = useState('')
-  const [youtubePreview, setYoutubePreview] = useState<YouTubeTrackPreview | null>(null)
-  const [isLoadingYoutube, setIsLoadingYoutube] = useState(false)
-  const [youtubeError, setYoutubeError] = useState('')
   const [job, setJob] = useState<ReelJob | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
   const [isWorking, setIsWorking] = useState(false)
@@ -211,13 +190,6 @@ export default function ReelsMakerClient() {
   const musicInputRef = useRef<HTMLInputElement>(null)
   const logoInputRef = useRef<HTMLInputElement>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const turnstileContainerRef = useRef<HTMLDivElement>(null)
-  const turnstilePendingRef = useRef<{
-    resolve: (token: string) => void
-    reject: (error: Error) => void
-  } | null>(null)
-  const [turnstileOpen, setTurnstileOpen] = useState(false)
-  const [turnstileSitekey, setTurnstileSitekey] = useState<string | null>(null)
 
   const loadDrafts = useCallback(async () => {
     setIsLoadingDrafts(true)
@@ -236,42 +208,6 @@ export default function ReelsMakerClient() {
   useEffect(() => {
     void loadDrafts()
   }, [loadDrafts])
-
-  const requestTurnstile = useCallback((sitekey: string) => {
-    return new Promise<string>((resolve, reject) => {
-      turnstilePendingRef.current = { resolve, reject }
-      setTurnstileSitekey(sitekey)
-      setTurnstileOpen(true)
-    })
-  }, [])
-
-  const closeTurnstileDialog = useCallback((error?: Error) => {
-    if (error && turnstilePendingRef.current) {
-      turnstilePendingRef.current.reject(error)
-    }
-    turnstilePendingRef.current = null
-    resetTurnstileContainer(turnstileContainerRef.current)
-    setTurnstileOpen(false)
-    setTurnstileSitekey(null)
-  }, [])
-
-  const handleTurnstileToken = useCallback(
-    (token: string) => {
-      turnstilePendingRef.current?.resolve(token)
-      turnstilePendingRef.current = null
-      resetTurnstileContainer(turnstileContainerRef.current)
-      setTurnstileOpen(false)
-      setTurnstileSitekey(null)
-    },
-    [],
-  )
-
-  const handleTurnstileError = useCallback(
-    (error: Error) => {
-      closeTurnstileDialog(error)
-    },
-    [closeTurnstileDialog],
-  )
 
   const isProcessing = useMemo(() => {
     if (!job) return false
@@ -457,9 +393,7 @@ export default function ReelsMakerClient() {
 
   function clearUploadedMusic() {
     setMusicFile(null)
-    setYoutubeMusicUrl('')
-    setYoutubePreview(null)
-    setYoutubeError('')
+    if (musicInputRef.current) musicInputRef.current.value = ''
   }
 
   function clearLogo() {
@@ -479,34 +413,6 @@ export default function ReelsMakerClient() {
     setLogoEnabled(true)
   }
 
-  async function handleLoadYoutubeMusic() {
-    const url = youtubeMusicUrl.trim()
-    if (!url) {
-      setYoutubeError('Paste a YouTube link first.')
-      return
-    }
-
-    setYoutubeError('')
-    setIsLoadingYoutube(true)
-    try {
-      const response = await fetch(reelsMakerApiPath('/api/reels-maker/youtube/preview'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ url }),
-        cache: 'no-store',
-      })
-      const data = await readApiJson(response)
-      if (!response.ok) throw new Error(formatApiError(data.error, 'Unable to load YouTube track.'))
-      setYoutubePreview(data.preview as YouTubeTrackPreview)
-      setMusicFile(null)
-    } catch (loadError) {
-      setYoutubePreview(null)
-      setYoutubeError(loadError instanceof Error ? loadError.message : 'Unable to load YouTube track.')
-    } finally {
-      setIsLoadingYoutube(false)
-    }
-  }
-
   async function handleGenerate() {
     if (!media.length) {
       setError('Add at least one photo or short video.')
@@ -523,6 +429,7 @@ export default function ReelsMakerClient() {
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({
           templateId,
+          aspectRatio,
           voiceOverEnabled,
           outroEnabled,
           outroLine: outroLine.trim(),
@@ -542,50 +449,14 @@ export default function ReelsMakerClient() {
         ...createdJob,
         status: 'uploading',
         progress: 12,
-        message: youtubeMusicUrl.trim() && !musicFile
-          ? 'Downloading YouTube music in your browser…'
-          : youtubeMusicUrl.trim()
-            ? 'Uploading photos and downloading YouTube music…'
-            : 'Uploading photos to cloud…',
+        message: 'Uploading photos to cloud…',
       })
-
-      let musicForUpload = musicFile
-      if (!musicForUpload && youtubeMusicUrl.trim()) {
-        try {
-          musicForUpload = await downloadYouTubeAudioInBrowser(youtubeMusicUrl.trim(), {
-            requestTurnstile,
-            onStatus: (message) => {
-              setJob((current) => (current ? { ...current, message } : current))
-            },
-            onProgress: ({ loaded, total }) => {
-              const pct = total ? Math.min(99, Math.round((loaded / total) * 100)) : null
-              setJob((current) =>
-                current
-                  ? {
-                      ...current,
-                      message:
-                        pct != null
-                          ? `Downloading YouTube music in your browser… ${pct}%`
-                          : 'Downloading YouTube music in your browser…',
-                    }
-                  : current,
-              )
-            },
-          })
-        } catch (youtubeDownloadError) {
-          throw new Error(
-            youtubeDownloadError instanceof Error
-              ? youtubeDownloadError.message
-              : 'Unable to download YouTube music in your browser.',
-          )
-        }
-      }
 
       setJob((current) =>
         current
           ? {
               ...current,
-              message: 'Uploading photos to cloud…',
+              message: musicFile ? 'Uploading photos and music…' : 'Uploading photos to cloud…',
               progress: Math.max(current.progress, 18),
             }
           : current,
@@ -595,7 +466,7 @@ export default function ReelsMakerClient() {
         newJobId,
         {
           media: media.map((item) => ({ file: item.file, note: item.note })),
-          music: musicForUpload,
+          music: musicFile,
           logo: logoFile,
           logoEnabled,
           logoPosition,
@@ -617,6 +488,7 @@ export default function ReelsMakerClient() {
           outroEnabled,
           outroLine: outroLine.trim(),
           templateId,
+          aspectRatio,
         }),
         cache: 'no-store',
       })
@@ -927,6 +799,9 @@ export default function ReelsMakerClient() {
           setReelBrief={setReelBrief}
           templateId={templateId}
           setTemplateId={setTemplateId}
+          aspectRatio={aspectRatio}
+          setAspectRatio={setAspectRatio}
+          getAspectRatioLabel={getReelAspectRatioLabel}
           media={media}
           draggingId={draggingId}
           setDraggingId={setDraggingId}
@@ -939,14 +814,6 @@ export default function ReelsMakerClient() {
           musicFile={musicFile}
           musicInputRef={musicInputRef}
           setMusicFile={setMusicFile}
-          youtubeMusicUrl={youtubeMusicUrl}
-          setYoutubeMusicUrl={setYoutubeMusicUrl}
-          youtubePreview={youtubePreview}
-          isLoadingYoutube={isLoadingYoutube}
-          youtubeError={youtubeError}
-          setYoutubePreview={setYoutubePreview}
-          setYoutubeError={setYoutubeError}
-          handleLoadYoutubeMusic={() => void handleLoadYoutubeMusic()}
           clearUploadedMusic={clearUploadedMusic}
           voiceOverEnabled={voiceOverEnabled}
           setVoiceOverEnabled={setVoiceOverEnabled}
@@ -977,43 +844,6 @@ export default function ReelsMakerClient() {
           videoPlaybackUrl={videoPlaybackUrl}
         />
       )}
-
-      <Dialog
-        onOpenChange={(open) => {
-          if (!open && turnstilePendingRef.current) {
-            closeTurnstileDialog(new Error('Security check was cancelled.'))
-          }
-        }}
-        open={turnstileOpen}
-      >
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Verify to download YouTube audio</DialogTitle>
-            <DialogDescription>
-              Invidious and Piped could not fetch this track, so we use a backup service (Cobalt)
-              that requires a quick Cloudflare security check in your browser.
-            </DialogDescription>
-          </DialogHeader>
-          {turnstileSitekey ? (
-            <div ref={turnstileContainerRef}>
-              <TurnstileChallenge
-                onError={handleTurnstileError}
-                onToken={handleTurnstileToken}
-                sitekey={turnstileSitekey}
-              />
-            </div>
-          ) : null}
-          <DialogFooter className="sm:justify-center">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => closeTurnstileDialog(new Error('Security check was cancelled.'))}
-            >
-              Cancel
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

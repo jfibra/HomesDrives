@@ -1,3 +1,7 @@
+import type { ReelAspectRatio } from '@/lib/reels-maker/aspect-ratio'
+
+export type { ReelAspectRatio }
+
 export type ReelTemplateId =
   | 'cinematic'
   | 'luxury'
@@ -82,6 +86,7 @@ export type ReelJob = {
   createdAt: string
   updatedAt: string
   templateId: ReelTemplateId
+  aspectRatio: ReelAspectRatio
   voiceOverEnabled: boolean
   outroEnabled: boolean
   outroLine: string
@@ -104,6 +109,7 @@ export type ReelJob = {
 
 export type CreateReelJobInput = {
   templateId: ReelTemplateId
+  aspectRatio?: ReelAspectRatio
   voiceOverEnabled: boolean
   outroEnabled?: boolean
   outroLine?: string

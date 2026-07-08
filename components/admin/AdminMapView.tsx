@@ -29,8 +29,19 @@ declare global {
 
 // Icon paths are drawn on a 38×48 viewport; pin head center ≈ (19,17).
 // White icon directly on colored teardrop — matches Google Maps style.
+function markerScaleForZoom(zoom: number) {
+  const clamped = Math.max(4, Math.min(17, zoom))
+  // Stay small through city zoom; grow quickly only when zoomed in close.
+  const t = (clamped - 4) / 13
+  return 0.15 + Math.pow(t, 2.5) * 0.85
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function getPlaceMarkerIcon(g: any, types: string[], hasPhotos: boolean) {
+function getPlaceMarkerIcon(g: any, types: string[], hasPhotos: boolean, zoom = 10) {
+  const scale = markerScaleForZoom(zoom)
+  const width = Math.max(8, Math.round(38 * scale))
+  const height = Math.max(10, Math.round(48 * scale))
+  const anchorX = Math.round(width / 2)
   const primary = (types?.[0] ?? '').toLowerCase().replace(/[-_]/g, ' ').trim()
 
   type IconDef = { pinColor: string; icon: string }
@@ -478,8 +489,8 @@ function getPlaceMarkerIcon(g: any, types: string[], hasPhotos: boolean) {
 
   return {
     url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
-    scaledSize: new g.maps.Size(38, 48),
-    anchor: new g.maps.Point(19, 48),
+    scaledSize: new g.maps.Size(width, height),
+    anchor: new g.maps.Point(anchorX, height),
   }
 }
 
@@ -553,7 +564,8 @@ export default function AdminMapView({
 }) {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<GMap>(null)
-  const markersRef = useRef<GMap[]>([])
+  const markerEntriesRef = useRef<Array<{ marker: GMap; folder: MapFolder }>>([])
+  const zoomListenerRef = useRef<GMap | null>(null)
   const [isMapLoaded, setIsMapLoaded] = useState(false)
   const [selectedFolder, setSelectedFolder] = useState<MapFolder | null>(null)
   const [folderPhotos, setFolderPhotos] = useState<MapPhoto[]>([])
@@ -589,6 +601,21 @@ export default function AdminMapView({
 
     return result
   }, [folders, searchQuery, activeFilter])
+
+  const updateMarkerSizes = useCallback(() => {
+    const map = mapInstanceRef.current
+    if (!map || markerEntriesRef.current.length === 0) return
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const g = (window as any).google
+    const zoom = map.getZoom() ?? 6
+
+    markerEntriesRef.current.forEach(({ marker, folder }) => {
+      marker.setIcon(
+        getPlaceMarkerIcon(g, folder.type_of_place, folder.photo_count > 0, zoom),
+      )
+    })
+  }, [])
 
   // Load Google Maps script dynamically
   useEffect(() => {
@@ -633,7 +660,21 @@ export default function AdminMapView({
     })
 
     mapInstanceRef.current = map
-  }, [isMapLoaded])
+
+    if (zoomListenerRef.current) {
+      g.maps.event.removeListener(zoomListenerRef.current)
+    }
+    zoomListenerRef.current = map.addListener('zoom_changed', () => {
+      updateMarkerSizes()
+    })
+
+    return () => {
+      if (zoomListenerRef.current) {
+        g.maps.event.removeListener(zoomListenerRef.current)
+        zoomListenerRef.current = null
+      }
+    }
+  }, [isMapLoaded, updateMarkerSizes])
 
   const loadPhotos = useCallback(
     async (folderId: string) => {
@@ -671,12 +712,13 @@ export default function AdminMapView({
     const g = (window as any).google
 
     // Remove old markers
-    markersRef.current.forEach((m) => m.setMap(null))
-    markersRef.current = []
+    markerEntriesRef.current.forEach(({ marker }) => marker.setMap(null))
+    markerEntriesRef.current = []
 
     if (filteredFolders.length === 0) return
 
     const bounds = new g.maps.LatLngBounds()
+    const zoom = mapInstanceRef.current.getZoom() ?? 6
 
     filteredFolders.forEach((folder) => {
       const pos = { lat: folder.latitude!, lng: folder.longitude! }
@@ -686,7 +728,7 @@ export default function AdminMapView({
         position: pos,
         map: mapInstanceRef.current,
         title: folder.folder_name,
-        icon: getPlaceMarkerIcon(g, folder.type_of_place, folder.photo_count > 0),
+        icon: getPlaceMarkerIcon(g, folder.type_of_place, folder.photo_count > 0, zoom),
       })
 
       marker.addListener('click', () => {
@@ -696,7 +738,7 @@ export default function AdminMapView({
         mapInstanceRef.current.panTo(pos)
       })
 
-      markersRef.current.push(marker)
+      markerEntriesRef.current.push({ marker, folder })
     })
 
     if (filteredFolders.length === 1) {
@@ -705,7 +747,11 @@ export default function AdminMapView({
     } else {
       mapInstanceRef.current.fitBounds(bounds, { padding: 80 })
     }
-  }, [filteredFolders, isMapLoaded, loadPhotos])
+
+    g.maps.event.addListenerOnce(mapInstanceRef.current, 'idle', () => {
+      updateMarkerSizes()
+    })
+  }, [filteredFolders, isMapLoaded, loadPhotos, updateMarkerSizes])
 
   const allWithCoords = folders.filter((f) => f.latitude != null && f.longitude != null)
   const foldersWithoutCoords = folders.length - allWithCoords.length

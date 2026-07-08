@@ -11,6 +11,7 @@ import {
   handleReelJobUpload,
   handleReelJobUploadFinalize,
   handleReelJobUploadPresign,
+  handleReelJobMusicChunkUpload,
   handleReelJobVideo,
   handleReelJobsGet,
   handleReelJobsPost,
@@ -94,6 +95,10 @@ app.post('/api/reels-maker/jobs/:jobId/upload/presign', (c) =>
 
 app.post('/api/reels-maker/jobs/:jobId/upload/finalize', (c) =>
   handleReelJobUploadFinalize(c.req.param('jobId'), c.req.raw),
+)
+
+app.post('/api/reels-maker/jobs/:jobId/upload/music-chunk', (c) =>
+  handleReelJobMusicChunkUpload(c.req.param('jobId'), c.req.raw),
 )
 
 app.post('/api/reels-maker/jobs/:jobId/render', (c) =>

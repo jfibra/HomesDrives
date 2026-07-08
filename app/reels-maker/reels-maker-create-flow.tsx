@@ -9,8 +9,9 @@ import {
   Film,
   GripVertical,
   Image as ImageIcon,
-  Link2,
   Loader2,
+  RectangleHorizontal,
+  RectangleVertical,
   Mic,
   Music2,
   Share2,
@@ -27,17 +28,10 @@ import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { REEL_ASPECT_RATIO_OPTIONS } from '@/lib/reels-maker/aspect-ratio'
 import { REEL_TEMPLATES } from '@/lib/reels-maker/templates'
-import type { ReelJob, ReelLogoPosition, ReelTemplateId } from '@/lib/reels-maker/types'
+import type { ReelAspectRatio, ReelJob, ReelLogoPosition, ReelTemplateId } from '@/lib/reels-maker/types'
 import { cn } from '@/lib/utils'
-
-type YouTubeTrackPreview = {
-  videoId: string
-  title: string
-  durationSeconds: number | null
-  thumbnailUrl: string | null
-  channel: string | null
-}
 
 type LocalMedia = {
   id: string
@@ -81,6 +75,9 @@ type ReelsMakerCreateFlowProps = {
   setReelBrief: (value: string) => void
   templateId: ReelTemplateId
   setTemplateId: (value: ReelTemplateId) => void
+  aspectRatio: ReelAspectRatio
+  setAspectRatio: (value: ReelAspectRatio) => void
+  getAspectRatioLabel: (value: ReelAspectRatio) => string
   media: LocalMedia[]
   draggingId: string | null
   setDraggingId: (id: string | null) => void
@@ -93,14 +90,6 @@ type ReelsMakerCreateFlowProps = {
   musicFile: File | null
   musicInputRef: RefObject<HTMLInputElement | null>
   setMusicFile: (file: File | null) => void
-  youtubeMusicUrl: string
-  setYoutubeMusicUrl: (value: string) => void
-  youtubePreview: YouTubeTrackPreview | null
-  isLoadingYoutube: boolean
-  youtubeError: string
-  setYoutubePreview: (value: YouTubeTrackPreview | null) => void
-  setYoutubeError: (value: string) => void
-  handleLoadYoutubeMusic: () => void
   clearUploadedMusic: () => void
   voiceOverEnabled: boolean
   setVoiceOverEnabled: (value: boolean) => void
@@ -253,6 +242,9 @@ export function ReelsMakerCreateFlow(props: ReelsMakerCreateFlowProps) {
     setReelBrief,
     templateId,
     setTemplateId,
+    aspectRatio,
+    setAspectRatio,
+    getAspectRatioLabel,
     media,
     draggingId,
     setDraggingId,
@@ -265,14 +257,6 @@ export function ReelsMakerCreateFlow(props: ReelsMakerCreateFlowProps) {
     musicFile,
     musicInputRef,
     setMusicFile,
-    youtubeMusicUrl,
-    setYoutubeMusicUrl,
-    youtubePreview,
-    isLoadingYoutube,
-    youtubeError,
-    setYoutubePreview,
-    setYoutubeError,
-    handleLoadYoutubeMusic,
     clearUploadedMusic,
     voiceOverEnabled,
     setVoiceOverEnabled,
@@ -360,6 +344,59 @@ export function ReelsMakerCreateFlow(props: ReelsMakerCreateFlowProps) {
 
                 <div className="space-y-3">
                   <p className="text-sm font-semibold uppercase tracking-wide" style={{ color: 'var(--ds-on-surface-variant)' }}>
+                    Video format
+                  </p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {REEL_ASPECT_RATIO_OPTIONS.map((option) => {
+                      const Icon = option.id === 'portrait' ? RectangleVertical : RectangleHorizontal
+                      const selected = aspectRatio === option.id
+                      return (
+                        <button
+                          key={option.id}
+                          className={cn(
+                            'rounded-xl border px-4 py-4 text-left transition',
+                            selected ? 'ring-2' : 'hover:bg-slate-50',
+                          )}
+                          onClick={() => setAspectRatio(option.id)}
+                          style={{
+                            borderColor: 'var(--ds-outline-variant)',
+                            ...(selected
+                              ? { ringColor: 'var(--ds-primary)', backgroundColor: 'var(--ds-surface-container)' }
+                              : {}),
+                          }}
+                          type="button"
+                        >
+                          <div className="flex items-start gap-3">
+                            <div
+                              className="flex shrink-0 items-center justify-center rounded-lg border bg-white"
+                              style={{
+                                borderColor: 'var(--ds-outline-variant)',
+                                width: option.id === 'portrait' ? 40 : 56,
+                                height: option.id === 'portrait' ? 56 : 40,
+                              }}
+                            >
+                              <Icon className="h-5 w-5" style={{ color: 'var(--ds-primary)' }} />
+                            </div>
+                            <div className="min-w-0">
+                              <div className="font-semibold">
+                                {option.label}{' '}
+                                <span className="text-xs font-normal" style={{ color: 'var(--ds-on-surface-variant)' }}>
+                                  {option.ratioLabel}
+                                </span>
+                              </div>
+                              <div className="text-xs" style={{ color: 'var(--ds-on-surface-variant)' }}>
+                                {option.description}
+                              </div>
+                            </div>
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <p className="text-sm font-semibold uppercase tracking-wide" style={{ color: 'var(--ds-on-surface-variant)' }}>
                     Visual style
                   </p>
                   <div className="grid gap-2 sm:grid-cols-2">
@@ -403,7 +440,7 @@ export function ReelsMakerCreateFlow(props: ReelsMakerCreateFlowProps) {
                     <div>
                       <p className="font-semibold">Drag and drop photos or short videos</p>
                       <p className="text-sm" style={{ color: 'var(--ds-on-surface-variant)' }}>
-                        JPG, PNG, WEBP, MP4, MOV — add a short note under each photo so AI knows what to highlight.
+                        JPG, PNG, WEBP, MP4, MOV — originals are kept at full quality. Add a short note under each photo so AI knows what to highlight.
                       </p>
                     </div>
                     <Button onClick={() => fileInputRef.current?.click()} type="button" variant="outline">
@@ -497,7 +534,7 @@ export function ReelsMakerCreateFlow(props: ReelsMakerCreateFlowProps) {
                     <div>
                       <p className="font-semibold">Background music</p>
                       <p className="text-xs" style={{ color: 'var(--ds-on-surface-variant)' }}>
-                        Optional — upload a file or paste a YouTube music link.
+                        Optional — upload an MP3 or other audio file.
                       </p>
                     </div>
                   </div>
@@ -506,66 +543,14 @@ export function ReelsMakerCreateFlow(props: ReelsMakerCreateFlowProps) {
                   </Button>
                   <input
                     ref={musicInputRef}
-                    accept="audio/*"
+                    accept="audio/*,.mp3,.m4a,.wav,.aac"
                     className="hidden"
                     onChange={(event) => {
                       const file = event.target.files?.[0] ?? null
                       setMusicFile(file)
-                      if (file) {
-                        setYoutubeMusicUrl('')
-                        setYoutubePreview(null)
-                        setYoutubeError('')
-                      }
                     }}
                     type="file"
                   />
-                </div>
-
-                <div className="space-y-2">
-                  <label
-                    className="text-xs font-semibold uppercase tracking-wide"
-                    htmlFor="youtube-music-url"
-                    style={{ color: 'var(--ds-on-surface-variant)' }}
-                  >
-                    YouTube link
-                  </label>
-                  <p className="text-xs" style={{ color: 'var(--ds-on-surface-variant)' }}>
-                    Music downloads in your browser, then uploads automatically. A quick security check may appear. If it fails, use Upload MP3.
-                  </p>
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <div className="relative flex-1">
-                      <Link2
-                        className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2"
-                        style={{ color: 'var(--ds-on-surface-variant)' }}
-                      />
-                      <Input
-                        className="pl-9"
-                        id="youtube-music-url"
-                        onChange={(event) => {
-                          setYoutubeMusicUrl(event.target.value)
-                          setYoutubePreview(null)
-                          setYoutubeError('')
-                        }}
-                        placeholder="https://www.youtube.com/watch?v=..."
-                        value={youtubeMusicUrl}
-                      />
-                    </div>
-                    <Button
-                      disabled={isLoadingYoutube || !youtubeMusicUrl.trim()}
-                      onClick={handleLoadYoutubeMusic}
-                      type="button"
-                      variant="outline"
-                    >
-                      {isLoadingYoutube ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Loading…
-                        </>
-                      ) : (
-                        'Use link'
-                      )}
-                    </Button>
-                  </div>
                 </div>
 
                 {musicFile ? (
@@ -582,48 +567,11 @@ export function ReelsMakerCreateFlow(props: ReelsMakerCreateFlowProps) {
                       Remove
                     </button>
                   </div>
-                ) : null}
-
-                {youtubePreview ? (
-                  <div
-                    className="flex items-center gap-3 rounded-xl border px-3 py-2"
-                    style={{ borderColor: 'var(--ds-outline-variant)' }}
-                  >
-                    {youtubePreview.thumbnailUrl ? (
-                      <img alt="" className="h-12 w-12 rounded-lg object-cover" src={youtubePreview.thumbnailUrl} />
-                    ) : (
-                      <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-slate-100">
-                        <Music2 className="h-5 w-5" style={{ color: 'var(--ds-primary)' }} />
-                      </div>
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold">{youtubePreview.title}</p>
-                      <p className="truncate text-xs" style={{ color: 'var(--ds-on-surface-variant)' }}>
-                        {youtubePreview.channel || 'YouTube'}
-                      </p>
-                    </div>
-                    <button
-                      className="text-xs font-semibold"
-                      onClick={clearUploadedMusic}
-                      style={{ color: 'var(--ds-error)' }}
-                      type="button"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ) : null}
-
-                {youtubeError ? (
-                  <p className="text-sm" style={{ color: 'var(--ds-error)' }}>
-                    {youtubeError}
-                  </p>
-                ) : null}
-
-                {!musicFile && !youtubePreview ? (
+                ) : (
                   <p className="text-sm" style={{ color: 'var(--ds-on-surface-variant)' }}>
                     Skip this step if you want AI to pick a cinematic mood without custom music.
                   </p>
-                ) : null}
+                )}
               </div>
             ) : null}
 
@@ -756,6 +704,12 @@ export function ReelsMakerCreateFlow(props: ReelsMakerCreateFlowProps) {
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="rounded-xl border p-4" style={{ borderColor: 'var(--ds-outline-variant)' }}>
                     <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--ds-on-surface-variant)' }}>
+                      Format
+                    </p>
+                    <p className="mt-1 font-semibold">{getAspectRatioLabel(aspectRatio)}</p>
+                  </div>
+                  <div className="rounded-xl border p-4" style={{ borderColor: 'var(--ds-outline-variant)' }}>
+                    <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--ds-on-surface-variant)' }}>
                       Template
                     </p>
                     <p className="mt-1 font-semibold">{getTemplateLabel(templateId)}</p>
@@ -771,7 +725,7 @@ export function ReelsMakerCreateFlow(props: ReelsMakerCreateFlowProps) {
                       Music
                     </p>
                     <p className="mt-1 font-semibold">
-                      {musicFile?.name || youtubePreview?.title || 'AI mood (none selected)'}
+                      {musicFile?.name || 'AI mood (none selected)'}
                     </p>
                   </div>
                   <div className="rounded-xl border p-4" style={{ borderColor: 'var(--ds-outline-variant)' }}>

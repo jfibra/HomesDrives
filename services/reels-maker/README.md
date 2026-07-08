@@ -1,11 +1,9 @@
 # AI Reels Maker
 
-YouTube music is downloaded in the **user's browser** (not on EC2), then uploaded as an audio file. This avoids YouTube blocking AWS datacenter IPs.
+Background music is added by **uploading an MP3** (or other audio file) in the Reels Maker UI.
 
-Optional: set `COBALT_API_KEY` in `.env` for a Cobalt tunnel fallback when Invidious/Piped fail.
+Choose **Portrait (9:16)** for Facebook/Instagram Reels, or **Landscape (16:9)** for feed/YouTube-style videos.
 
-Test stream resolution locally:
+Photos and videos are stored **as uploaded** (no recompression). Final reels use high-quality H.264 encoding (CRF 17).
 
-```bash
-npx tsx scripts/test-youtube-browser-download.mjs "https://www.youtube.com/watch?v=VIDEO_ID"
-```
+See `services/reels-api/README.md` for deployment.

@@ -13,7 +13,7 @@ import { DEFAULT_PRESIGN_EXPIRY_SECONDS } from '@/lib/photo-upload-limits'
 import { analyzeMediaQuality, dedupeMediaByFileName } from '@/lib/reels-maker/media-quality'
 import type { ReelMediaKind, ReelUploadedMedia } from '@/lib/reels-maker/types'
 
-function getBucketName() {
+function getBucketName(): string {
   const bucketName = process.env.AWS_S3_BUCKET || process.env.AWS_S3_BUCKET_NAME || ''
   if (!bucketName) {
     throw new Error('Missing AWS_S3_BUCKET.')
@@ -33,31 +33,6 @@ function buildReelsStoragePath(fileName: string) {
 function isVideoFile(fileName: string, mimeType: string) {
   if (mimeType.startsWith('video/')) return true
   return /\.(mp4|webm|mov|m4v|mkv)$/i.test(fileName)
-}
-
-async function optimizeImageBuffer(buffer: Buffer, mimeType: string) {
-  const meta = await sharp(buffer, { failOn: 'none' }).metadata()
-  const width = meta.width ?? 1080
-  const height = meta.height ?? 1920
-  const maxEdge = Math.max(width, height)
-
-  // Keep originals unless extremely large — avoids unnecessary JPEG recompression.
-  if (maxEdge <= 2560) return buffer
-
-  const pipeline = sharp(buffer, { failOn: 'none' }).resize({
-    width: width >= height ? 2560 : undefined,
-    height: height > width ? 2560 : undefined,
-    fit: 'inside',
-    withoutEnlargement: true,
-  })
-
-  if (mimeType === 'image/png' || meta.format === 'png') {
-    return pipeline.png({ compressionLevel: 6 }).toBuffer()
-  }
-  if (mimeType === 'image/webp' || meta.format === 'webp') {
-    return pipeline.webp({ quality: 92 }).toBuffer()
-  }
-  return pipeline.jpeg({ quality: 92, mozjpeg: true }).toBuffer()
 }
 
 export async function createReelPresignedUpload(params: {
@@ -138,8 +113,7 @@ export async function uploadReelMediaFile(params: {
 }): Promise<ReelUploadedMedia> {
   const kind: ReelMediaKind = isVideoFile(params.fileName, params.mimeType) ? 'video' : 'image'
   const quality = await analyzeMediaQuality(params.buffer, kind)
-  const uploadBuffer =
-    kind === 'image' ? await optimizeImageBuffer(params.buffer, params.mimeType) : params.buffer
+  const uploadBuffer = params.buffer
   const bucketName = getBucketName()
   const storagePath = buildReelsStoragePath(params.fileName)
   const storageClient = createStorageClient()
