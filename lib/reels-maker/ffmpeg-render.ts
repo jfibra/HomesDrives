@@ -215,19 +215,28 @@ async function renderVideoScene(
   return outputPath
 }
 
+async function normalizeImageToJpeg(bytes: Buffer): Promise<Buffer> {
+  const { default: sharp } = await import('sharp')
+  return sharp(bytes, { failOn: 'none' }).rotate().jpeg({ quality: 95 }).toBuffer()
+}
+
 async function downloadMediaToWorkDir(media: ReelUploadedMedia[], workDir: string) {
   const pathById = new Map<string, string>()
   await Promise.all(
     media.map(async (item) => {
-      const bytes = await downloadReelObject(item.bucketName, item.storagePath)
-      const extension =
-        item.kind === 'video'
-          ? `.${item.fileName.split('.').pop()?.toLowerCase() || 'mp4'}`
-          : item.mimeType === 'image/png'
-            ? '.png'
-            : item.mimeType === 'image/webp'
-              ? '.webp'
-              : '.jpg'
+      let bytes = await downloadReelObject(item.bucketName, item.storagePath)
+      let extension: string
+      if (item.kind === 'video') {
+        extension = `.${item.fileName.split('.').pop()?.toLowerCase() || 'mp4'}`
+      } else {
+        // Normalize all images to JPEG to handle HEIC, AVIF, and other non-standard formats
+        try {
+          bytes = await normalizeImageToJpeg(bytes)
+        } catch {
+          // keep original bytes if normalization fails — FFmpeg will surface a clearer error
+        }
+        extension = '.jpg'
+      }
       const fullPath = join(workDir, `media-${item.id}${extension}`)
       await writeFile(fullPath, bytes)
       pathById.set(item.id, fullPath)
