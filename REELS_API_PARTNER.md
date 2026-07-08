@@ -15,7 +15,7 @@ Generate professional AI-edited property reels (short-form videos) through the H
 ## Base URL
 
 ```
-http://<provided-host>:8001
+http://13.213.3.148:8001
 ```
 
 Your integration contact will give you the exact host.

@@ -4,7 +4,8 @@ import { requirePortalAdmin } from '@/lib/portals/storage'
 export const runtime = 'nodejs'
 
 function ec2AdminUrl(path: string) {
-  const base = (process.env.REELS_API_URL ?? '').replace(/\/$/, '')
+  const base = process.env.REELS_API_URL?.trim().replace(/\/$/, '')
+  if (!base) throw new Error('REELS_API_URL is not configured on this server.')
   return `${base}${path}`
 }
 
