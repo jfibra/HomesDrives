@@ -2,6 +2,18 @@
 
 FFmpeg + video jobs run on EC2, like InsightFace. The Vercel site calls this service.
 
+---
+
+## External Partner API
+
+If you are a **third-party developer or partner agency** wanting to generate reels through our service, see the dedicated guide:
+
+👉 **[REELS_API_PARTNER.md](../../REELS_API_PARTNER.md)**
+
+It covers authentication (API keys), all endpoints, request/response shapes, a full Node.js integration example, and how to get your API key issued.
+
+---
+
 ## Architecture
 
 ```
