@@ -46,7 +46,9 @@ function escapeDrawText(value: string) {
     .replace(/₱/g, 'P')
     .replace(/\\/g, '\\\\')
     .replace(/:/g, '\\:')
-    .replace(/'/g, "\\'")
+    // Inside FFmpeg single-quoted strings, ' closes the quote — \' does NOT escape it.
+    // Use close-quote + level-1 escaped quote + open-quote: Alabang'\''s
+    .replace(/'/g, "'\\''")
     .replace(/%/g, '\\%')
 }
 
