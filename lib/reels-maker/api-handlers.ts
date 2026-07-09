@@ -6,11 +6,12 @@ import {
   attachReelJobLogo,
   attachReelJobMedia,
   attachReelJobMusic,
+  attachReelJobQr,
   runReelJobPipeline,
   startReelJob,
 } from '@/lib/reels-maker/pipeline'
 import { parseReelResultStorage } from '@/lib/reels-maker/reel-playback'
-import { uploadReelLogoFile, uploadReelMediaFile, uploadReelMusicFile, createReelPresignedUpload, registerReelLogoFromStorage, registerReelMediaFromStorage } from '@/lib/reels-maker/storage'
+import { uploadReelLogoFile, uploadReelMediaFile, uploadReelMusicFile, uploadReelQrFile, createReelPresignedUpload, registerReelLogoFromStorage, registerReelQrFromStorage, registerReelMediaFromStorage } from '@/lib/reels-maker/storage'
 import { storeMusicUploadChunk } from '@/lib/reels-maker/music-chunk-sessions'
 import { normalizeReelAspectRatio } from '@/lib/reels-maker/aspect-ratio'
 import type { CreateReelJobInput, ReelLogoPosition, ReelTemplateId } from '@/lib/reels-maker/types'
@@ -49,6 +50,10 @@ function isTemplateId(value: string): value is ReelTemplateId {
 
 function parseLogoPosition(value: string): ReelLogoPosition {
   return LOGO_POSITIONS.includes(value as ReelLogoPosition) ? (value as ReelLogoPosition) : 'top-right'
+}
+
+function parseQrPosition(value: string): ReelLogoPosition {
+  return LOGO_POSITIONS.includes(value as ReelLogoPosition) ? (value as ReelLogoPosition) : 'bottom-right'
 }
 
 async function readUploadedBlob(
@@ -159,6 +164,9 @@ export async function handleReelJobUpload(jobId: string, request: Request): Prom
     const logoUpload = await readUploadedBlob(formData.get('logo'), 'logo.png', 'image/png')
     const logoEnabled = String(formData.get('logoEnabled') ?? 'false') === 'true'
     const logoPosition = parseLogoPosition(String(formData.get('logoPosition') ?? 'top-right'))
+    const qrUpload = await readUploadedBlob(formData.get('qr'), 'qr.png', 'image/png')
+    const qrEnabled = String(formData.get('qrEnabled') ?? 'false') === 'true'
+    const qrPosition = parseQrPosition(String(formData.get('qrPosition') ?? 'bottom-right'))
     const youtubeMusicUrl = String(formData.get('youtubeMusicUrl') ?? '').trim()
     const mediaNotesRaw = String(formData.get('mediaNotes') ?? '').trim()
     let mediaNotes: string[] = []
@@ -241,6 +249,22 @@ export async function handleReelJobUpload(jobId: string, request: Request): Prom
       if (updated) jobAfterUpload = updated
     }
 
+    if (qrUpload) {
+      if (!qrUpload.mimeType.startsWith('image/')) {
+        return Response.json({ error: 'QR code must be a PNG, JPG, or WEBP image.' }, { status: 400 })
+      }
+      const qr = await uploadReelQrFile({
+        fileName: qrUpload.fileName,
+        mimeType: qrUpload.mimeType,
+        buffer: qrUpload.buffer,
+      })
+      const updated = attachReelJobQr(jobId, qr, {
+        enabled: qrEnabled,
+        position: qrPosition,
+      })
+      if (updated) jobAfterUpload = updated
+    }
+
     return Response.json({ job: jobAfterUpload, uploadedMedia })
   } catch (error) {
     console.error('[reels-maker/upload]', error)
@@ -270,7 +294,7 @@ export async function handleReelJobUploadPresign(jobId: string, request: Request
         fileName?: string
         contentType?: string
         size?: number
-        role?: 'media' | 'music' | 'logo'
+        role?: 'media' | 'music' | 'logo' | 'qr'
       }>
     }
 
@@ -326,7 +350,7 @@ export async function handleReelJobUploadFinalize(jobId: string, request: Reques
   try {
     const body = (await request.json()) as {
       uploads?: Array<{
-        role?: 'media' | 'music' | 'logo'
+        role?: 'media' | 'music' | 'logo' | 'qr'
         fileName?: string
         mimeType?: string
         bucketName?: string
@@ -335,10 +359,14 @@ export async function handleReelJobUploadFinalize(jobId: string, request: Reques
       }>
       logoEnabled?: boolean
       logoPosition?: string
+      qrEnabled?: boolean
+      qrPosition?: string
     }
 
     const logoEnabled = body.logoEnabled === true
     const logoPosition = parseLogoPosition(String(body.logoPosition ?? 'top-right'))
+    const qrEnabled = body.qrEnabled === true
+    const qrPosition = parseQrPosition(String(body.qrPosition ?? 'bottom-right'))
     const uploads = body.uploads ?? []
 
     let jobAfterUpload = job
@@ -386,6 +414,24 @@ export async function handleReelJobUploadFinalize(jobId: string, request: Reques
         const updated = attachReelJobLogo(jobId, logo, {
           enabled: logoEnabled,
           position: logoPosition,
+        })
+        if (updated) jobAfterUpload = updated
+        continue
+      }
+
+      if (role === 'qr') {
+        if (!mimeType.startsWith('image/')) {
+          return Response.json({ error: 'QR code must be a PNG, JPG, or WEBP image.' }, { status: 400 })
+        }
+        const qr = await registerReelQrFromStorage({
+          fileName,
+          mimeType,
+          bucketName,
+          storagePath,
+        })
+        const updated = attachReelJobQr(jobId, qr, {
+          enabled: qrEnabled,
+          position: qrPosition,
         })
         if (updated) jobAfterUpload = updated
       }

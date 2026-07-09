@@ -17,6 +17,7 @@ import {
 import { measureVoiceOverDuration } from '@/lib/reels-maker/audio-utils'
 import { buildSceneBookendFilters, resolveSceneMotion, BLACK_LEADER_SEC, BLACK_TAIL_SEC } from '@/lib/reels-maker/ffmpeg-bookends'
 import { applyLogoOverlayToVideo } from '@/lib/reels-maker/ffmpeg-logo'
+import { applyQrOverlayToVideo } from '@/lib/reels-maker/ffmpeg-qr'
 import { scalePlanForVoiceDuration } from '@/lib/reels-maker/plan-timing'
 import { downloadReelObject } from '@/lib/reels-maker/storage'
 import { buildAnimatedTextFilters } from '@/lib/reels-maker/ffmpeg-text'
@@ -229,13 +230,34 @@ async function renderVideoScene(
   return outputPath
 }
 
-async function normalizeImageToJpeg(bytes: Buffer<ArrayBuffer>): Promise<Buffer<ArrayBuffer>> {
+async function normalizeImageToJpeg(bytes: Buffer<ArrayBuffer>, frame: ReelFrameDimensions): Promise<Buffer<ArrayBuffer>> {
   const { default: sharp } = await import('sharp')
-  const result = await sharp(bytes, { failOn: 'none' }).rotate().jpeg({ quality: 95 }).toBuffer()
+  const meta = await sharp(bytes, { failOn: 'none' }).metadata()
+  const width = meta.width ?? 0
+  const height = meta.height ?? 0
+  const targetWidth = Math.round(frame.preScaleWidth)
+  const targetHeight = Math.round(frame.preScaleHeight)
+  const needsUpscale = width > 0 && height > 0 && (width < targetWidth || height < targetHeight)
+
+  let pipeline = sharp(bytes, { failOn: 'none' }).rotate()
+  if (needsUpscale) {
+    // Source is smaller than the render frame — upscale with Lanczos3 and sharpen
+    // to counter the softness that plain enlargement would leave for the Ken Burns pan/zoom.
+    pipeline = pipeline
+      .resize({
+        width: targetWidth,
+        height: targetHeight,
+        fit: 'outside',
+        kernel: sharp.kernel.lanczos3,
+      })
+      .sharpen({ sigma: 1 })
+  }
+
+  const result = await pipeline.jpeg({ quality: 95 }).toBuffer()
   return result as unknown as Buffer<ArrayBuffer>
 }
 
-async function downloadMediaToWorkDir(media: ReelUploadedMedia[], workDir: string) {
+async function downloadMediaToWorkDir(media: ReelUploadedMedia[], workDir: string, frame: ReelFrameDimensions) {
   const pathById = new Map<string, string>()
   await Promise.all(
     media.map(async (item) => {
@@ -246,7 +268,7 @@ async function downloadMediaToWorkDir(media: ReelUploadedMedia[], workDir: strin
       } else {
         // Normalize all images to JPEG to handle HEIC, AVIF, and other non-standard formats
         try {
-          bytes = await normalizeImageToJpeg(bytes)
+          bytes = await normalizeImageToJpeg(bytes, frame)
         } catch {
           // keep original bytes if normalization fails — FFmpeg will surface a clearer error
         }
@@ -461,6 +483,7 @@ export async function renderReelWithFfmpeg(params: {
   aspectRatio?: ReelAspectRatio
   music?: { bucketName: string; storagePath: string } | null
   logo?: { bucketName: string; storagePath: string; position: ReelLogoPosition } | null
+  qr?: { bucketName: string; storagePath: string; position: ReelLogoPosition } | null
   voiceOver?: Buffer | null
   voiceOverPromise?: Promise<Buffer | null> | null
 }) {
@@ -499,7 +522,7 @@ export async function renderReelWithFfmpeg(params: {
     const voicePromise = Promise.resolve(voiceOver)
     const [resolvedVoiceOver, mediaPaths, blackLeaderPath, blackTailPath] = await Promise.all([
       voicePromise,
-      downloadMediaToWorkDir(uniqueMedia, workDir),
+      downloadMediaToWorkDir(uniqueMedia, workDir, frame),
       renderBlackClip(workDir, 'black-leader', BLACK_LEADER_SEC, frame),
       renderBlackClip(workDir, 'black-tail', BLACK_TAIL_SEC, frame),
     ])
@@ -541,6 +564,18 @@ export async function renderReelWithFfmpeg(params: {
         logoBytes,
         logoName,
         params.logo.position,
+        frame.width,
+      ))
+    }
+
+    if (params.qr) {
+      const qrBytes = await downloadReelObject(params.qr.bucketName, params.qr.storagePath)
+      const qrName = params.qr.storagePath.split('/').pop() ?? 'qr.png'
+      outputBuffer = Buffer.from(await applyQrOverlayToVideo(
+        outputBuffer,
+        qrBytes,
+        qrName,
+        params.qr.position,
         frame.width,
       ))
     }

@@ -113,6 +113,9 @@ x-api-key: rk_xxx
 | `music` | File (MP3) | Optional background music. Max 50 MB. |
 | `logo` | File (PNG/JPG) | Optional watermark logo. |
 | `logoPosition` | string | `"top-left"`, `"top-right"`, `"bottom-left"`, `"bottom-right"` |
+| `qr` | File (PNG/JPG) | Optional QR code image (e.g. linking to the listing). Rendered inside a white box container so it stays scannable over video. |
+| `qrEnabled` | string | `"true"` to enable rendering the QR code. |
+| `qrPosition` | string | `"top-left"`, `"top-right"`, `"bottom-left"`, `"bottom-right"` — defaults to `"bottom-right"`. |
 
 **Node.js example:**
 
@@ -168,7 +171,7 @@ x-api-key: rk_xxx
 }
 ```
 
-`role`: `"media"`, `"music"`, or `"logo"`.
+`role`: `"media"`, `"music"`, `"logo"`, or `"qr"`.
 
 **Response `200`:**
 

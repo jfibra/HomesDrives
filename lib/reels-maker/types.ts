@@ -103,6 +103,11 @@ export type ReelJob = {
   logoStoragePath: string | null
   logoPublicUrl: string | null
   logoPosition: ReelLogoPosition
+  qrEnabled: boolean
+  qrBucketName: string | null
+  qrStoragePath: string | null
+  qrPublicUrl: string | null
+  qrPosition: ReelLogoPosition
   resultUrl: string | null
   error: string | null
 }

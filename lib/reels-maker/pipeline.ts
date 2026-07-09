@@ -40,6 +40,11 @@ export function startReelJob(input: CreateReelJobInput): ReelJob {
     logoStoragePath: null,
     logoPublicUrl: null,
     logoPosition: 'top-right',
+    qrEnabled: false,
+    qrBucketName: null,
+    qrStoragePath: null,
+    qrPublicUrl: null,
+    qrPosition: 'bottom-right',
     resultUrl: null,
     error: null,
   }
@@ -72,6 +77,20 @@ export function attachReelJobLogo(
     logoStoragePath: logo.storagePath,
     logoPublicUrl: logo.publicUrl,
     logoPosition: options.position,
+  })
+}
+
+export function attachReelJobQr(
+  jobId: string,
+  qr: { bucketName: string; storagePath: string; publicUrl: string },
+  options: { enabled: boolean; position: ReelLogoPosition },
+) {
+  return updateReelJob(jobId, {
+    qrEnabled: options.enabled,
+    qrBucketName: qr.bucketName,
+    qrStoragePath: qr.storagePath,
+    qrPublicUrl: qr.publicUrl,
+    qrPosition: options.position,
   })
 }
 
@@ -147,6 +166,15 @@ async function processReelJob(jobId: string) {
           }
         : null
 
+    const qr =
+      job.qrEnabled && job.qrBucketName && job.qrStoragePath
+        ? {
+            bucketName: job.qrBucketName,
+            storagePath: job.qrStoragePath,
+            position: job.qrPosition ?? 'bottom-right',
+          }
+        : null
+
     const { renderReelWithFfmpeg } = await import('@/lib/reels-maker/ffmpeg-render')
     const rendered = await renderReelWithFfmpeg({
       plan: story.plan,
@@ -154,6 +182,7 @@ async function processReelJob(jobId: string) {
       aspectRatio: normalizeReelAspectRatio(job.aspectRatio),
       music,
       logo,
+      qr,
       voiceOver: voiceOverBuffer,
     })
 

@@ -105,6 +105,20 @@ export async function registerReelLogoFromStorage(params: {
   })
 }
 
+export async function registerReelQrFromStorage(params: {
+  fileName: string
+  mimeType: string
+  bucketName: string
+  storagePath: string
+}) {
+  const buffer = await downloadReelObject(params.bucketName, params.storagePath)
+  return uploadReelQrFile({
+    fileName: params.fileName,
+    mimeType: params.mimeType,
+    buffer,
+  })
+}
+
 export async function uploadReelMediaFile(params: {
   fileName: string
   mimeType: string
@@ -166,6 +180,52 @@ export async function uploadReelLogoFile(params: {
       uploadBuffer = await pipeline.png().toBuffer()
       contentType = 'image/png'
     } else if (meta.format === 'webp' || params.mimeType === 'image/webp') {
+      uploadBuffer = await pipeline.webp({ quality: 92 }).toBuffer()
+      contentType = 'image/webp'
+    } else {
+      uploadBuffer = await pipeline.png().toBuffer()
+      contentType = 'image/png'
+    }
+  }
+
+  const bucketName = getBucketName()
+  const storagePath = buildReelsStoragePath(params.fileName)
+  const storageClient = createStorageClient()
+
+  await storageClient.send(
+    new PutObjectCommand({
+      Bucket: bucketName,
+      Key: storagePath,
+      Body: uploadBuffer,
+      ContentType: contentType,
+      CacheControl: 'public, max-age=31536000, immutable',
+    }),
+  )
+
+  return {
+    bucketName,
+    storagePath,
+    publicUrl: buildPublicImageUrl(bucketName, storagePath),
+  }
+}
+
+export async function uploadReelQrFile(params: {
+  fileName: string
+  mimeType: string
+  buffer: Buffer
+}) {
+  const meta = await sharp(params.buffer, { failOn: 'none' }).metadata()
+  const maxWidth = 640
+  let uploadBuffer = params.buffer
+  let contentType = params.mimeType || 'image/png'
+
+  if ((meta.width ?? 0) > maxWidth) {
+    const pipeline = sharp(params.buffer, { failOn: 'none' }).resize({
+      width: maxWidth,
+      fit: 'inside',
+      withoutEnlargement: true,
+    })
+    if (meta.format === 'webp' || params.mimeType === 'image/webp') {
       uploadBuffer = await pipeline.webp({ quality: 92 }).toBuffer()
       contentType = 'image/webp'
     } else {
