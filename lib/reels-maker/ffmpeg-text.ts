@@ -133,7 +133,7 @@ function buildTitleFilters(
   const brandDelay = Math.max(0.05, entranceDelay - 0.05)
 
   // Reduced opacity for cleaner cinematic look
-  filters.push(`drawbox=x=0:y=ih*0.04:w=iw:h=ih*0.13:color=black@0.32:t=fill:enable='between(t\\,0\\,${end})'`)
+  filters.push(`drawbox=x=0:y=ih*0.04:w=iw:h=ih*0.13:color=black@0.16:t=fill:enable='between(t\\,0\\,${end})'`)
   filters.push(
     `drawbox=x='(iw-min(240\\,240*min(1\\,max(0\\,t-${(entranceDelay + 0.1).toFixed(2)})/0.5)))/2':y=ih*0.165:w='min(240\\,240*min(1\\,max(0\\,t-${(entranceDelay + 0.1).toFixed(2)})/0.5))':h=4:color=${TITLE_ACCENT}@0.95:t=fill:enable='between(t\\,${(entranceDelay + 0.1).toFixed(2)}\\,${end})'`,
   )
@@ -167,7 +167,7 @@ function buildCaptionFilters(caption: string, isLast: boolean, durationSeconds: 
 
   // Single unified bottom panel — more cinematic than individual per-line boxes
   filters.push(
-    `drawbox=x=0:y=ih*0.68:w=iw:h=ih*0.32:color=black@0.48:t=fill:enable='between(t\\,${captionDelay.toFixed(2)}\\,${end})'`,
+    `drawbox=x=0:y=ih*0.68:w=iw:h=ih*0.32:color=black@0.24:t=fill:enable='between(t\\,${captionDelay.toFixed(2)}\\,${end})'`,
   )
 
   lines.forEach((line, lineIndex) => {
