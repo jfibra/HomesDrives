@@ -76,7 +76,22 @@ x-api-key: rk_xxx
 | `voiceOverEnabled` | boolean | No | Generate AI voiceover narration |
 | `reelBrief` | string | No | Property description for AI story generation |
 | `outroEnabled` | boolean | No | Add branded outro card. Default: `true` |
-| `outroLine` | string | No | Custom call-to-action on the outro card |
+| `outroLine` | string | No | Custom call-to-action on the outro card. For `listing-showcase`, this line is also shown as the CTA text in the closing logo scene (defaults to "Scan to view listing"). |
+
+**`listing-showcase` fields** — only used when `templateId` is `"listing-showcase"` (see [Listing Showcase](#listing-showcase-template)):
+
+| Field | Type | Description |
+|---|---|---|
+| `listingPrice` | string | e.g. `"P18,000,000"`. Shown as a large animated price overlay on every photo. |
+| `listingAddress` | string | Shown below the price on every photo, and as the scene title. |
+| `listingBeds` | string | e.g. `"3"` |
+| `listingBaths` | string | e.g. `"2"` |
+| `listingSqft` | string | e.g. `"120"` |
+| `listingUrl` | string | The listing page URL — documentation only; upload the actual QR image via the `qr` upload field (see below). |
+| `agentName` | string | Shown on the agent contact card. |
+| `agentPhone` | string | Shown on the agent contact card. |
+| `agentEmail` | string | Shown on the agent contact card. |
+| `agentAgencyName` | string | Shown on the agent contact card. |
 
 **Response `201`:**
 
@@ -111,11 +126,13 @@ x-api-key: rk_xxx
 | `files[]` | File | One or more images or videos. JPEG, PNG, HEIC, WEBP, MP4, MOV supported. Max 10 MB/photo, 100 MB/video. |
 | `mediaNotes` | JSON string | `["living room", "pool area"]` — one note per file, same order. Optional but improves AI captions. |
 | `music` | File (MP3) | Optional background music. Max 50 MB. |
-| `logo` | File (PNG/JPG) | Optional watermark logo. |
-| `logoPosition` | string | `"top-left"`, `"top-right"`, `"bottom-left"`, `"bottom-right"` |
-| `qr` | File (PNG/JPG) | Optional QR code image (e.g. linking to the listing). Rendered inside a white box container so it stays scannable over video. |
+| `logo` | File (PNG/JPG) | Optional logo. For most templates this renders as a persistent corner watermark. For `listing-showcase` it instead appears full-size in the opening and closing logo scenes, plus small on the agent contact card. |
+| `logoPosition` | string | `"top-left"`, `"top-right"`, `"bottom-left"`, `"bottom-right"` — ignored by `listing-showcase`. |
+| `qr` | File (PNG/JPG) | Optional QR code image (e.g. linking to the listing). For most templates it's rendered as a corner overlay inside a white box container. For `listing-showcase` it's rendered inside the agent contact card instead. |
 | `qrEnabled` | string | `"true"` to enable rendering the QR code. |
-| `qrPosition` | string | `"top-left"`, `"top-right"`, `"bottom-left"`, `"bottom-right"` — defaults to `"bottom-right"`. |
+| `qrPosition` | string | `"top-left"`, `"top-right"`, `"bottom-left"`, `"bottom-right"` — defaults to `"bottom-right"`. Ignored by `listing-showcase`. |
+| `agentHeadshot` | File (PNG/JPG) | `listing-showcase` only. Agent photo, shown circle-cropped on the contact card. |
+| `agentHeadshotEnabled` | string | `"true"` to enable rendering the headshot. |
 
 **Node.js example:**
 
@@ -171,7 +188,7 @@ x-api-key: rk_xxx
 }
 ```
 
-`role`: `"media"`, `"music"`, `"logo"`, or `"qr"`.
+`role`: `"media"`, `"music"`, `"logo"`, `"qr"`, or `"agentHeadshot"` (`listing-showcase` only).
 
 **Response `200`:**
 
@@ -384,6 +401,18 @@ Response: `{ "preview": { "title": "...", "duration": 240, "thumbnail": "..." } 
 | `birthday` | Colorful, celebratory |
 | `wedding` | Soft romantic, pastel tones |
 | `social-trend` | Ultra-saturated, viral style |
+| `listing-showcase` | Structured listing tour — see below |
+
+### Listing Showcase Template
+
+`listing-showcase` builds a fixed structure instead of an AI-improvised story, so price and address are always exact:
+
+1. **Logo intro** — your `logo` fades in, scales up, with a soft glow, holds ~2s, then dissolves into the photo tour.
+2. **Photo tour** — each uploaded photo, 2–3s, Ken Burns motion, with a persistent bottom gradient showing `listingPrice` (large) and `listingAddress` / beds·baths·sqft (below it).
+3. **Agent contact card** — `agentHeadshot` (circle-cropped), `qr` (in a white box), and `agentName` / `agentPhone` / `agentEmail` / `agentAgencyName`, laid out like a business card. Only rendered if at least one of these is provided.
+4. **Logo outro** — your `logo` again, with `outroLine` (or "Scan to view listing" by default) as the call-to-action, fading to black.
+
+Because the logo and QR are embedded directly into these scenes, they are **not** also applied as a persistent corner watermark for this template — `logoPosition`/`qrPosition` are ignored.
 
 ---
 
@@ -473,6 +502,53 @@ while (!['completed', 'failed'].includes(status)) {
 const res = await fetch(`${BASE_URL}/api/reels-maker/jobs/${jobId}/video`, { headers })
 res.body.pipe(fs.createWriteStream('output.mp4'))
 console.log('Saved to output.mp4')
+```
+
+**Listing Showcase example** (steps 4–5 — polling/download — are identical to above):
+
+```js
+// ── 1. Create job with listing + agent details ─────────────────────────────────
+const job = await fetch(`${BASE_URL}/api/reels-maker/jobs`, {
+  method: 'POST',
+  headers: { ...headers, 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    templateId: 'listing-showcase',
+    aspectRatio: 'portrait',
+    outroLine: 'Contact us today',
+    listingPrice: 'P18,000,000',
+    listingAddress: 'BGC, Taguig City',
+    listingBeds: '3',
+    listingBaths: '2',
+    listingSqft: '120',
+    listingUrl: 'https://homes.ph/listings/bgc-condo-123',
+    agentName: 'Maria Santos',
+    agentPhone: '+63 917 000 0000',
+    agentEmail: 'maria@agency.ph',
+    agentAgencyName: 'Homes.ph Realty',
+  }),
+}).then(r => r.json())
+
+const jobId = job.id
+
+// ── 2. Upload photos, logo, QR, and agent headshot ──────────────────────────────
+const form = new FormData()
+form.append('files[]', fs.createReadStream('living-room.jpg'), 'living-room.jpg')
+form.append('files[]', fs.createReadStream('pool.jpg'), 'pool.jpg')
+form.append('logo', fs.createReadStream('agency-logo.png'), 'agency-logo.png')
+form.append('logoEnabled', 'true')
+form.append('qr', fs.createReadStream('listing-qr.png'), 'listing-qr.png')
+form.append('qrEnabled', 'true')
+form.append('agentHeadshot', fs.createReadStream('agent-photo.jpg'), 'agent-photo.jpg')
+form.append('agentHeadshotEnabled', 'true')
+
+await fetch(`${BASE_URL}/api/reels-maker/jobs/${jobId}/upload`, {
+  method: 'POST',
+  headers: { ...headers, ...form.getHeaders() },
+  body: form,
+})
+
+// ── 3. Start rendering ─────────────────────────────────────────────────────────
+await fetch(`${BASE_URL}/api/reels-maker/jobs/${jobId}/render`, { method: 'POST', headers })
 ```
 
 ---

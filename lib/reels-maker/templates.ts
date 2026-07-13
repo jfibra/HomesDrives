@@ -98,6 +98,14 @@ export const REEL_TEMPLATES: ReelTemplate[] = [
     transitionStyle: 'fade',
     motionIntensity: 'moderate',
   },
+  {
+    id: 'listing-showcase',
+    label: 'Listing Showcase',
+    description: 'Price/address overlay with agent contact card — structured partner listing reels.',
+    defaultSceneDuration: 2.5,
+    transitionStyle: 'cross-dissolve',
+    motionIntensity: 'subtle',
+  },
 ]
 
 export function getReelTemplate(id: ReelTemplateId) {

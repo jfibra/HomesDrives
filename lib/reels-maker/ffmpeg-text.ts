@@ -5,9 +5,9 @@ import type { ReelScenePlan } from '@/lib/reels-maker/types'
 
 const FONTS_DIR = join(process.cwd(), 'lib', 'reels-maker', 'fonts')
 
-const TITLE_COLOR = '0xFFF8E7'
-const TITLE_ACCENT = '0xD4AF37'
-const CAPTION_COLOR = 'white'
+export const TITLE_COLOR = '0xFFF8E7'
+export const TITLE_ACCENT = '0xD4AF37'
+export const CAPTION_COLOR = 'white'
 
 const FONT_CANDIDATES = {
   title: [
@@ -40,7 +40,7 @@ export type SceneTextOptions = {
   isLast?: boolean
 }
 
-function escapeDrawText(value: string) {
+export function escapeDrawText(value: string) {
   return value
     // Replace peso sign with plain P — drawtext fonts lack this Unicode glyph
     .replace(/₱/g, 'P')
@@ -63,12 +63,12 @@ function resolveFontPath(candidates: string[]) {
   return null
 }
 
-function fontParam(kind: keyof typeof FONT_CANDIDATES) {
+export function fontParam(kind: keyof typeof FONT_CANDIDATES) {
   const path = resolveFontPath(FONT_CANDIDATES[kind])
   return path ? `fontfile='${path}'` : "font='Arial'"
 }
 
-function fadeIn(delay: number, duration: number) {
+export function fadeIn(delay: number, duration: number) {
   return `if(lt(t\\,${delay})\\,0\\,if(lt(t\\,${delay + duration})\\,(t-${delay})/${duration}\\,1))`
 }
 
@@ -76,7 +76,7 @@ function slideDown(baseYRatio: number, distance: number, delay: number, duration
   return `h*${baseYRatio}+${distance}*(1-min(1\\,max(0\\,t-${delay})/${duration}))`
 }
 
-function slideUp(baseYRatio: number, distance: number, delay: number, duration: number) {
+export function slideUp(baseYRatio: number, distance: number, delay: number, duration: number) {
   return `h*${baseYRatio}+${distance}*(1-min(1\\,max(0\\,t-${delay})/${duration}))`
 }
 
@@ -183,6 +183,58 @@ function buildCaptionFilters(caption: string, isLast: boolean, durationSeconds: 
   })
 
   return filters
+}
+
+function buildGradientPanelFilters(durationSeconds: number, entranceDelay: number) {
+  const end = durationSeconds.toFixed(2)
+  const start = entranceDelay.toFixed(2)
+  // Stacked bands of increasing opacity approximate a smooth dark-to-transparent
+  // gradient rising from the bottom edge, without needing a separate image input.
+  const bands = [
+    { y: 0.55, alpha: 0.06 },
+    { y: 0.62, alpha: 0.12 },
+    { y: 0.7, alpha: 0.2 },
+    { y: 0.78, alpha: 0.3 },
+    { y: 0.86, alpha: 0.42 },
+  ]
+  return bands.map(
+    (band) =>
+      `drawbox=x=0:y=ih*${band.y}:w=iw:h=ih*${(1 - band.y).toFixed(2)}:color=black@${band.alpha}:t=fill:enable='between(t\\,${start}\\,${end})'`,
+  )
+}
+
+/** Listing Showcase: persistent price + address/beds-baths/sqft lower-third, in place of title/caption. */
+export function buildListingDetailsFilters(scene: ReelScenePlan, options: SceneTextOptions) {
+  const filters: string[] = []
+  const { durationSeconds, isFirst = false } = options
+  const entranceDelay = isFirst ? 0.45 : 0.1
+  const titleFont = fontParam('title')
+  const bodyFont = fontParam('body')
+
+  filters.push(...buildGradientPanelFilters(durationSeconds, entranceDelay))
+
+  const price = scene.listingPriceText?.trim()
+  if (price) {
+    const priceDelay = entranceDelay + 0.1
+    const fade = fadeIn(priceDelay, 0.5)
+    const yExpr = slideUp(0.8, 26, priceDelay, 0.5)
+    filters.push(
+      `drawtext=${titleFont}:text='${escapeDrawText(price)}':fontcolor=${TITLE_COLOR}:fontsize=64:x=(w-text_w)/2:y='${yExpr}':alpha='${fade}':shadowcolor=black@0.80:shadowx=3:shadowy=3:borderw=2:bordercolor=${TITLE_ACCENT}@0.75`,
+    )
+  }
+
+  const factsLines = (scene.listingFactsLines ?? []).filter((line): line is string => Boolean(line?.trim()))
+  factsLines.forEach((line, lineIndex) => {
+    const lineDelay = entranceDelay + 0.35 + lineIndex * 0.12
+    const fade = fadeIn(lineDelay, 0.45)
+    const baseY = 0.885 + lineIndex * 0.05
+    const yExpr = slideUp(baseY, 24, lineDelay, 0.45)
+    filters.push(
+      `drawtext=${bodyFont}:text='${escapeDrawText(line)}':fontcolor=${CAPTION_COLOR}:fontsize=32:x=(w-text_w)/2:y='${yExpr}':alpha='${fade}':shadowcolor=black@0.75:shadowx=2:shadowy=2`,
+    )
+  })
+
+  return filters.length ? `,${filters.join(',')}` : ''
 }
 
 export function buildAnimatedTextFilters(scene: ReelScenePlan, options: SceneTextOptions) {

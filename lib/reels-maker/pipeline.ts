@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 
 import { generateReelStoryPlan } from '@/lib/reels-maker/gemini-story'
+import { buildListingShowcasePlan } from '@/lib/reels-maker/listing-showcase-plan'
 import { formatApiError } from '@/lib/reels-maker/api-errors'
 import { generateVoiceOverAudio, resolveVoiceOutroLine, fitVoiceScriptToScenes, buildVoiceOverDisplayScript } from '@/lib/reels-maker/voice-over'
 import { createReelJob, getReelJob, setReelJobStatus, updateReelJob } from '@/lib/reels-maker/job-store'
@@ -45,6 +46,20 @@ export function startReelJob(input: CreateReelJobInput): ReelJob {
     qrStoragePath: null,
     qrPublicUrl: null,
     qrPosition: 'bottom-right',
+    agentHeadshotEnabled: false,
+    agentHeadshotBucketName: null,
+    agentHeadshotStoragePath: null,
+    agentHeadshotPublicUrl: null,
+    listingPrice: input.listingPrice?.trim() || '',
+    listingAddress: input.listingAddress?.trim() || '',
+    listingBeds: input.listingBeds?.trim() || '',
+    listingBaths: input.listingBaths?.trim() || '',
+    listingSqft: input.listingSqft?.trim() || '',
+    listingUrl: input.listingUrl?.trim() || '',
+    agentName: input.agentName?.trim() || '',
+    agentPhone: input.agentPhone?.trim() || '',
+    agentEmail: input.agentEmail?.trim() || '',
+    agentAgencyName: input.agentAgencyName?.trim() || '',
     resultUrl: null,
     error: null,
   }
@@ -94,6 +109,19 @@ export function attachReelJobQr(
   })
 }
 
+export function attachReelJobAgentHeadshot(
+  jobId: string,
+  headshot: { bucketName: string; storagePath: string; publicUrl: string },
+  options: { enabled: boolean },
+) {
+  return updateReelJob(jobId, {
+    agentHeadshotEnabled: options.enabled,
+    agentHeadshotBucketName: headshot.bucketName,
+    agentHeadshotStoragePath: headshot.storagePath,
+    agentHeadshotPublicUrl: headshot.publicUrl,
+  })
+}
+
 export function runReelJobPipeline(jobId: string) {
   void processReelJob(jobId)
 }
@@ -112,13 +140,16 @@ async function processReelJob(jobId: string) {
     updateReelJob(jobId, { media: selectedMedia })
 
     setReelJobStatus(jobId, 'generating_story', 'Generating story…', 55)
-    const story = await generateReelStoryPlan({
-      media: selectedMedia,
-      templateId: job.templateId,
-      voiceOverEnabled: job.voiceOverEnabled,
-      reelBrief: job.reelBrief || undefined,
-      customCaption: job.caption || undefined,
-    })
+    const story =
+      job.templateId === 'listing-showcase'
+        ? buildListingShowcasePlan({ media: selectedMedia, job })
+        : await generateReelStoryPlan({
+            media: selectedMedia,
+            templateId: job.templateId,
+            voiceOverEnabled: job.voiceOverEnabled,
+            reelBrief: job.reelBrief || undefined,
+            customCaption: job.caption || undefined,
+          })
 
     const sceneCount = story.plan.scenes.length
     const outroLine = resolveVoiceOutroLine({
@@ -175,6 +206,33 @@ async function processReelJob(jobId: string) {
           }
         : null
 
+    const agentHeadshot =
+      job.agentHeadshotEnabled && job.agentHeadshotBucketName && job.agentHeadshotStoragePath
+        ? { bucketName: job.agentHeadshotBucketName, storagePath: job.agentHeadshotStoragePath }
+        : null
+
+    const listing =
+      job.templateId === 'listing-showcase'
+        ? {
+            price: job.listingPrice,
+            address: job.listingAddress,
+            beds: job.listingBeds,
+            baths: job.listingBaths,
+            sqft: job.listingSqft,
+            listingUrl: job.listingUrl,
+          }
+        : null
+
+    const agent =
+      job.templateId === 'listing-showcase'
+        ? {
+            name: job.agentName,
+            phone: job.agentPhone,
+            email: job.agentEmail,
+            agencyName: job.agentAgencyName,
+          }
+        : null
+
     const { renderReelWithFfmpeg } = await import('@/lib/reels-maker/ffmpeg-render')
     const rendered = await renderReelWithFfmpeg({
       plan: story.plan,
@@ -183,6 +241,10 @@ async function processReelJob(jobId: string) {
       music,
       logo,
       qr,
+      agentHeadshot,
+      listing,
+      agent,
+      outroCtaText: job.templateId === 'listing-showcase' ? job.outroLine || undefined : undefined,
       voiceOver: voiceOverBuffer,
     })
 

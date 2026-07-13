@@ -23,6 +23,7 @@ const GRADES: Record<ReelTemplateId, Grade> = {
   wedding:        { contrast: 1.04, brightness: 0.06, saturation: 0.90, gamma: 1.08, gammaR: 1.04, gammaB: 0.96, sharpness: 0.6 },
   minimal:        { contrast: 1.06, brightness: 0.01, saturation: 0.88, gamma: 1.02, gammaR: 1.00, gammaB: 1.00, sharpness: 1.0 },
   'social-trend': { contrast: 1.18, brightness: 0.02, saturation: 1.22, gamma: 0.93, gammaR: 1.00, gammaB: 1.00, sharpness: 1.3 },
+  'listing-showcase': { contrast: 1.10, brightness: 0.02, saturation: 1.05, gamma: 0.99, gammaR: 1.01, gammaB: 0.99, sharpness: 1.1 },
 }
 
 export function buildColorGradeFilter(templateId: ReelTemplateId): string {

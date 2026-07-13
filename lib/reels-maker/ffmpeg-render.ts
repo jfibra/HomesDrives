@@ -20,7 +20,7 @@ import { applyLogoOverlayToVideo } from '@/lib/reels-maker/ffmpeg-logo'
 import { applyQrOverlayToVideo } from '@/lib/reels-maker/ffmpeg-qr'
 import { scalePlanForVoiceDuration } from '@/lib/reels-maker/plan-timing'
 import { downloadReelObject } from '@/lib/reels-maker/storage'
-import { buildAnimatedTextFilters } from '@/lib/reels-maker/ffmpeg-text'
+import { buildAnimatedTextFilters, buildListingDetailsFilters } from '@/lib/reels-maker/ffmpeg-text'
 import { buildColorGradeFilter } from '@/lib/reels-maker/ffmpeg-color-grade'
 import {
   buildBookendedSceneClips,
@@ -154,13 +154,16 @@ async function renderImageScene(
     frame,
   )
   const colorGrade = buildColorGradeFilter(templateId)
-  const textFilter = buildAnimatedTextFilters(scene, {
+  const textOptions = {
     durationSeconds: duration,
     sceneIndex: index,
     reelTitle: context.reelTitle,
     isFirst: context.isFirst,
     isLast: context.isLast,
-  })
+  }
+  const textFilter = scene.listingPriceText
+    ? buildListingDetailsFilters(scene, textOptions)
+    : buildAnimatedTextFilters(scene, textOptions)
   const bookends = buildSceneBookendFilters({
     durationSeconds: duration,
     isFirst: context.isFirst,
@@ -198,13 +201,16 @@ async function renderVideoScene(
   const outputPath = join(workDir, `scene-${index}.mp4`)
   const duration = scene.durationSeconds
   const colorGrade = buildColorGradeFilter(templateId)
-  const textFilter = buildAnimatedTextFilters(scene, {
+  const videoTextOptions = {
     durationSeconds: duration,
     sceneIndex: index,
     reelTitle: context.reelTitle,
     isFirst: context.isFirst,
     isLast: context.isLast,
-  })
+  }
+  const textFilter = scene.listingPriceText
+    ? buildListingDetailsFilters(scene, videoTextOptions)
+    : buildAnimatedTextFilters(scene, videoTextOptions)
   const bookends = buildSceneBookendFilters({
     durationSeconds: duration,
     isFirst: context.isFirst,
@@ -484,6 +490,10 @@ export async function renderReelWithFfmpeg(params: {
   music?: { bucketName: string; storagePath: string } | null
   logo?: { bucketName: string; storagePath: string; position: ReelLogoPosition } | null
   qr?: { bucketName: string; storagePath: string; position: ReelLogoPosition } | null
+  agentHeadshot?: { bucketName: string; storagePath: string } | null
+  listing?: { price?: string; address?: string; beds?: string; baths?: string; sqft?: string; listingUrl?: string } | null
+  agent?: { name?: string; phone?: string; email?: string; agencyName?: string } | null
+  outroCtaText?: string | null
   voiceOver?: Buffer | null
   voiceOverPromise?: Promise<Buffer | null> | null
 }) {
@@ -546,18 +556,79 @@ export async function renderReelWithFfmpeg(params: {
       throw new Error('No scenes were rendered.')
     }
 
-    const sceneClips = scenePaths.map((path, sceneIndex) => ({
+    let sceneClips = scenePaths.map((path, sceneIndex) => ({
       path,
       durationSeconds: scenes[sceneIndex].scene.durationSeconds,
       transition: scenes[sceneIndex].scene.transition,
     }))
 
+    const isListingShowcase = renderPlan.templateId === 'listing-showcase'
+    let logoBuffer: Buffer | null = null
+    let qrBuffer: Buffer | null = null
+
+    if (isListingShowcase) {
+      const { renderLogoIntroScene, renderLogoOutroScene, renderAgentCardScene } = await import(
+        '@/lib/reels-maker/ffmpeg-listing-scenes'
+      )
+
+      logoBuffer = params.logo
+        ? await downloadReelObject(params.logo.bucketName, params.logo.storagePath)
+        : null
+      qrBuffer = params.qr ? await downloadReelObject(params.qr.bucketName, params.qr.storagePath) : null
+      const headshotBuffer = params.agentHeadshot
+        ? await downloadReelObject(params.agentHeadshot.bucketName, params.agentHeadshot.storagePath)
+        : null
+
+      const combined: typeof sceneClips = []
+
+      if (logoBuffer) {
+        const intro = await renderLogoIntroScene({ frame, logoBuffer })
+        const introPath = join(workDir, 'listing-intro.mp4')
+        await writeFile(introPath, intro.buffer)
+        combined.push({ path: introPath, durationSeconds: intro.durationSeconds, transition: 'fade' })
+      }
+
+      sceneClips.forEach((clip, index) => {
+        combined.push(index === 0 && combined.length ? { ...clip, transition: 'cross-dissolve' } : clip)
+      })
+
+      const agent = params.agent ?? {}
+      const hasAgentCardContent = Boolean(
+        headshotBuffer || qrBuffer || agent.name || agent.phone || agent.email || agent.agencyName,
+      )
+      if (hasAgentCardContent) {
+        const agentCard = await renderAgentCardScene({
+          frame,
+          logoBuffer,
+          headshotBuffer,
+          qrBuffer,
+          agent,
+        })
+        const agentCardPath = join(workDir, 'listing-agent-card.mp4')
+        await writeFile(agentCardPath, agentCard.buffer)
+        combined.push({ path: agentCardPath, durationSeconds: agentCard.durationSeconds, transition: 'fade' })
+      }
+
+      if (logoBuffer) {
+        const outro = await renderLogoOutroScene({
+          frame,
+          logoBuffer,
+          ctaText: params.outroCtaText || 'Scan to view listing',
+        })
+        const outroPath = join(workDir, 'listing-outro.mp4')
+        await writeFile(outroPath, outro.buffer)
+        combined.push({ path: outroPath, durationSeconds: outro.durationSeconds, transition: 'fade' })
+      }
+
+      sceneClips = combined
+    }
+
     const bookendedClips = buildBookendedSceneClips(sceneClips, blackLeaderPath, blackTailPath)
 
     let outputBuffer = await mergeScenesWithTransitions(bookendedClips, workDir)
 
-    if (params.logo) {
-      const logoBytes = await downloadReelObject(params.logo.bucketName, params.logo.storagePath)
+    if (params.logo && !isListingShowcase) {
+      const logoBytes = logoBuffer ?? (await downloadReelObject(params.logo.bucketName, params.logo.storagePath))
       const logoName = params.logo.storagePath.split('/').pop() ?? 'logo.png'
       outputBuffer = Buffer.from(await applyLogoOverlayToVideo(
         outputBuffer,
@@ -568,8 +639,8 @@ export async function renderReelWithFfmpeg(params: {
       ))
     }
 
-    if (params.qr) {
-      const qrBytes = await downloadReelObject(params.qr.bucketName, params.qr.storagePath)
+    if (params.qr && !isListingShowcase) {
+      const qrBytes = qrBuffer ?? (await downloadReelObject(params.qr.bucketName, params.qr.storagePath))
       const qrName = params.qr.storagePath.split('/').pop() ?? 'qr.png'
       outputBuffer = Buffer.from(await applyQrOverlayToVideo(
         outputBuffer,

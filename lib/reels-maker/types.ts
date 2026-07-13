@@ -14,6 +14,7 @@ export type ReelTemplateId =
   | 'wedding'
   | 'minimal'
   | 'social-trend'
+  | 'listing-showcase'
 
 export type ReelJobStatus =
   | 'queued'
@@ -65,6 +66,9 @@ export type ReelScenePlan = {
   motion: 'slow-zoom-in' | 'slow-zoom-out' | 'gentle-pan-left' | 'gentle-pan-right' | 'static'
   textOverlay?: string | null
   captionLine?: string | null
+  /** Listing Showcase only: persistent price lower-third, replaces textOverlay/captionLine rendering when set. */
+  listingPriceText?: string | null
+  listingFactsLines?: string[] | null
 }
 
 export type ReelStoryPlan = {
@@ -108,6 +112,20 @@ export type ReelJob = {
   qrStoragePath: string | null
   qrPublicUrl: string | null
   qrPosition: ReelLogoPosition
+  agentHeadshotEnabled: boolean
+  agentHeadshotBucketName: string | null
+  agentHeadshotStoragePath: string | null
+  agentHeadshotPublicUrl: string | null
+  listingPrice: string
+  listingAddress: string
+  listingBeds: string
+  listingBaths: string
+  listingSqft: string
+  listingUrl: string
+  agentName: string
+  agentPhone: string
+  agentEmail: string
+  agentAgencyName: string
   resultUrl: string | null
   error: string | null
 }
@@ -120,6 +138,16 @@ export type CreateReelJobInput = {
   outroLine?: string
   reelBrief?: string
   customCaption?: string
+  listingPrice?: string
+  listingAddress?: string
+  listingBeds?: string
+  listingBaths?: string
+  listingSqft?: string
+  listingUrl?: string
+  agentName?: string
+  agentPhone?: string
+  agentEmail?: string
+  agentAgencyName?: string
 }
 
 export type ReelDraftSummary = {

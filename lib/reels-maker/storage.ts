@@ -255,6 +255,61 @@ export async function uploadReelQrFile(params: {
   }
 }
 
+export async function registerReelAgentHeadshotFromStorage(params: {
+  fileName: string
+  mimeType: string
+  bucketName: string
+  storagePath: string
+}) {
+  const buffer = await downloadReelObject(params.bucketName, params.storagePath)
+  return uploadReelAgentHeadshotFile({
+    fileName: params.fileName,
+    mimeType: params.mimeType,
+    buffer,
+  })
+}
+
+/** Circle-crops the agent photo so the render side can just overlay a ready-made PNG. */
+export async function uploadReelAgentHeadshotFile(params: {
+  fileName: string
+  mimeType: string
+  buffer: Buffer
+}) {
+  const maxSize = 720
+  const meta = await sharp(params.buffer, { failOn: 'none' }).metadata()
+  const size = Math.min(maxSize, meta.width ?? maxSize, meta.height ?? maxSize)
+
+  const circleMask = Buffer.from(
+    `<svg width="${size}" height="${size}"><circle cx="${size / 2}" cy="${size / 2}" r="${size / 2}" fill="#fff"/></svg>`,
+  )
+
+  const uploadBuffer = await sharp(params.buffer, { failOn: 'none' })
+    .resize(size, size, { fit: 'cover' })
+    .composite([{ input: circleMask, blend: 'dest-in' }])
+    .png()
+    .toBuffer()
+
+  const bucketName = getBucketName()
+  const storagePath = buildReelsStoragePath(params.fileName.replace(/\.[^.]+$/, '.png'))
+  const storageClient = createStorageClient()
+
+  await storageClient.send(
+    new PutObjectCommand({
+      Bucket: bucketName,
+      Key: storagePath,
+      Body: uploadBuffer,
+      ContentType: 'image/png',
+      CacheControl: 'public, max-age=31536000, immutable',
+    }),
+  )
+
+  return {
+    bucketName,
+    storagePath,
+    publicUrl: buildPublicImageUrl(bucketName, storagePath),
+  }
+}
+
 export async function uploadReelMusicFile(params: {
   fileName: string
   mimeType: string

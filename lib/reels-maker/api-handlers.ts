@@ -3,6 +3,7 @@ import { Readable } from 'stream'
 
 import { deleteReelJob, getReelJob, listReelDraftSummaries, updateReelJob } from '@/lib/reels-maker/job-store'
 import {
+  attachReelJobAgentHeadshot,
   attachReelJobLogo,
   attachReelJobMedia,
   attachReelJobMusic,
@@ -11,7 +12,7 @@ import {
   startReelJob,
 } from '@/lib/reels-maker/pipeline'
 import { parseReelResultStorage } from '@/lib/reels-maker/reel-playback'
-import { uploadReelLogoFile, uploadReelMediaFile, uploadReelMusicFile, uploadReelQrFile, createReelPresignedUpload, registerReelLogoFromStorage, registerReelQrFromStorage, registerReelMediaFromStorage } from '@/lib/reels-maker/storage'
+import { uploadReelAgentHeadshotFile, uploadReelLogoFile, uploadReelMediaFile, uploadReelMusicFile, uploadReelQrFile, createReelPresignedUpload, registerReelAgentHeadshotFromStorage, registerReelLogoFromStorage, registerReelQrFromStorage, registerReelMediaFromStorage } from '@/lib/reels-maker/storage'
 import { storeMusicUploadChunk } from '@/lib/reels-maker/music-chunk-sessions'
 import { normalizeReelAspectRatio } from '@/lib/reels-maker/aspect-ratio'
 import type { CreateReelJobInput, ReelLogoPosition, ReelTemplateId } from '@/lib/reels-maker/types'
@@ -40,6 +41,7 @@ const TEMPLATE_IDS: ReelTemplateId[] = [
   'wedding',
   'minimal',
   'social-trend',
+  'listing-showcase',
 ]
 
 const LOGO_POSITIONS: ReelLogoPosition[] = ['top-left', 'top-right', 'bottom-left', 'bottom-right']
@@ -115,6 +117,16 @@ export async function handleReelJobsPost(request: Request): Promise<Response> {
       outroLine: body.outroLine,
       reelBrief: body.reelBrief,
       customCaption: body.customCaption,
+      listingPrice: body.listingPrice,
+      listingAddress: body.listingAddress,
+      listingBeds: body.listingBeds,
+      listingBaths: body.listingBaths,
+      listingSqft: body.listingSqft,
+      listingUrl: body.listingUrl,
+      agentName: body.agentName,
+      agentPhone: body.agentPhone,
+      agentEmail: body.agentEmail,
+      agentAgencyName: body.agentAgencyName,
     })
 
     return Response.json({ job })
@@ -167,6 +179,12 @@ export async function handleReelJobUpload(jobId: string, request: Request): Prom
     const qrUpload = await readUploadedBlob(formData.get('qr'), 'qr.png', 'image/png')
     const qrEnabled = String(formData.get('qrEnabled') ?? 'false') === 'true'
     const qrPosition = parseQrPosition(String(formData.get('qrPosition') ?? 'bottom-right'))
+    const agentHeadshotUpload = await readUploadedBlob(
+      formData.get('agentHeadshot'),
+      'agent-headshot.jpg',
+      'image/jpeg',
+    )
+    const agentHeadshotEnabled = String(formData.get('agentHeadshotEnabled') ?? 'false') === 'true'
     const youtubeMusicUrl = String(formData.get('youtubeMusicUrl') ?? '').trim()
     const mediaNotesRaw = String(formData.get('mediaNotes') ?? '').trim()
     let mediaNotes: string[] = []
@@ -265,6 +283,21 @@ export async function handleReelJobUpload(jobId: string, request: Request): Prom
       if (updated) jobAfterUpload = updated
     }
 
+    if (agentHeadshotUpload) {
+      if (!agentHeadshotUpload.mimeType.startsWith('image/')) {
+        return Response.json({ error: 'Agent headshot must be a PNG, JPG, or WEBP image.' }, { status: 400 })
+      }
+      const headshot = await uploadReelAgentHeadshotFile({
+        fileName: agentHeadshotUpload.fileName,
+        mimeType: agentHeadshotUpload.mimeType,
+        buffer: agentHeadshotUpload.buffer,
+      })
+      const updated = attachReelJobAgentHeadshot(jobId, headshot, {
+        enabled: agentHeadshotEnabled,
+      })
+      if (updated) jobAfterUpload = updated
+    }
+
     return Response.json({ job: jobAfterUpload, uploadedMedia })
   } catch (error) {
     console.error('[reels-maker/upload]', error)
@@ -294,7 +327,7 @@ export async function handleReelJobUploadPresign(jobId: string, request: Request
         fileName?: string
         contentType?: string
         size?: number
-        role?: 'media' | 'music' | 'logo' | 'qr'
+        role?: 'media' | 'music' | 'logo' | 'qr' | 'agentHeadshot'
       }>
     }
 
@@ -350,7 +383,7 @@ export async function handleReelJobUploadFinalize(jobId: string, request: Reques
   try {
     const body = (await request.json()) as {
       uploads?: Array<{
-        role?: 'media' | 'music' | 'logo' | 'qr'
+        role?: 'media' | 'music' | 'logo' | 'qr' | 'agentHeadshot'
         fileName?: string
         mimeType?: string
         bucketName?: string
@@ -361,12 +394,14 @@ export async function handleReelJobUploadFinalize(jobId: string, request: Reques
       logoPosition?: string
       qrEnabled?: boolean
       qrPosition?: string
+      agentHeadshotEnabled?: boolean
     }
 
     const logoEnabled = body.logoEnabled === true
     const logoPosition = parseLogoPosition(String(body.logoPosition ?? 'top-right'))
     const qrEnabled = body.qrEnabled === true
     const qrPosition = parseQrPosition(String(body.qrPosition ?? 'bottom-right'))
+    const agentHeadshotEnabled = body.agentHeadshotEnabled === true
     const uploads = body.uploads ?? []
 
     let jobAfterUpload = job
@@ -432,6 +467,23 @@ export async function handleReelJobUploadFinalize(jobId: string, request: Reques
         const updated = attachReelJobQr(jobId, qr, {
           enabled: qrEnabled,
           position: qrPosition,
+        })
+        if (updated) jobAfterUpload = updated
+        continue
+      }
+
+      if (role === 'agentHeadshot') {
+        if (!mimeType.startsWith('image/')) {
+          return Response.json({ error: 'Agent headshot must be a PNG, JPG, or WEBP image.' }, { status: 400 })
+        }
+        const headshot = await registerReelAgentHeadshotFromStorage({
+          fileName,
+          mimeType,
+          bucketName,
+          storagePath,
+        })
+        const updated = attachReelJobAgentHeadshot(jobId, headshot, {
+          enabled: agentHeadshotEnabled,
         })
         if (updated) jobAfterUpload = updated
       }
