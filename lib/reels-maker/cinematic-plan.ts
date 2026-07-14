@@ -9,11 +9,11 @@ import type {
 } from '@/lib/reels-maker/types'
 
 const ROLE_DURATION: Record<ReelSceneRole, { min: number; max: number }> = {
-  hook: { min: 2.0, max: 2.4 },
-  hero: { min: 3.2, max: 4.0 },
-  detail: { min: 1.6, max: 2.4 },
-  lifestyle: { min: 1.9, max: 2.2 },
-  closing: { min: 2.8, max: 3.5 },
+  hook: { min: 2.0, max: 2.5 },
+  hero: { min: 2.4, max: 3.2 },
+  detail: { min: 2.0, max: 2.6 },
+  lifestyle: { min: 2.0, max: 2.5 },
+  closing: { min: 2.4, max: 3.2 },
 }
 
 const ALL_TRANSITIONS: ReelSceneTransition[] = [
@@ -154,6 +154,8 @@ export function polishCinematicPlan(
     }
   })
 
+  scenes = clampSceneDurations(scenes)
+
   return {
     ...plan,
     scenes,
@@ -161,6 +163,13 @@ export function polishCinematicPlan(
       plan.pacingNotes ||
       'Luxury cinematic pacing: hook punch, varied camera language, purposeful transitions.',
   }
+}
+
+function clampSceneDurations(scenes: ReelScenePlan[]): ReelScenePlan[] {
+  return scenes.map((scene) => ({
+    ...scene,
+    durationSeconds: Number(Math.max(2.0, scene.durationSeconds > 0 ? scene.durationSeconds : 2.0).toFixed(2)),
+  }))
 }
 
 export function pickLuxuryTransition(index: number): ReelSceneTransition {

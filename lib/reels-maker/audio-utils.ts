@@ -82,7 +82,11 @@ export async function runFfmpegAudio(args: string[]) {
   if (!binary) {
     throw new Error('FFmpeg binary not found.')
   }
-  await execFileAsync(binary, args, { maxBuffer: 1024 * 1024 * 64 })
+  await execFileAsync(binary, args, {
+    maxBuffer: 1024 * 1024 * 64,
+    timeout: 120_000,
+    killSignal: 'SIGKILL',
+  })
 }
 
 export async function measureVoiceOverDuration(voiceBuffer: Buffer) {

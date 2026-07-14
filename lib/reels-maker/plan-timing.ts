@@ -1,21 +1,35 @@
 import { buildBookendedSceneClips, estimateMergedDuration } from '@/lib/reels-maker/ffmpeg-transitions'
 import type { ReelStoryPlan } from '@/lib/reels-maker/types'
 
-/** Soft floor so VO stretch doesn't collapse luxury short beats into blinks. */
-export const MIN_SCENE_SEC = 1.8
+/** Hard floor — every photo stays on screen at least this long (no blink-cuts). */
+export const MIN_SCENE_SEC = 2.0
 
 /** Upper bound per photo when stretching to match narration. */
 export const MAX_SCENE_SEC = 14
 
+/** Clamp every scene to at least {@link MIN_SCENE_SEC}. */
+export function enforceMinSceneDurations(plan: ReelStoryPlan): ReelStoryPlan {
+  return {
+    ...plan,
+    scenes: plan.scenes.map((scene) => ({
+      ...scene,
+      durationSeconds: Number(
+        Math.max(MIN_SCENE_SEC, scene.durationSeconds > 0 ? scene.durationSeconds : MIN_SCENE_SEC).toFixed(2),
+      ),
+    })),
+  }
+}
+
 /**
- * Scale scene durations to fit voice while preserving relative role pacing
- * (hook stays shorter relative to hero, etc.).
+ * Scale scene durations to fit voice while preserving relative role pacing.
+ * Never goes below {@link MIN_SCENE_SEC} — if narration is short, the reel
+ * stays longer and music fills the gap (better than flashing photos).
  */
 export function scalePlanForVoiceDuration(plan: ReelStoryPlan, voiceDurationSeconds: number): ReelStoryPlan {
   const sceneCount = plan.scenes.length
-  if (!voiceDurationSeconds || !sceneCount) return plan
+  if (!voiceDurationSeconds || !sceneCount) return enforceMinSceneDurations(plan)
 
-  const weights = plan.scenes.map((scene) => Math.max(0.5, scene.durationSeconds))
+  const weights = plan.scenes.map((scene) => Math.max(MIN_SCENE_SEC, scene.durationSeconds))
   const weightSum = weights.reduce((a, b) => a + b, 0)
 
   const estimateWeighted = (scale: number) => {
@@ -47,23 +61,14 @@ export function scalePlanForVoiceDuration(plan: ReelStoryPlan, voiceDurationSeco
     ),
   }))
 
-  const merged = estimateMergedDuration(
-    buildBookendedSceneClips(
-      scenes.map((scene) => ({
-        path: 'scene',
-        durationSeconds: scene.durationSeconds,
-        transition: scene.transition,
-      })),
-      'leader',
-      'tail',
-    ),
-  )
+  const next = enforceMinSceneDurations({ ...plan, scenes })
+  const merged = estimateVoiceAlignedDuration(next)
 
   console.info(
     `[reels-maker/plan-timing] ${sceneCount} scenes weighted scale ${scale.toFixed(2)} (merged ${merged.toFixed(1)}s, voice ${voiceDurationSeconds.toFixed(1)}s, weightSum ${weightSum.toFixed(1)})`,
   )
 
-  return { ...plan, scenes }
+  return next
 }
 
 export function estimateVoiceAlignedDuration(plan: ReelStoryPlan) {

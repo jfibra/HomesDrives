@@ -151,7 +151,7 @@ function normalizePlan(
     .filter((scene) => mediaIds.has(scene.mediaId))
     .map((scene, index) => ({
       mediaId: scene.mediaId,
-      durationSeconds: Number(scene.durationSeconds) || fallback.scenes[index]?.durationSeconds || 2.5,
+      durationSeconds: Math.max(2, Number(scene.durationSeconds) || fallback.scenes[index]?.durationSeconds || 2.5),
       transition: scene.transition ?? fallback.scenes[index]?.transition ?? pickLuxuryTransition(index),
       motion: normalizeMotion(scene.motion) || pickCinematicMotion(index),
       sceneRole: scene.sceneRole,
@@ -335,7 +335,7 @@ export async function generateReelStoryPlan(params: {
     '- Put the strongest open / exterior / hero facade FIRST (hook). Do not preserve weak upload order.',
     '- NEVER repeat the same motion twice in a row. Prefer dolly-in, push-in-corner, float, horizontal-track, reveal-from-top.',
     '- NEVER use static. NEVER use basic identical Ken Burns on every scene.',
-    '- sceneRole durations: hook 2.0-2.4s, hero 3.2-4.0s, detail 1.6-2.4s, lifestyle ~2s, closing 2.8-3.5s.',
+    '- sceneRole durations: EVERY scene at least 2.0s (never shorter). hook ~2.0-2.5s, hero ~2.4-3.2s, detail/lifestyle ~2.0-2.6s, closing ~2.4-3.2s.',
     '- Transitions must feel cinematic and purposeful (not random wipes). Match motion direction when possible.',
     '- textOverlay: REQUIRED short modern title (1-4 words). captionLine: always null.',
     '- voiceOverScript: when enabled — exactly ONE sentence per photo, 4-6 words. No closing CTA (outro is separate).',

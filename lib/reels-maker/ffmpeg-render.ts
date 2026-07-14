@@ -18,14 +18,17 @@ import { measureVoiceOverDuration } from '@/lib/reels-maker/audio-utils'
 import { buildSceneBookendFilters, resolveSceneMotion, BLACK_LEADER_SEC, BLACK_TAIL_SEC } from '@/lib/reels-maker/ffmpeg-bookends'
 import { applyLogoOverlayToVideo } from '@/lib/reels-maker/ffmpeg-logo'
 import { applyQrOverlayToVideo } from '@/lib/reels-maker/ffmpeg-qr'
-import { scalePlanForVoiceDuration } from '@/lib/reels-maker/plan-timing'
+import { scalePlanForVoiceDuration, enforceMinSceneDurations } from '@/lib/reels-maker/plan-timing'
 import { downloadReelObject } from '@/lib/reels-maker/storage'
 import { buildAnimatedTextFilters, buildListingDetailsFilters } from '@/lib/reels-maker/ffmpeg-text'
 import { buildColorGradeFilter } from '@/lib/reels-maker/ffmpeg-color-grade'
 import {
-  buildMotionFilter,
   buildVideoMotionFilter,
 } from '@/lib/reels-maker/cinematic-motion'
+import {
+  buildEditorialSceneFilterComplex,
+  editorialCanvasColor,
+} from '@/lib/reels-maker/ffmpeg-editorial-layouts'
 import {
   buildBookendedSceneClips,
   buildXfadeFilterGraph,
@@ -53,9 +56,15 @@ const execFileAsync = promisify(execFile)
 
 const FPS = 30
 const CPU_COUNT = cpus().length
-const SCENE_RENDER_CONCURRENCY = Math.max(2, Math.min(4, CPU_COUNT - 1))
-const FFMPEG_THREADS_PER_SCENE = Math.max(1, Math.floor(CPU_COUNT / SCENE_RENDER_CONCURRENCY))
+/** Cap concurrency — concurrent zoompan+x264 on small EC2 instances often thrash/hang. */
+const SCENE_RENDER_CONCURRENCY = Math.max(1, Math.min(2, CPU_COUNT - 1))
+const FFMPEG_THREADS_PER_SCENE = Math.max(1, Math.floor(CPU_COUNT / Math.max(1, SCENE_RENDER_CONCURRENCY)))
 const ENCODE_ARGS = [...buildReelVideoEncodeArgs(FPS)]
+
+/** Wall-clock limits so a hung FFmpeg cannot freeze jobs at 78% forever. */
+const FFMPEG_TIMEOUT_SCENE_MS = 90_000
+const FFMPEG_TIMEOUT_MERGE_MS = 180_000
+const FFMPEG_TIMEOUT_DEFAULT_MS = 120_000
 
 async function resolveFfmpegBinary() {
   if (process.env.FFMPEG_PATH) return process.env.FFMPEG_PATH
@@ -86,12 +95,24 @@ async function mapPool<T, R>(items: T[], concurrency: number, worker: (item: T, 
   return results
 }
 
-async function runFfmpeg(args: string[]) {
+async function runFfmpeg(args: string[], timeoutMs = FFMPEG_TIMEOUT_DEFAULT_MS) {
   const binary = await resolveFfmpegBinary()
   if (!binary) {
     throw new Error('FFmpeg binary not found. Install ffmpeg-static or set FFMPEG_PATH.')
   }
-  await execFileAsync(binary, args, { maxBuffer: 1024 * 1024 * 64 })
+  try {
+    await execFileAsync(binary, args, {
+      maxBuffer: 1024 * 1024 * 64,
+      timeout: timeoutMs,
+      killSignal: 'SIGKILL',
+    })
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException & { killed?: boolean; signal?: string }
+    if (err.killed || err.signal === 'SIGKILL' || err.code === 'ETIMEDOUT') {
+      throw new Error(`FFmpeg timed out after ${Math.round(timeoutMs / 1000)}s (possible hung encode).`)
+    }
+    throw error
+  }
 }
 
 async function renderBlackClip(workDir: string, name: string, durationSeconds: number, frame: ReelFrameDimensions) {
@@ -125,44 +146,48 @@ async function renderImageScene(
 ) {
   const outputPath = join(workDir, `scene-${index}.mp4`)
   const duration = scene.durationSeconds
-  const motion = buildMotionFilter(
-    resolveSceneMotion(scene.motion, duration, context),
-    duration,
+  const motion = resolveSceneMotion(scene.motion, duration, context)
+  const { filterComplex, layout } = buildEditorialSceneFilterComplex({
     frame,
-  )
-  const colorGrade = buildColorGradeFilter(templateId)
-  const textOptions = {
-    durationSeconds: duration,
+    scene,
     sceneIndex: index,
+    durationSeconds: duration,
+    motion,
+    templateId,
     reelTitle: context.reelTitle,
     isFirst: context.isFirst,
     isLast: context.isLast,
-    sceneRole: scene.sceneRole,
-  }
-  const textFilter = scene.listingPriceText
-    ? buildListingDetailsFilters(scene, textOptions)
-    : buildAnimatedTextFilters(scene, textOptions)
-  const bookends = buildSceneBookendFilters({
-    durationSeconds: duration,
-    isFirst: context.isFirst,
-    isLast: context.isLast,
   })
+  console.info(`[reels-maker/ffmpeg-render] scene ${index} editorial layout=${layout}`)
 
-  await runFfmpeg([
-    '-y',
-    '-threads',
-    String(FFMPEG_THREADS_PER_SCENE),
-    '-loop',
-    '1',
-    '-i',
-    imagePath,
-    '-vf',
-    `${motion},${colorGrade}${textFilter}${bookends}`,
-    '-t',
-    String(duration),
-    ...ENCODE_ARGS,
-    outputPath,
-  ])
+  const canvas = editorialCanvasColor()
+
+  await runFfmpeg(
+    [
+      '-y',
+      '-threads',
+      String(FFMPEG_THREADS_PER_SCENE),
+      '-loop',
+      '1',
+      '-framerate',
+      String(FPS),
+      '-i',
+      imagePath,
+      '-f',
+      'lavfi',
+      '-i',
+      `color=c=0x${canvas}:s=${frame.width}x${frame.height}:d=${duration}:r=${FPS}`,
+      '-filter_complex',
+      filterComplex,
+      '-map',
+      '[vout]',
+      '-t',
+      String(duration),
+      ...ENCODE_ARGS,
+      outputPath,
+    ],
+    FFMPEG_TIMEOUT_SCENE_MS,
+  )
 
   return outputPath
 }
@@ -198,20 +223,23 @@ async function renderVideoScene(
   // Subtle cinematic push on video so clips aren't locked static
   const motion = buildVideoMotionFilter(duration, frame)
 
-  await runFfmpeg([
-    '-y',
-    '-threads',
-    String(FFMPEG_THREADS_PER_SCENE),
-    '-i',
-    videoPath,
-    '-vf',
-    `${motion},${colorGrade}${textFilter}${bookends}`,
-    '-t',
-    String(duration),
-    '-an',
-    ...ENCODE_ARGS,
-    outputPath,
-  ])
+  await runFfmpeg(
+    [
+      '-y',
+      '-threads',
+      String(FFMPEG_THREADS_PER_SCENE),
+      '-i',
+      videoPath,
+      '-vf',
+      `${motion},${colorGrade}${textFilter}${bookends}`,
+      '-t',
+      String(duration),
+      '-an',
+      ...ENCODE_ARGS,
+      outputPath,
+    ],
+    FFMPEG_TIMEOUT_SCENE_MS,
+  )
 
   return outputPath
 }
@@ -314,15 +342,18 @@ async function mergeScenesWithTransitions(scenes: SceneClip[], workDir: string) 
   }
 
   try {
-    await runFfmpeg([
-      ...args,
-      '-filter_complex',
-      filterGraph,
-      '-map',
-      '[vout]',
-      ...ENCODE_ARGS,
-      outputPath,
-    ])
+    await runFfmpeg(
+      [
+        ...args,
+        '-filter_complex',
+        filterGraph,
+        '-map',
+        '[vout]',
+        ...ENCODE_ARGS,
+        outputPath,
+      ],
+      FFMPEG_TIMEOUT_MERGE_MS,
+    )
     return readFile(outputPath)
   } catch (error) {
     console.warn('[reels-maker/ffmpeg-render] xfade merge failed, falling back to plain concat', error)
@@ -487,7 +518,16 @@ export async function renderReelWithFfmpeg(params: {
   outroEnabled?: boolean
   voiceOver?: Buffer | null
   voiceOverPromise?: Promise<Buffer | null> | null
+  onProgress?: (message: string, progress: number) => void
 }) {
+  const report = (message: string, progress: number) => {
+    try {
+      params.onProgress?.(message, progress)
+    } catch {
+      // never block render on status callbacks
+    }
+  }
+
   const frame = getReelFrameDimensions(normalizeReelAspectRatio(params.aspectRatio))
   const workDir = await mkdtemp(join(tmpdir(), 'reels-maker-'))
   const mediaById = new Map(params.media.map((item) => [item.id, item]))
@@ -505,6 +545,7 @@ export async function renderReelWithFfmpeg(params: {
         renderPlan = scalePlanForVoiceDuration(params.plan, voiceDuration)
       }
     }
+    renderPlan = enforceMinSceneDurations(renderPlan)
 
     const scenes = renderPlan.scenes
       .map((scene, index) => ({
@@ -520,6 +561,7 @@ export async function renderReelWithFfmpeg(params: {
 
     const totalScenes = scenes.length
 
+    report('Downloading media…', 79)
     const voicePromise = Promise.resolve(voiceOver)
     const [resolvedVoiceOver, mediaPaths, blackLeaderPath, blackTailPath] = await Promise.all([
       voicePromise,
@@ -528,6 +570,7 @@ export async function renderReelWithFfmpeg(params: {
       renderBlackClip(workDir, 'black-tail', BLACK_TAIL_SEC, frame),
     ])
 
+    report(`Rendering ${totalScenes} scenes…`, 82)
     const scenePaths = await mapPool(scenes, SCENE_RENDER_CONCURRENCY, async ({ scene, index, mediaItem }) => {
       const inputPath = mediaPaths.get(mediaItem.id)
       if (!inputPath) throw new Error(`Missing media for scene ${index}.`)
@@ -618,6 +661,7 @@ export async function renderReelWithFfmpeg(params: {
       sceneClips = combined
     } else if (outroEnabled && (logoBuffer || qrBuffer || params.outroCtaText?.trim())) {
       // Dedicated end card for non-listing templates
+      report('Building end card…', 85)
       const { renderBrandedEndCardScene } = await import('@/lib/reels-maker/ffmpeg-listing-scenes')
       const endCard = await renderBrandedEndCardScene({
         frame,
@@ -633,6 +677,7 @@ export async function renderReelWithFfmpeg(params: {
       ]
     }
 
+    report('Merging scenes…', 87)
     const bookendedClips = buildBookendedSceneClips(sceneClips, blackLeaderPath, blackTailPath)
 
     let outputBuffer = await mergeScenesWithTransitions(bookendedClips, workDir)

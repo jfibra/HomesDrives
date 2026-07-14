@@ -89,7 +89,7 @@ export async function applyQrOverlayToVideo(
         '+faststart',
         outputPath,
       ],
-      { maxBuffer: 1024 * 1024 * 64 },
+      { maxBuffer: 1024 * 1024 * 64, timeout: 120_000, killSignal: 'SIGKILL' },
     )
 
     return readFile(outputPath)

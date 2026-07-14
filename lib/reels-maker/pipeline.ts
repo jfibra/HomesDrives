@@ -4,7 +4,7 @@ import { generateReelStoryPlan } from '@/lib/reels-maker/gemini-story'
 import { buildListingShowcasePlan } from '@/lib/reels-maker/listing-showcase-plan'
 import { formatApiError } from '@/lib/reels-maker/api-errors'
 import { generateVoiceOverAudio, resolveVoiceOutroLine, fitVoiceScriptToScenes, buildVoiceOverDisplayScript } from '@/lib/reels-maker/voice-over'
-import { createReelJob, getReelJob, setReelJobStatus, updateReelJob } from '@/lib/reels-maker/job-store'
+import { createReelJob, getReelJob, listReelJobs, setReelJobStatus, updateReelJob } from '@/lib/reels-maker/job-store'
 import { selectBestMedia, uploadRenderedReel } from '@/lib/reels-maker/storage'
 import { normalizeReelAspectRatio } from '@/lib/reels-maker/aspect-ratio'
 import type {
@@ -140,11 +140,28 @@ export function runReelJobPipeline(jobId: string) {
   void processReelJob(jobId)
 }
 
+/** Jobs stuck in rendering (hang / crash) otherwise stay at 78% forever. */
+const STUCK_RENDER_MS = 12 * 60 * 1000
+
+function failStuckRenderingJobs(exceptJobId: string) {
+  const now = Date.now()
+  for (const job of listReelJobs()) {
+    if (job.id === exceptJobId) continue
+    if (job.status !== 'rendering' && job.status !== 'creating_voiceover') continue
+    const updated = new Date(job.updatedAt).getTime()
+    if (!Number.isFinite(updated) || now - updated < STUCK_RENDER_MS) continue
+    setReelJobStatus(job.id, 'failed', 'Rendering timed out', 100, {
+      error: 'Render stalled with no progress and was marked failed. Please retry.',
+    })
+  }
+}
+
 async function processReelJob(jobId: string) {
   const job = getReelJob(jobId)
   if (!job) return
 
   try {
+    failStuckRenderingJobs(jobId)
     setReelJobStatus(jobId, 'analyzing', 'Analyzing media…', 40)
     const selectedMedia = selectBestMedia(job.media)
     if (!selectedMedia.length) {
@@ -282,6 +299,9 @@ async function processReelJob(jobId: string) {
       outroCtaText: job.outroLine || undefined,
       outroEnabled: job.outroEnabled !== false,
       voiceOver: voiceOverBuffer,
+      onProgress: (message, progress) => {
+        setReelJobStatus(jobId, 'rendering', message, progress)
+      },
     })
 
     setReelJobStatus(jobId, 'uploading_result', 'Uploading final Reel…', 90)

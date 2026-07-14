@@ -15,25 +15,28 @@ export const BLUE_PRIMARY = '0x0B3D6E'
 export const BLUE_DEEP = '0x062848'
 export const GOLD = '0xE8C34A'
 
+/** Prefer static TTFs — variable fonts can hang/stall FFmpeg drawtext on some EC2 builds. */
 const FONT_CANDIDATES = {
   title: [
-    join(FONTS_DIR, 'PlusJakartaSans-VF.ttf'),
     join(FONTS_DIR, 'PlayfairDisplay-Bold.ttf'),
+    join(FONTS_DIR, 'Montserrat-SemiBold.ttf'),
+    join(FONTS_DIR, 'PlusJakartaSans-VF.ttf'),
     'C:/Windows/Fonts/georgiab.ttf',
     '/System/Library/Fonts/Supplemental/Georgia Bold.ttf',
     '/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf',
   ],
   body: [
-    join(FONTS_DIR, 'Manrope-VF.ttf'),
     join(FONTS_DIR, 'Montserrat-SemiBold.ttf'),
+    join(FONTS_DIR, 'Manrope-VF.ttf'),
     'C:/Windows/Fonts/segoeuib.ttf',
     '/System/Library/Fonts/Supplemental/Arial Bold.ttf',
     '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
   ],
   brand: [
+    join(FONTS_DIR, 'Montserrat-SemiBold.ttf'),
+    join(FONTS_DIR, 'PlayfairDisplay-Bold.ttf'),
     join(FONTS_DIR, 'Manrope-VF.ttf'),
     join(FONTS_DIR, 'PlusJakartaSans-VF.ttf'),
-    join(FONTS_DIR, 'Montserrat-SemiBold.ttf'),
     'C:/Windows/Fonts/arialbd.ttf',
     '/System/Library/Fonts/Supplemental/Arial Bold.ttf',
   ],
@@ -106,8 +109,9 @@ function enableBetween(start: number, end: number) {
 }
 
 /**
- * Abstract geometric title layouts inspired by social reel templates —
- * blue panels + yellow-gold accents (no soft black gradient bands / tiny tick).
+ * Refined lower-third titles — blue + yellow-gold accents.
+ * Deliberately light: soft veil + thin gold line + clean type.
+ * Avoids solid slabs, top ribbons under the logo, and full-frame borders.
  */
 function buildAbstractTitleFilters(
   title: string,
@@ -117,97 +121,94 @@ function buildAbstractTitleFilters(
   subtitle?: string | null,
 ) {
   const filters: string[] = []
-  const titleLines = wrapTitle(title)
-  const titleFont = fontParam('title')
+  const titleLines = wrapTitle(title, 24)
+  const titleFont = fontParam('body') // modern sans reads cleaner for uppercase scene titles
   const bodyFont = fontParam('body')
   const end = durationSeconds
   const start = entranceDelay
   const en = enableBetween(start, end)
+  const sub = subtitle?.trim() ? subtitle.trim().slice(0, 42).toUpperCase() : null
 
   const titleSize =
-    titleLines[0].length > 22 ? 40 : titleLines[0].length > 14 ? 48 : 54
+    titleLines[0].length > 20 ? 36 : titleLines[0].length > 14 ? 42 : 48
 
   const variant = layoutIndex % 3
 
+  // Soft bottom veil shared by all variants (never a solid opaque wall)
+  filters.push(
+    `drawbox=x=0:y='ih*0.78':w=iw:h='ih*0.22':color=${BLUE_DEEP}@0.42:t=fill:${en}`,
+    `drawbox=x=0:y='ih*0.86':w=iw:h='ih*0.14':color=${BLUE_PRIMARY}@0.38:t=fill:${en}`,
+  )
+
   if (variant === 0) {
-    // Centered blue banner + gold edge strip (phone mockup style)
+    // Centered editorial — gold hairline + small gold ticks
     filters.push(
-      `drawbox=x='iw*0.06':y='ih*0.70':w='iw*0.88':h='ih*0.12':color=${BLUE_PRIMARY}@0.94:t=fill:${en}`,
-      `drawbox=x='iw*0.06':y='ih*0.70':w='iw*0.88':h=8:color=${GOLD}@0.98:t=fill:${en}`,
-      `drawbox=x='iw*0.06':y='ih*0.82-8':w='iw*0.88':h=8:color=${GOLD}@0.85:t=fill:${en}`,
-    )
-    filters.push(
-      `drawbox=x='iw*0.06':y='ih*0.66':w=36:h=36:color=${GOLD}@0.95:t=fill:${en}`,
-      `drawbox=x='iw*0.94-36':y='ih*0.84':w=36:h=36:color=${GOLD}@0.95:t=fill:${en}`,
+      `drawbox=x='(iw-220)/2':y='ih*0.84':w=220:h=3:color=${GOLD}@0.95:t=fill:${en}`,
+      `drawbox=x='iw*0.08':y='ih*0.92':w=14:h=14:color=${GOLD}@0.9:t=fill:${en}`,
+      `drawbox=x='iw*0.92-14':y='ih*0.92':w=14:h=14:color=${GOLD}@0.9:t=fill:${en}`,
     )
     titleLines.forEach((line, lineIndex) => {
       const lineDelay = entranceDelay + 0.08 + lineIndex * 0.06
-      const y = `h*${0.735 + lineIndex * 0.04}`
+      const y = `h*${0.795 + lineIndex * 0.035}`
       filters.push(
-        `drawtext=${titleFont}:text='${escapeDrawText(line)}':fontcolor=${TITLE_COLOR}:fontsize=${titleSize}:x=(w-text_w)/2:y='${y}':alpha='${fadeIn(lineDelay, 0.35)}':shadowcolor=${BLUE_DEEP}@0.6:shadowx=2:shadowy=2`,
+        `drawtext=${titleFont}:text='${escapeDrawText(line)}':fontcolor=${TITLE_COLOR}:fontsize=${titleSize}:x=(w-text_w)/2:y='${y}':alpha='${fadeIn(lineDelay, 0.35)}':shadowcolor=black@0.55:shadowx=2:shadowy=2`,
       )
     })
-    if (subtitle?.trim()) {
+    if (sub) {
       filters.push(
-        `drawbox=x='iw*0.22':y='ih*0.845':w='iw*0.56':h='ih*0.045':color=${GOLD}@0.95:t=fill:${en}`,
-        `drawtext=${bodyFont}:text='${escapeDrawText(subtitle.trim().slice(0, 36).toUpperCase())}':fontcolor=${BLUE_DEEP}:fontsize=22:x=(w-text_w)/2:y='h*0.855':alpha='${fadeIn(entranceDelay + 0.25, 0.35)}'`,
+        `drawtext=${bodyFont}:text='${escapeDrawText(sub)}':fontcolor=${GOLD}:fontsize=20:x=(w-text_w)/2:y='h*0.895':alpha='${fadeIn(entranceDelay + 0.22, 0.35)}':shadowcolor=black@0.45:shadowx=1:shadowy=1`,
       )
     }
   } else if (variant === 1) {
-    // Corner blocks — blue bottom plate + gold slash accents
+    // Left accent bar — thin blue rail + gold L-bracket
     filters.push(
-      `drawbox=x=0:y=0:w='iw*0.42':h='ih*0.14':color=${BLUE_DEEP}@0.92:t=fill:${en}`,
-      `drawbox=x=0:y='ih*0.14':w='iw*0.42':h=10:color=${GOLD}@0.95:t=fill:${en}`,
-      `drawbox=x=0:y='ih*0.72':w=iw:h='ih*0.28':color=${BLUE_PRIMARY}@0.93:t=fill:${en}`,
-      `drawbox=x='iw*0.55':y='ih*0.68':w='iw*0.45':h='ih*0.055':color=${GOLD}@0.96:t=fill:${en}`,
-      `drawbox=x='iw*0.62':y='ih*0.64':w='iw*0.38':h='ih*0.04':color=${GOLD}@0.9:t=fill:${en}`,
+      `drawbox=x='iw*0.06':y='ih*0.80':w=5:h='ih*0.12':color=${BLUE_PRIMARY}@0.95:t=fill:${en}`,
+      `drawbox=x='iw*0.06':y='ih*0.80':w=28:h=4:color=${GOLD}@0.95:t=fill:${en}`,
+      `drawbox=x='iw*0.06':y='ih*0.92':w=28:h=4:color=${GOLD}@0.95:t=fill:${en}`,
+      `drawbox=x='iw*0.06':y='ih*0.80':w=4:h=28:color=${GOLD}@0.95:t=fill:${en}`,
     )
     titleLines.forEach((line, lineIndex) => {
       const lineDelay = entranceDelay + 0.1 + lineIndex * 0.06
       filters.push(
-        `drawtext=${titleFont}:text='${escapeDrawText(line)}':fontcolor=${TITLE_COLOR}:fontsize=${titleSize}:x='w*0.08':y='h*${0.78 + lineIndex * 0.045}':alpha='${fadeIn(lineDelay, 0.35)}':shadowcolor=black@0.45:shadowx=2:shadowy=2`,
+        `drawtext=${titleFont}:text='${escapeDrawText(line)}':fontcolor=${TITLE_COLOR}:fontsize=${titleSize}:x='w*0.10':y='h*${0.81 + lineIndex * 0.038}':alpha='${fadeIn(lineDelay, 0.35)}':shadowcolor=black@0.5:shadowx=2:shadowy=2`,
       )
     })
-    if (subtitle?.trim()) {
+    if (sub) {
       filters.push(
-        `drawtext=${bodyFont}:text='${escapeDrawText(subtitle.trim().slice(0, 40).toUpperCase())}':fontcolor=${GOLD}:fontsize=22:x='w*0.08':y='h*0.90':alpha='${fadeIn(entranceDelay + 0.28, 0.35)}'`,
+        `drawtext=${bodyFont}:text='${escapeDrawText(sub)}':fontcolor=${GOLD}:fontsize=20:x='w*0.10':y='h*0.905':alpha='${fadeIn(entranceDelay + 0.24, 0.35)}':shadowcolor=black@0.4:shadowx=1:shadowy=1`,
       )
     }
   } else {
-    // Framed look — blue border, gold ribbon headline, blue footer
+    // Floating gold pill under title — no top ribbon, no blue frame
+    const pillY = titleLines.length > 1 ? 0.875 : 0.86
     filters.push(
-      `drawbox=x='iw*0.04':y='ih*0.04':w='iw*0.92':h=6:color=${BLUE_PRIMARY}@0.9:t=fill:${en}`,
-      `drawbox=x='iw*0.04':y='ih*0.96-6':w='iw*0.92':h=6:color=${BLUE_PRIMARY}@0.9:t=fill:${en}`,
-      `drawbox=x='iw*0.04':y='ih*0.04':w=6:h='ih*0.92':color=${BLUE_PRIMARY}@0.9:t=fill:${en}`,
-      `drawbox=x='iw*0.96-6':y='ih*0.04':w=6:h='ih*0.92':color=${BLUE_PRIMARY}@0.9:t=fill:${en}`,
-      `drawbox=x='iw*0.08':y='ih*0.08':w='iw*0.84':h='ih*0.07':color=${GOLD}@0.96:t=fill:${en}`,
-      `drawbox=x=0:y='ih*0.78':w=iw:h='ih*0.22':color=${BLUE_DEEP}@0.94:t=fill:${en}`,
-      `drawbox=x=0:y='ih*0.78':w=iw:h=10:color=${GOLD}@0.95:t=fill:${en}`,
-      `drawbox=x='iw*0.06':y='ih*0.88':w=28:h=28:color=${GOLD}@0.95:t=fill:${en}`,
-      `drawbox=x='iw*0.94-28':y='ih*0.08':w=28:h=28:color=${BLUE_PRIMARY}@0.95:t=fill:${en}`,
+      `drawbox=x='iw*0.18':y='ih*${pillY}':w='iw*0.64':h=3:color=${GOLD}@0.92:t=fill:${en}`,
+      `drawbox=x='iw*0.18':y='ih*${pillY}':w=18:h=18:color=${GOLD}@0.95:t=fill:${en}`,
+      `drawbox=x='iw*0.82-18':y='ih*${pillY}':w=18:h=18:color=${BLUE_PRIMARY}@0.9:t=fill:${en}`,
     )
     titleLines.forEach((line, lineIndex) => {
-      const lineDelay = entranceDelay + 0.12 + lineIndex * 0.06
+      const lineDelay = entranceDelay + 0.1 + lineIndex * 0.06
       filters.push(
-        `drawtext=${titleFont}:text='${escapeDrawText(line)}':fontcolor=${BLUE_DEEP}:fontsize=${Math.max(28, titleSize - 8)}:x=(w-text_w)/2:y='h*${0.09 + lineIndex * 0.028}':alpha='${fadeIn(lineDelay, 0.35)}'`,
+        `drawtext=${titleFont}:text='${escapeDrawText(line)}':fontcolor=${TITLE_COLOR}:fontsize=${titleSize}:x=(w-text_w)/2:y='h*${0.80 + lineIndex * 0.035}':alpha='${fadeIn(lineDelay, 0.35)}':shadowcolor=black@0.55:shadowx=2:shadowy=2`,
       )
     })
-    const footer = subtitle?.trim() || titleLines[0]
-    filters.push(
-      `drawtext=${titleFont}:text='${escapeDrawText(footer.slice(0, 28).toUpperCase())}':fontcolor=${TITLE_COLOR}:fontsize=${titleSize - 4}:x=(w-text_w)/2:y='h*0.86':alpha='${fadeIn(entranceDelay + 0.2, 0.4)}':shadowcolor=black@0.4:shadowx=2:shadowy=2`,
-    )
+    if (sub) {
+      filters.push(
+        `drawtext=${bodyFont}:text='${escapeDrawText(sub)}':fontcolor=0xF5F7FA:fontsize=20:x=(w-text_w)/2:y='h*0.91':alpha='${fadeIn(entranceDelay + 0.24, 0.35)}':shadowcolor=black@0.5:shadowx=1:shadowy=1`,
+      )
+    }
   }
 
   return filters
 }
 
-/** Soft blue wash behind listing price (not black bands). */
+/** Soft blue wash behind listing price (not solid slabs). */
 function buildListingVeilFilters(durationSeconds: number, entranceDelay: number) {
   const end = durationSeconds.toFixed(2)
   const start = entranceDelay.toFixed(2)
   return [
-    `drawbox=x=0:y=ih*0.62:w=iw:h=ih*0.38:color=${BLUE_DEEP}@0.55:t=fill:enable='between(t\\,${start}\\,${end})'`,
-    `drawbox=x=0:y=ih*0.62:w=iw:h=8:color=${GOLD}@0.9:t=fill:enable='between(t\\,${start}\\,${end})'`,
+    `drawbox=x=0:y=ih*0.72:w=iw:h=ih*0.28:color=${BLUE_DEEP}@0.4:t=fill:enable='between(t\\,${start}\\,${end})'`,
+    `drawbox=x=0:y=ih*0.72:w=iw:h=4:color=${GOLD}@0.9:t=fill:enable='between(t\\,${start}\\,${end})'`,
   ]
 }
 
@@ -347,8 +348,8 @@ function buildPriceCountUpFilters(params: {
 }
 
 /**
- * Abstract blue + yellow-gold title graphics (social-template inspired).
- * Replaces the old soft-black bands + centered gold line + tick.
+ * Abstract blue + yellow-gold title graphics — light lower-thirds only.
+ * Replaces heavy solid panels / top gold ribbons / full-frame borders.
  */
 function buildBottomTitleFilters(
   title: string,
@@ -425,7 +426,7 @@ export function buildListingDetailsFilters(scene: ReelScenePlan, options: SceneT
 }
 
 /**
- * Scene titles — abstract blue + yellow-gold geometric layouts.
+ * Scene titles — light blue + gold lower-thirds (photo stays visible).
  * Karaoke captions are never burned in. Price-like titles get count-up treatment.
  */
 export function buildAnimatedTextFilters(scene: ReelScenePlan, options: SceneTextOptions) {
@@ -441,12 +442,18 @@ export function buildAnimatedTextFilters(scene: ReelScenePlan, options: SceneTex
   }
 
   const isHero = sceneIndex === 0 || options.sceneRole === 'hook' || options.sceneRole === 'hero'
+  // Only show property name under the title on hook / closing — not every scene
+  const showSubtitle =
+    options.sceneRole === 'hook' ||
+    options.sceneRole === 'closing' ||
+    sceneIndex === 0 ||
+    options.sceneRole === 'hero'
   const subtitle =
-    sceneIndex === 0
-      ? null
-      : reelTitle && reelTitle.trim().toLowerCase() !== resolved.toLowerCase()
-        ? reelTitle
-        : null
+    showSubtitle &&
+    reelTitle &&
+    reelTitle.trim().toLowerCase() !== resolved.toLowerCase()
+      ? reelTitle
+      : null
 
   if (parseListingPrice(resolved)) {
     filters.push(...buildListingVeilFilters(durationSeconds, entranceDelay))

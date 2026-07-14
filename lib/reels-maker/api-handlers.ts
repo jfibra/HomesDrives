@@ -1,7 +1,7 @@
 import { GetObjectCommand } from '@aws-sdk/client-s3'
 import { Readable } from 'stream'
 
-import { deleteReelJob, getReelJob, listReelDraftSummaries, updateReelJob } from '@/lib/reels-maker/job-store'
+import { deleteReelJob, getReelJob, listReelDraftSummaries, setReelJobStatus, updateReelJob } from '@/lib/reels-maker/job-store'
 import {
   attachReelJobAgentHeadshot,
   attachReelJobLogo,
@@ -615,7 +615,19 @@ export async function handleReelJobRender(jobId: string, request: Request): Prom
   }
 
   if (job.status !== 'queued' && job.status !== 'uploading' && job.status !== 'failed') {
-    return Response.json({ error: 'This job is already processing or completed.' }, { status: 409 })
+    const updatedMs = new Date(job.updatedAt).getTime()
+    const staleRender =
+      (job.status === 'rendering' || job.status === 'creating_voiceover') &&
+      Number.isFinite(updatedMs) &&
+      Date.now() - updatedMs > 12 * 60 * 1000
+
+    if (staleRender) {
+      setReelJobStatus(jobId, 'failed', 'Rendering timed out', 100, {
+        error: 'Render stalled with no progress and was marked failed. Please retry.',
+      })
+    } else {
+      return Response.json({ error: 'This job is already processing or completed.' }, { status: 409 })
+    }
   }
 
   try {
