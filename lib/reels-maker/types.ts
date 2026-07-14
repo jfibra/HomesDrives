@@ -30,7 +30,16 @@ export type ReelJobStatus =
 
 export type ReelMediaKind = 'image' | 'video'
 
-export type ReelLogoPosition = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+export type ReelLogoPosition =
+  | 'top-left'
+  | 'top-right'
+  | 'top-center'
+  | 'bottom-left'
+  | 'bottom-right'
+  | 'bottom-center'
+
+/** When an overlay (logo / QR) appears on the final video. `outro-only` ≈ last 4 seconds. */
+export type ReelOverlayDisplay = 'always' | 'outro-only'
 
 export type ReelUploadedMedia = {
   id: string
@@ -92,6 +101,8 @@ export type ReelJob = {
   templateId: ReelTemplateId
   aspectRatio: ReelAspectRatio
   voiceOverEnabled: boolean
+  /** When false, skips legacy karaoke caption generation. Bottom scene titles still render. */
+  captionsEnabled: boolean
   outroEnabled: boolean
   outroLine: string
   reelBrief: string
@@ -107,11 +118,13 @@ export type ReelJob = {
   logoStoragePath: string | null
   logoPublicUrl: string | null
   logoPosition: ReelLogoPosition
+  logoDisplay: ReelOverlayDisplay
   qrEnabled: boolean
   qrBucketName: string | null
   qrStoragePath: string | null
   qrPublicUrl: string | null
   qrPosition: ReelLogoPosition
+  qrDisplay: ReelOverlayDisplay
   agentHeadshotEnabled: boolean
   agentHeadshotBucketName: string | null
   agentHeadshotStoragePath: string | null
@@ -134,6 +147,10 @@ export type CreateReelJobInput = {
   templateId: ReelTemplateId
   aspectRatio?: ReelAspectRatio
   voiceOverEnabled: boolean
+  /** Default true. Set false to omit burned-in bottom captions. Alias: `subtitlesEnabled`. */
+  captionsEnabled?: boolean
+  /** Alias for captionsEnabled — either false turns burn-in off. */
+  subtitlesEnabled?: boolean
   outroEnabled?: boolean
   outroLine?: string
   reelBrief?: string

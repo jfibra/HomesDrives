@@ -15,7 +15,12 @@ import { parseReelResultStorage } from '@/lib/reels-maker/reel-playback'
 import { uploadReelAgentHeadshotFile, uploadReelLogoFile, uploadReelMediaFile, uploadReelMusicFile, uploadReelQrFile, createReelPresignedUpload, registerReelAgentHeadshotFromStorage, registerReelLogoFromStorage, registerReelQrFromStorage, registerReelMediaFromStorage } from '@/lib/reels-maker/storage'
 import { storeMusicUploadChunk } from '@/lib/reels-maker/music-chunk-sessions'
 import { normalizeReelAspectRatio } from '@/lib/reels-maker/aspect-ratio'
-import type { CreateReelJobInput, ReelLogoPosition, ReelTemplateId } from '@/lib/reels-maker/types'
+import type {
+  CreateReelJobInput,
+  ReelLogoPosition,
+  ReelOverlayDisplay,
+  ReelTemplateId,
+} from '@/lib/reels-maker/types'
 import { mkdir, writeFile } from 'fs/promises'
 import { join } from 'path'
 
@@ -44,7 +49,16 @@ const TEMPLATE_IDS: ReelTemplateId[] = [
   'listing-showcase',
 ]
 
-const LOGO_POSITIONS: ReelLogoPosition[] = ['top-left', 'top-right', 'bottom-left', 'bottom-right']
+const LOGO_POSITIONS: ReelLogoPosition[] = [
+  'top-left',
+  'top-right',
+  'top-center',
+  'bottom-left',
+  'bottom-right',
+  'bottom-center',
+]
+
+const OVERLAY_DISPLAYS: ReelOverlayDisplay[] = ['always', 'outro-only']
 
 function isTemplateId(value: string): value is ReelTemplateId {
   return TEMPLATE_IDS.includes(value as ReelTemplateId)
@@ -56,6 +70,21 @@ function parseLogoPosition(value: string): ReelLogoPosition {
 
 function parseQrPosition(value: string): ReelLogoPosition {
   return LOGO_POSITIONS.includes(value as ReelLogoPosition) ? (value as ReelLogoPosition) : 'bottom-right'
+}
+
+function parseOverlayDisplay(value: string, fallback: ReelOverlayDisplay = 'always'): ReelOverlayDisplay {
+  return OVERLAY_DISPLAYS.includes(value as ReelOverlayDisplay)
+    ? (value as ReelOverlayDisplay)
+    : fallback
+}
+
+/** captionsEnabled / subtitlesEnabled — either false turns burn-in off; default on. */
+function resolveCaptionsEnabled(body: {
+  captionsEnabled?: boolean
+  subtitlesEnabled?: boolean
+}): boolean {
+  if (body.captionsEnabled === false || body.subtitlesEnabled === false) return false
+  return true
 }
 
 async function readUploadedBlob(
@@ -113,6 +142,8 @@ export async function handleReelJobsPost(request: Request): Promise<Response> {
       templateId,
       aspectRatio: normalizeReelAspectRatio(body.aspectRatio),
       voiceOverEnabled: Boolean(body.voiceOverEnabled),
+      captionsEnabled: resolveCaptionsEnabled(body),
+      subtitlesEnabled: body.subtitlesEnabled,
       outroEnabled: body.outroEnabled !== false,
       outroLine: body.outroLine,
       reelBrief: body.reelBrief,
@@ -176,9 +207,11 @@ export async function handleReelJobUpload(jobId: string, request: Request): Prom
     const logoUpload = await readUploadedBlob(formData.get('logo'), 'logo.png', 'image/png')
     const logoEnabled = String(formData.get('logoEnabled') ?? 'false') === 'true'
     const logoPosition = parseLogoPosition(String(formData.get('logoPosition') ?? 'top-right'))
+    const logoDisplay = parseOverlayDisplay(String(formData.get('logoDisplay') ?? 'always'))
     const qrUpload = await readUploadedBlob(formData.get('qr'), 'qr.png', 'image/png')
     const qrEnabled = String(formData.get('qrEnabled') ?? 'false') === 'true'
     const qrPosition = parseQrPosition(String(formData.get('qrPosition') ?? 'bottom-right'))
+    const qrDisplay = parseOverlayDisplay(String(formData.get('qrDisplay') ?? 'always'))
     const agentHeadshotUpload = await readUploadedBlob(
       formData.get('agentHeadshot'),
       'agent-headshot.jpg',
@@ -263,6 +296,7 @@ export async function handleReelJobUpload(jobId: string, request: Request): Prom
       const updated = attachReelJobLogo(jobId, logo, {
         enabled: logoEnabled,
         position: logoPosition,
+        display: logoDisplay,
       })
       if (updated) jobAfterUpload = updated
     }
@@ -279,6 +313,7 @@ export async function handleReelJobUpload(jobId: string, request: Request): Prom
       const updated = attachReelJobQr(jobId, qr, {
         enabled: qrEnabled,
         position: qrPosition,
+        display: qrDisplay,
       })
       if (updated) jobAfterUpload = updated
     }
@@ -392,15 +427,19 @@ export async function handleReelJobUploadFinalize(jobId: string, request: Reques
       }>
       logoEnabled?: boolean
       logoPosition?: string
+      logoDisplay?: string
       qrEnabled?: boolean
       qrPosition?: string
+      qrDisplay?: string
       agentHeadshotEnabled?: boolean
     }
 
     const logoEnabled = body.logoEnabled === true
     const logoPosition = parseLogoPosition(String(body.logoPosition ?? 'top-right'))
+    const logoDisplay = parseOverlayDisplay(String(body.logoDisplay ?? 'always'))
     const qrEnabled = body.qrEnabled === true
     const qrPosition = parseQrPosition(String(body.qrPosition ?? 'bottom-right'))
+    const qrDisplay = parseOverlayDisplay(String(body.qrDisplay ?? 'always'))
     const agentHeadshotEnabled = body.agentHeadshotEnabled === true
     const uploads = body.uploads ?? []
 
@@ -449,6 +488,7 @@ export async function handleReelJobUploadFinalize(jobId: string, request: Reques
         const updated = attachReelJobLogo(jobId, logo, {
           enabled: logoEnabled,
           position: logoPosition,
+          display: logoDisplay,
         })
         if (updated) jobAfterUpload = updated
         continue
@@ -467,6 +507,7 @@ export async function handleReelJobUploadFinalize(jobId: string, request: Reques
         const updated = attachReelJobQr(jobId, qr, {
           enabled: qrEnabled,
           position: qrPosition,
+          display: qrDisplay,
         })
         if (updated) jobAfterUpload = updated
         continue
@@ -582,6 +623,8 @@ export async function handleReelJobRender(jobId: string, request: Request): Prom
       caption?: string
       reelBrief?: string
       voiceOverEnabled?: boolean
+      captionsEnabled?: boolean
+      subtitlesEnabled?: boolean
       outroEnabled?: boolean
       outroLine?: string
       templateId?: string
@@ -591,15 +634,22 @@ export async function handleReelJobRender(jobId: string, request: Request): Prom
       body.caption !== undefined ||
       body.reelBrief !== undefined ||
       body.voiceOverEnabled !== undefined ||
+      body.captionsEnabled !== undefined ||
+      body.subtitlesEnabled !== undefined ||
       body.outroEnabled !== undefined ||
       body.outroLine !== undefined ||
       body.templateId ||
       body.aspectRatio
     ) {
+      const captionsPatch =
+        body.captionsEnabled !== undefined || body.subtitlesEnabled !== undefined
+          ? { captionsEnabled: resolveCaptionsEnabled(body) }
+          : {}
       updateReelJob(jobId, {
         caption: body.caption ?? job.caption,
         reelBrief: body.reelBrief ?? job.reelBrief,
         voiceOverEnabled: body.voiceOverEnabled ?? job.voiceOverEnabled,
+        ...captionsPatch,
         outroEnabled: body.outroEnabled ?? job.outroEnabled ?? true,
         outroLine: body.outroLine ?? job.outroLine ?? '',
         templateId: (body.templateId as typeof job.templateId) ?? job.templateId,

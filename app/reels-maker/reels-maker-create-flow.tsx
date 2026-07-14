@@ -59,8 +59,10 @@ const STEPS: StepDefinition[] = [
 
 const LOGO_POSITION_OPTIONS: Array<{ value: ReelLogoPosition; label: string }> = [
   { value: 'top-left', label: 'Top left' },
+  { value: 'top-center', label: 'Top center' },
   { value: 'top-right', label: 'Top right' },
   { value: 'bottom-left', label: 'Bottom left' },
+  { value: 'bottom-center', label: 'Bottom center' },
   { value: 'bottom-right', label: 'Bottom right' },
 ]
 

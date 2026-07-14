@@ -35,22 +35,37 @@ function enrichScenesWithCaptions(
   voiceOverScript: string,
   socialCaption: string,
 ): ReelScenePlan[] {
+  // Voiceover script may inform scene titles; bottom karaoke captions are not burned in.
   const narrationLines = splitNarrationLines(voiceOverScript, scenes.length)
+  const shortTitles = ['Just Listed', 'Open Spaces', 'City Views', 'Your Next Home', 'Private Showing']
 
-  return scenes.map((scene, index) => ({
-    ...scene,
-    motion:
-      scene.motion === 'gentle-pan-left' || scene.motion === 'gentle-pan-right'
-        ? pickMotion(index)
-        : scene.motion || pickMotion(index),
-    textOverlay:
-      scene.textOverlay?.trim() ||
-      (index === scenes.length - 1 ? 'Your Story' : null),
-    captionLine:
-      scene.captionLine?.trim() ||
-      narrationLines[index] ||
-      (index === 0 && socialCaption ? socialCaption.split(/(?<=[.!?])\s+/)[0] : null),
-  }))
+  return scenes.map((scene, index) => {
+    const fromOverlay = scene.textOverlay?.trim()
+    const fromNarration = narrationLines[index]
+      ? narrationLines[index]
+          .replace(/[.!?]+$/g, '')
+          .split(/\s+/)
+          .slice(0, 4)
+          .join(' ')
+      : null
+    const fallbackTitle =
+      index === scenes.length - 1
+        ? 'Homes.ph'
+        : index === 0 && socialCaption
+          ? socialCaption.split(/(?<=[.!?])\s+/)[0].split(/\s+/).slice(0, 4).join(' ')
+          : shortTitles[index % shortTitles.length]
+
+    return {
+      ...scene,
+      motion:
+        scene.motion === 'gentle-pan-left' || scene.motion === 'gentle-pan-right'
+          ? pickMotion(index)
+          : scene.motion || pickMotion(index),
+      // Modern bottom title only — no burned-in subtitle/karaoke line
+      textOverlay: fromOverlay || fromNarration || fallbackTitle,
+      captionLine: null,
+    }
+  })
 }
 
 function buildVoiceOverFromBrief(
@@ -165,7 +180,8 @@ function normalizePlan(
       transition: scene.transition ?? fallback.scenes[index]?.transition ?? pickTransition(index),
       motion: scene.motion ?? fallback.scenes[index]?.motion ?? pickMotion(index),
       textOverlay: scene.textOverlay ?? null,
-      captionLine: scene.captionLine ?? null,
+      // Karaoke bottom captions are never burned in; keep null even if the model returns one.
+      captionLine: null,
     }))
 
   const used = new Set(scenes.map((scene) => scene.mediaId))
@@ -339,8 +355,8 @@ export async function generateReelStoryPlan(params: {
             transition:
               'fade | cross-dissolve | cut | zoom-cut | slide-left | slide-right | wipe-up | smooth-zoom',
             motion: 'slow-zoom-in | slow-zoom-out | gentle-pan-left | gentle-pan-right | static',
-            textOverlay: 'short optional overlay or null',
-            captionLine: 'optional short line or null',
+            textOverlay: 'short modern title 1-4 words',
+            captionLine: null,
           },
         ],
       },
@@ -353,8 +369,8 @@ export async function generateReelStoryPlan(params: {
     '- Vary durations between 3.2 and 5.5 seconds — slow, cinematic holds (not a fast slideshow).',
     '- Avoid repeating the same transition more than twice in a row.',
     '- Mix transitions like zoom-cut, slide-left, cross-dissolve, and wipe-up for a pro reel feel.',
-    '- Text overlays: sparse, 1-3 words, professional (e.g. Dream Home, Just Listed). Scene 1 uses the plan title at the top — use overlays only for middle/closing scenes.',
-    '- captionLine: short spoken-style line burned into each scene (6-12 words), specific to that photo.',
+    '- textOverlay: REQUIRED short modern title (1-4 words) burned at the BOTTOM of each scene — elegant, property-focused (e.g. "Just Listed", "Pool Deck", "City Views"). Do NOT write full sentences.',
+    '- captionLine: always null. Do not write bottom karaoke/subtitle lines — voiceover is audio-only.',
     '- Prefer motion "static" or "slow-zoom-in" — avoid pans unless necessary.',
     '- Prioritize higher qualityScore items earlier.',
     '- voiceOverScript: REQUIRED when voice-over is enabled — exactly ONE sentence per photo, 4-6 words each (plain, specific, no filler adjectives). Use exactly as many sentences as photos. Do NOT include a closing call-to-action; outro is added automatically.',

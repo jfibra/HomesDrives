@@ -33,7 +33,17 @@ import { getReelFrameDimensions, normalizeReelAspectRatio } from '@/lib/reels-ma
 import type { ReelAspectRatio, ReelFrameDimensions } from '@/lib/reels-maker/aspect-ratio'
 
 import { buildReelVideoEncodeArgs, REEL_SCALE_FLAGS } from '@/lib/reels-maker/render-quality'
-import type { ReelLogoPosition, ReelScenePlan, ReelStoryPlan, ReelTemplateId, ReelUploadedMedia } from '@/lib/reels-maker/types'
+import type {
+  ReelLogoPosition,
+  ReelOverlayDisplay,
+  ReelScenePlan,
+  ReelStoryPlan,
+  ReelTemplateId,
+  ReelUploadedMedia,
+} from '@/lib/reels-maker/types'
+
+/** Duration of the end window used for `display: "outro-only"` logo/QR overlays. */
+export const OUTRO_OVERLAY_DURATION_SEC = 4
 
 const execFileAsync = promisify(execFile)
 
@@ -488,8 +498,18 @@ export async function renderReelWithFfmpeg(params: {
   media: ReelUploadedMedia[]
   aspectRatio?: ReelAspectRatio
   music?: { bucketName: string; storagePath: string } | null
-  logo?: { bucketName: string; storagePath: string; position: ReelLogoPosition } | null
-  qr?: { bucketName: string; storagePath: string; position: ReelLogoPosition } | null
+  logo?: {
+    bucketName: string
+    storagePath: string
+    position: ReelLogoPosition
+    display?: ReelOverlayDisplay
+  } | null
+  qr?: {
+    bucketName: string
+    storagePath: string
+    position: ReelLogoPosition
+    display?: ReelOverlayDisplay
+  } | null
   agentHeadshot?: { bucketName: string; storagePath: string } | null
   listing?: { price?: string; address?: string; beds?: string; baths?: string; sqft?: string; listingUrl?: string } | null
   agent?: { name?: string; phone?: string; email?: string; agencyName?: string } | null
@@ -627,27 +647,51 @@ export async function renderReelWithFfmpeg(params: {
 
     let outputBuffer = await mergeScenesWithTransitions(bookendedClips, workDir)
 
+    const needsOutroTiming =
+      (!isListingShowcase && params.logo?.display === 'outro-only') ||
+      (!isListingShowcase && params.qr?.display === 'outro-only')
+
+    let outroEnableFrom: number | null = null
+    if (needsOutroTiming) {
+      const probePath = join(workDir, 'merged-probe.mp4')
+      await writeFile(probePath, outputBuffer)
+      const duration = await probeMediaDuration(probePath)
+      if (duration > 0) {
+        outroEnableFrom = Math.max(0, duration - OUTRO_OVERLAY_DURATION_SEC)
+      }
+    }
+
     if (params.logo && !isListingShowcase) {
       const logoBytes = logoBuffer ?? (await downloadReelObject(params.logo.bucketName, params.logo.storagePath))
       const logoName = params.logo.storagePath.split('/').pop() ?? 'logo.png'
+      const logoTiming =
+        params.logo.display === 'outro-only' && outroEnableFrom != null
+          ? { enableFromSeconds: outroEnableFrom }
+          : undefined
       outputBuffer = Buffer.from(await applyLogoOverlayToVideo(
         outputBuffer,
         logoBytes,
         logoName,
         params.logo.position,
         frame.width,
+        logoTiming,
       ))
     }
 
     if (params.qr && !isListingShowcase) {
       const qrBytes = qrBuffer ?? (await downloadReelObject(params.qr.bucketName, params.qr.storagePath))
       const qrName = params.qr.storagePath.split('/').pop() ?? 'qr.png'
+      const qrTiming =
+        params.qr.display === 'outro-only' && outroEnableFrom != null
+          ? { enableFromSeconds: outroEnableFrom }
+          : undefined
       outputBuffer = Buffer.from(await applyQrOverlayToVideo(
         outputBuffer,
         qrBytes,
         qrName,
         params.qr.position,
         frame.width,
+        qrTiming,
       ))
     }
 

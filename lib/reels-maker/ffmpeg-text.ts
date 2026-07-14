@@ -72,15 +72,11 @@ export function fadeIn(delay: number, duration: number) {
   return `if(lt(t\\,${delay})\\,0\\,if(lt(t\\,${delay + duration})\\,(t-${delay})/${duration}\\,1))`
 }
 
-function slideDown(baseYRatio: number, distance: number, delay: number, duration: number) {
-  return `h*${baseYRatio}+${distance}*(1-min(1\\,max(0\\,t-${delay})/${duration}))`
-}
-
 export function slideUp(baseYRatio: number, distance: number, delay: number, duration: number) {
   return `h*${baseYRatio}+${distance}*(1-min(1\\,max(0\\,t-${delay})/${duration}))`
 }
 
-function wrapCaption(text: string, maxLength = 38) {
+function wrapTitle(text: string, maxLength = 28) {
   const words = text.trim().split(/\s+/)
   const lines: string[] = []
   let current = ''
@@ -97,24 +93,163 @@ function wrapCaption(text: string, maxLength = 38) {
   return lines.slice(0, 2)
 }
 
-function wrapTitle(text: string, maxLength = 32) {
-  const words = text.trim().split(/\s+/)
-  const lines: string[] = []
-  let current = ''
-  for (const word of words) {
-    const next = current ? `${current} ${word}` : word
-    if (next.length > maxLength && current) {
-      lines.push(current)
-      current = word
-    } else {
-      current = next
-    }
-  }
-  if (current) lines.push(current)
-  return lines.slice(0, 2)
+function buildGradientPanelFilters(durationSeconds: number, entranceDelay: number) {
+  const end = durationSeconds.toFixed(2)
+  const start = entranceDelay.toFixed(2)
+  // Soft bottom veil — modern lower-third without a heavy bar
+  const bands = [
+    { y: 0.58, alpha: 0.04 },
+    { y: 0.66, alpha: 0.1 },
+    { y: 0.74, alpha: 0.2 },
+    { y: 0.82, alpha: 0.34 },
+    { y: 0.9, alpha: 0.48 },
+  ]
+  return bands.map(
+    (band) =>
+      `drawbox=x=0:y=ih*${band.y}:w=iw:h=ih*${(1 - band.y).toFixed(2)}:color=black@${band.alpha}:t=fill:enable='between(t\\,${start}\\,${end})'`,
+  )
 }
 
-function buildTitleFilters(
+/** Expanding gold accent line under the title block. */
+function buildAccentReveal(durationSeconds: number, delay: number, yRatio: number) {
+  const end = durationSeconds.toFixed(2)
+  const start = delay.toFixed(2)
+  const grow = `min(280\\,280*min(1\\,max(0\\,t-${delay})/0.55))`
+  return `drawbox=x='(iw-${grow})/2':y=ih*${yRatio}:w='${grow}':h=3:color=${TITLE_ACCENT}@0.95:t=fill:enable='between(t\\,${start}\\,${end})'`
+}
+
+type ParsedPrice = {
+  prefix: string
+  value: number
+  suffix: string
+  original: string
+}
+
+/**
+ * Parse common listing price forms: "P18,000,000", "₱12.5M", "PHP 8.2M", "18000000".
+ * Returns null when no usable number is found (static text fallback).
+ * Strict enough to ignore addresses / bed counts (e.g. "12 Mabini", "3 Beds").
+ */
+export function parseListingPrice(raw: string): ParsedPrice | null {
+  const original = raw.trim()
+  if (!original) return null
+
+  const compact = original.replace(/\s+/g, ' ')
+  const hasCurrency = /(?:^|\b)(P|₱|PHP|USD|\$)/i.test(compact)
+  const hasCompactSuffix = /\d(?:\.\d+)?\s*[MKB]\b/i.test(compact)
+  const hasGroupedCommas = /\d{1,3}(,\d{3})+/.test(compact)
+  const plainDigits = compact.match(/^\D*(\d+)\D*$/)
+  const plainLarge = plainDigits ? Number(plainDigits[1]) >= 10_000 : false
+
+  if (!hasCurrency && !hasCompactSuffix && !hasGroupedCommas && !plainLarge) {
+    return null
+  }
+
+  const suffixMatch = compact.match(/(\d[\d,]*(?:\.\d+)?)\s*([MKB])\b/i)
+  const suffix = suffixMatch?.[2]?.toUpperCase() ?? ''
+
+  let multiplier = 1
+  if (suffix === 'K') multiplier = 1_000
+  if (suffix === 'M') multiplier = 1_000_000
+  if (suffix === 'B') multiplier = 1_000_000_000
+
+  const numericToken = (suffixMatch?.[1] ?? compact.match(/(\d[\d,]*(?:\.\d+)?)/)?.[1]) ?? null
+  if (!numericToken) return null
+
+  const base = Number(numericToken.replace(/,/g, ''))
+  if (!Number.isFinite(base) || base <= 0) return null
+
+  const value = Math.round(base * multiplier)
+  if (value < 1_000 && !hasCurrency) return null
+
+  const prefixMatch = compact.match(/^([^\d]*)/)
+  let prefix = (prefixMatch?.[1] ?? '').trim()
+  if (!prefix || /php/i.test(prefix) || prefix === '₱' || prefix === '$') prefix = 'P'
+  if (prefix && !/[P₱]$/i.test(prefix) && !prefix.endsWith(' ')) prefix = `${prefix} `
+
+  return { prefix, value, suffix: '', original }
+}
+
+function formatPriceAmount(value: number) {
+  return Math.round(value).toLocaleString('en-US')
+}
+
+function formatPriceLabel(parsed: ParsedPrice, value: number) {
+  return `${parsed.prefix}${formatPriceAmount(value)}`.replace(/\s+/g, ' ').trim()
+}
+
+function easeOutCubic(t: number) {
+  return 1 - Math.pow(1 - t, 3)
+}
+
+/**
+ * Count-up price: stepped drawtext frames with ease-out, then hold the final amount.
+ * Falls back to a static fade/slide when the string is not a parseable price.
+ */
+function buildPriceCountUpFilters(params: {
+  priceText: string
+  durationSeconds: number
+  entranceDelay: number
+  yRatio?: number
+  fontSize?: number
+}) {
+  const {
+    priceText,
+    durationSeconds,
+    entranceDelay,
+    yRatio = 0.78,
+    fontSize = 68,
+  } = params
+  const filters: string[] = []
+  const titleFont = fontParam('title')
+  const end = durationSeconds.toFixed(2)
+  const parsed = parseListingPrice(priceText)
+  const countStart = entranceDelay + 0.08
+  const countDuration = Math.min(1.35, Math.max(0.9, durationSeconds * 0.35))
+  const holdFrom = countStart + countDuration
+
+  if (!parsed) {
+    const fade = fadeIn(countStart, 0.5)
+    const yExpr = slideUp(yRatio, 30, countStart, 0.55)
+    filters.push(
+      `drawtext=${titleFont}:text='${escapeDrawText(priceText)}':fontcolor=${TITLE_COLOR}:fontsize=${fontSize}:x=(w-text_w)/2:y='${yExpr}':alpha='${fade}':shadowcolor=black@0.85:shadowx=3:shadowy=3:borderw=2:bordercolor=${TITLE_ACCENT}@0.8`,
+    )
+    return filters
+  }
+
+  const steps = 14
+  const startValue = Math.max(0, Math.round(parsed.value * 0.42))
+
+  for (let i = 0; i < steps; i++) {
+    const progress = easeOutCubic((i + 1) / steps)
+    const value = Math.round(startValue + (parsed.value - startValue) * progress)
+    const t0 = countStart + (i / steps) * countDuration
+    const t1 = countStart + ((i + 1) / steps) * countDuration
+    const label = formatPriceLabel(parsed, value)
+    // Slight upward settle while counting
+    const lift = (1 - progress) * 18
+    filters.push(
+      `drawtext=${titleFont}:text='${escapeDrawText(label)}':fontcolor=${TITLE_COLOR}:fontsize=${fontSize}:x=(w-text_w)/2:y=h*${yRatio}+${lift.toFixed(1)}:alpha=1:shadowcolor=black@0.85:shadowx=3:shadowy=3:borderw=2:bordercolor=${TITLE_ACCENT}@0.8:enable='between(t\\,${t0.toFixed(3)}\\,${t1.toFixed(3)})'`,
+    )
+  }
+
+  const finalLabel = formatPriceLabel(parsed, parsed.value)
+  const holdFade = fadeIn(holdFrom, 0.01)
+  filters.push(
+    `drawtext=${titleFont}:text='${escapeDrawText(finalLabel)}':fontcolor=${TITLE_COLOR}:fontsize=${fontSize}:x=(w-text_w)/2:y=h*${yRatio}:alpha='${holdFade}':shadowcolor=black@0.85:shadowx=3:shadowy=3:borderw=2:bordercolor=${TITLE_ACCENT}@0.85:enable='between(t\\,${holdFrom.toFixed(3)}\\,${end})'`,
+  )
+
+  // Soft pulse underline after count settles
+  filters.push(buildAccentReveal(durationSeconds, holdFrom + 0.05, yRatio + 0.07))
+
+  return filters
+}
+
+/**
+ * Modern lower-third title — slide-up + fade, soft veil, gold accent reveal.
+ * Replaces the old top-of-frame title treatment. Karaoke captions are not burned in.
+ */
+function buildBottomTitleFilters(
   title: string,
   durationSeconds: number,
   isHero: boolean,
@@ -124,134 +259,119 @@ function buildTitleFilters(
   const titleLines = wrapTitle(title)
   const titleFont = fontParam('title')
   const brandFont = fontParam('brand')
-  const fade = fadeIn(entranceDelay, 0.55)
+  const fade = fadeIn(entranceDelay, 0.5)
   const end = durationSeconds.toFixed(2)
-  // Scale font size down for longer titles
-  const titleSize = isHero
-    ? titleLines[0].length > 30 ? 46 : titleLines[0].length > 22 ? 56 : 62
-    : titleLines[0].length > 30 ? 44 : 54
-  const brandDelay = Math.max(0.05, entranceDelay - 0.05)
 
-  // Reduced opacity for cleaner cinematic look
-  filters.push(`drawbox=x=0:y=ih*0.04:w=iw:h=ih*0.13:color=black@0.16:t=fill:enable='between(t\\,0\\,${end})'`)
-  filters.push(
-    `drawbox=x='(iw-min(240\\,240*min(1\\,max(0\\,t-${(entranceDelay + 0.1).toFixed(2)})/0.5)))/2':y=ih*0.165:w='min(240\\,240*min(1\\,max(0\\,t-${(entranceDelay + 0.1).toFixed(2)})/0.5))':h=4:color=${TITLE_ACCENT}@0.95:t=fill:enable='between(t\\,${(entranceDelay + 0.1).toFixed(2)}\\,${end})'`,
-  )
+  const titleSize = isHero
+    ? titleLines[0].length > 28
+      ? 44
+      : titleLines[0].length > 18
+        ? 52
+        : 58
+    : titleLines[0].length > 28
+      ? 40
+      : 48
+
+  filters.push(...buildGradientPanelFilters(durationSeconds, entranceDelay))
 
   if (isHero) {
+    const brandDelay = Math.max(0.05, entranceDelay)
+    const brandFade = fadeIn(brandDelay, 0.4)
+    const brandY = slideUp(0.7, 22, brandDelay, 0.45)
     filters.push(
-      `drawtext=${brandFont}:text='Homes.ph':fontcolor=${TITLE_ACCENT}@0.95:fontsize=28:x=(w-text_w)/2:y='h*0.055+18*(1-min(1\\,max(0\\,t-${brandDelay})/0.4))':alpha='${fade}':shadowcolor=black@0.45:shadowx=1:shadowy=1`,
+      `drawtext=${brandFont}:text='Homes.ph':fontcolor=${TITLE_ACCENT}@0.98:fontsize=24:x=(w-text_w)/2:y='${brandY}':alpha='${brandFade}':shadowcolor=black@0.5:shadowx=1:shadowy=1`,
     )
   }
 
+  const titleBaseY = isHero ? 0.78 : 0.8
   titleLines.forEach((line, lineIndex) => {
-    const yExpr = slideDown(0.085 + lineIndex * 0.045, 28, entranceDelay + lineIndex * 0.05, 0.55)
+    const lineDelay = entranceDelay + (isHero ? 0.12 : 0.05) + lineIndex * 0.08
+    const yExpr = slideUp(titleBaseY + lineIndex * 0.05, 34, lineDelay, 0.55)
+    const lineFade = fadeIn(lineDelay, 0.5)
     filters.push(
-      `drawtext=${titleFont}:text='${escapeDrawText(line)}':fontcolor=${TITLE_COLOR}:fontsize=${titleSize}:x=(w-text_w)/2:y='${yExpr}':alpha='${fade}':shadowcolor=black@0.75:shadowx=3:shadowy=3:borderw=2:bordercolor=${TITLE_ACCENT}@0.75:line_spacing=4`,
+      `drawtext=${titleFont}:text='${escapeDrawText(line)}':fontcolor=${TITLE_COLOR}:fontsize=${titleSize}:x=(w-text_w)/2:y='${yExpr}':alpha='${lineFade}':shadowcolor=black@0.82:shadowx=3:shadowy=3:borderw=2:bordercolor=${TITLE_ACCENT}@0.7:line_spacing=6`,
     )
   })
 
-  return filters
-}
+  const accentDelay = entranceDelay + (isHero ? 0.35 : 0.25)
+  const accentY = titleBaseY + titleLines.length * 0.05 + 0.015
+  filters.push(buildAccentReveal(durationSeconds, accentDelay, accentY))
 
-function buildCaptionFilters(caption: string, isLast: boolean, durationSeconds: number) {
-  const filters: string[] = []
-  const bodyFont = fontParam('body')
-  const lines = wrapCaption(caption)
-  const captionDelay = 0.30
-  const captionFade = fadeIn(captionDelay, 0.45)
-  const exitFadeStart = Math.max(captionDelay, durationSeconds - 1.1)
-  const end = durationSeconds.toFixed(2)
-  // Adaptive font size: shorter text gets bigger type
-  const captionSize = lines[0].length > 28 ? 33 : lines[0].length > 20 ? 37 : 41
-
-  // Single unified bottom panel — more cinematic than individual per-line boxes
+  // Tiny hold mark so the lower-third feels finished
   filters.push(
-    `drawbox=x=0:y=ih*0.68:w=iw:h=ih*0.32:color=black@0.24:t=fill:enable='between(t\\,${captionDelay.toFixed(2)}\\,${end})'`,
+    `drawbox=x=(iw-6)/2:y=ih*${(accentY + 0.025).toFixed(3)}:w=6:h=6:color=${TITLE_ACCENT}@0.9:t=fill:enable='between(t\\,${(accentDelay + 0.45).toFixed(2)}\\,${end})'`,
   )
-
-  lines.forEach((line, lineIndex) => {
-    const baseY = 0.755 + lineIndex * 0.058
-    const yExpr = slideUp(baseY, 28, captionDelay + lineIndex * 0.07, 0.45)
-    const alpha = isLast
-      ? `if(lt(t\\,${captionDelay})\\,0\\,if(lt(t\\,${exitFadeStart})\\,if(lt(t\\,${(captionDelay + 0.45).toFixed(2)})\\,(t-${captionDelay})/0.45\\,1)\\,if(lt(t\\,${end})\\,1-(t-${exitFadeStart})/0.7\\,0)))`
-      : captionFade
-    // Text rendered with strong shadow only — panel provides the readability backdrop
-    filters.push(
-      `drawtext=${bodyFont}:text='${escapeDrawText(line)}':fontcolor=${CAPTION_COLOR}:fontsize=${captionSize}:x=(w-text_w)/2:y='${yExpr}':alpha='${alpha}':shadowcolor=black@0.80:shadowx=3:shadowy=3:borderw=1:bordercolor=black@0.60`,
-    )
-  })
 
   return filters
 }
 
-function buildGradientPanelFilters(durationSeconds: number, entranceDelay: number) {
-  const end = durationSeconds.toFixed(2)
-  const start = entranceDelay.toFixed(2)
-  // Stacked bands of increasing opacity approximate a smooth dark-to-transparent
-  // gradient rising from the bottom edge, without needing a separate image input.
-  const bands = [
-    { y: 0.55, alpha: 0.06 },
-    { y: 0.62, alpha: 0.12 },
-    { y: 0.7, alpha: 0.2 },
-    { y: 0.78, alpha: 0.3 },
-    { y: 0.86, alpha: 0.42 },
-  ]
-  return bands.map(
-    (band) =>
-      `drawbox=x=0:y=ih*${band.y}:w=iw:h=ih*${(1 - band.y).toFixed(2)}:color=black@${band.alpha}:t=fill:enable='between(t\\,${start}\\,${end})'`,
-  )
-}
-
-/** Listing Showcase: persistent price + address/beds-baths/sqft lower-third, in place of title/caption. */
+/** Listing Showcase: animated count-up price + address/facts lower-third. */
 export function buildListingDetailsFilters(scene: ReelScenePlan, options: SceneTextOptions) {
   const filters: string[] = []
   const { durationSeconds, isFirst = false } = options
   const entranceDelay = isFirst ? 0.45 : 0.1
-  const titleFont = fontParam('title')
   const bodyFont = fontParam('body')
 
   filters.push(...buildGradientPanelFilters(durationSeconds, entranceDelay))
 
   const price = scene.listingPriceText?.trim()
   if (price) {
-    const priceDelay = entranceDelay + 0.1
-    const fade = fadeIn(priceDelay, 0.5)
-    const yExpr = slideUp(0.8, 26, priceDelay, 0.5)
     filters.push(
-      `drawtext=${titleFont}:text='${escapeDrawText(price)}':fontcolor=${TITLE_COLOR}:fontsize=64:x=(w-text_w)/2:y='${yExpr}':alpha='${fade}':shadowcolor=black@0.80:shadowx=3:shadowy=3:borderw=2:bordercolor=${TITLE_ACCENT}@0.75`,
+      ...buildPriceCountUpFilters({
+        priceText: price,
+        durationSeconds,
+        entranceDelay,
+        yRatio: 0.76,
+        fontSize: 68,
+      }),
     )
   }
 
   const factsLines = (scene.listingFactsLines ?? []).filter((line): line is string => Boolean(line?.trim()))
   factsLines.forEach((line, lineIndex) => {
-    const lineDelay = entranceDelay + 0.35 + lineIndex * 0.12
-    const fade = fadeIn(lineDelay, 0.45)
-    const baseY = 0.885 + lineIndex * 0.05
-    const yExpr = slideUp(baseY, 24, lineDelay, 0.45)
+    const lineDelay = entranceDelay + 1.45 + lineIndex * 0.12
+    const fade = fadeIn(lineDelay, 0.4)
+    const baseY = 0.88 + lineIndex * 0.045
+    const yExpr = slideUp(baseY, 20, lineDelay, 0.4)
     filters.push(
-      `drawtext=${bodyFont}:text='${escapeDrawText(line)}':fontcolor=${CAPTION_COLOR}:fontsize=32:x=(w-text_w)/2:y='${yExpr}':alpha='${fade}':shadowcolor=black@0.75:shadowx=2:shadowy=2`,
+      `drawtext=${bodyFont}:text='${escapeDrawText(line)}':fontcolor=${CAPTION_COLOR}@0.95:fontsize=30:x=(w-text_w)/2:y='${yExpr}':alpha='${fade}':shadowcolor=black@0.75:shadowx=2:shadowy=2`,
     )
   })
 
   return filters.length ? `,${filters.join(',')}` : ''
 }
 
+/**
+ * Scene titles as a modern bottom lower-third.
+ * Bottom karaoke / narration subtitles (`captionLine`) are intentionally not burned in —
+ * voiceover stays audio-only. Price-like titles get a count-up treatment.
+ */
 export function buildAnimatedTextFilters(scene: ReelScenePlan, options: SceneTextOptions) {
   const filters: string[] = []
-  const { sceneIndex, reelTitle, isFirst = false, isLast = false, durationSeconds } = options
-  const entranceDelay = isFirst ? 0.45 : 0.1
+  const { sceneIndex, reelTitle, isFirst = false, durationSeconds } = options
+  const entranceDelay = isFirst ? 0.45 : 0.12
   const overlay = scene.textOverlay?.trim()
   const title = sceneIndex === 0 && reelTitle?.trim() ? reelTitle.trim() : overlay
+  const resolved = title || overlay
 
-  if (title) {
-    filters.push(...buildTitleFilters(title, durationSeconds, sceneIndex === 0, entranceDelay))
-  } else if (overlay) {
-    filters.push(...buildTitleFilters(overlay, durationSeconds, false, entranceDelay))
+  if (!resolved) {
+    return ''
   }
 
-  if (scene.captionLine?.trim()) {
-    filters.push(...buildCaptionFilters(scene.captionLine, isLast, durationSeconds))
+  // If the lower-third is a price string, use the counting animation instead of plain title type.
+  if (parseListingPrice(resolved)) {
+    filters.push(...buildGradientPanelFilters(durationSeconds, entranceDelay))
+    filters.push(
+      ...buildPriceCountUpFilters({
+        priceText: resolved,
+        durationSeconds,
+        entranceDelay,
+        yRatio: 0.8,
+        fontSize: sceneIndex === 0 ? 64 : 56,
+      }),
+    )
+  } else {
+    filters.push(...buildBottomTitleFilters(resolved, durationSeconds, sceneIndex === 0, entranceDelay))
   }
 
   return filters.length ? `,${filters.join(',')}` : ''

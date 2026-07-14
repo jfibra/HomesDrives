@@ -23,8 +23,12 @@ function overlayCoords(position: ReelLogoPosition) {
   switch (position) {
     case 'top-left':
       return `${LOGO_MARGIN}:${LOGO_MARGIN}`
+    case 'top-center':
+      return `(main_w-overlay_w)/2:${LOGO_MARGIN}`
     case 'bottom-left':
       return `${LOGO_MARGIN}:main_h-overlay_h-${LOGO_MARGIN}`
+    case 'bottom-center':
+      return `(main_w-overlay_w)/2:main_h-overlay_h-${LOGO_MARGIN}`
     case 'bottom-right':
       return `main_w-overlay_w-${LOGO_MARGIN}:main_h-overlay_h-${LOGO_MARGIN}`
     case 'top-right':
@@ -33,12 +37,18 @@ function overlayCoords(position: ReelLogoPosition) {
   }
 }
 
+export type OverlayTimingOptions = {
+  /** If set, overlay is visible only from this timestamp to the end of the video. */
+  enableFromSeconds?: number | null
+}
+
 export async function applyLogoOverlayToVideo(
   videoBuffer: Buffer,
   logoBuffer: Buffer,
   logoFileName: string,
   position: ReelLogoPosition,
   frameWidth = 1080,
+  timing?: OverlayTimingOptions,
 ): Promise<Buffer> {
   const workDir = await mkdtemp(join(tmpdir(), 'reels-logo-'))
   const videoPath = join(workDir, 'input.mp4')
@@ -47,7 +57,12 @@ export async function applyLogoOverlayToVideo(
   const outputPath = join(workDir, 'branded.mp4')
   const ffmpeg = await resolveFfmpegBinary()
   const coords = overlayCoords(position)
-  const filter = `[1:v]scale='min(${logoMaxWidth(frameWidth)}\\,iw)':-1[lg];[0:v][lg]overlay=${coords}`
+  const enableFrom = timing?.enableFromSeconds
+  const enableExpr =
+    typeof enableFrom === 'number' && Number.isFinite(enableFrom) && enableFrom > 0
+      ? `:enable='gte(t\\,${enableFrom.toFixed(3)})'`
+      : ''
+  const filter = `[1:v]scale='min(${logoMaxWidth(frameWidth)}\\,iw)':-1[lg];[0:v][lg]overlay=${coords}${enableExpr}`
 
   try {
     await writeFile(videoPath, videoBuffer)

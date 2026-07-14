@@ -11,8 +11,17 @@ import type {
   CreateReelJobInput,
   ReelJob,
   ReelLogoPosition,
+  ReelOverlayDisplay,
   ReelUploadedMedia,
 } from '@/lib/reels-maker/types'
+
+function resolveCaptionsEnabled(input: {
+  captionsEnabled?: boolean
+  subtitlesEnabled?: boolean
+}): boolean {
+  if (input.captionsEnabled === false || input.subtitlesEnabled === false) return false
+  return true
+}
 
 export function startReelJob(input: CreateReelJobInput): ReelJob {
   const now = new Date().toISOString()
@@ -26,6 +35,7 @@ export function startReelJob(input: CreateReelJobInput): ReelJob {
     templateId: input.templateId,
     aspectRatio: normalizeReelAspectRatio(input.aspectRatio),
     voiceOverEnabled: input.voiceOverEnabled,
+    captionsEnabled: resolveCaptionsEnabled(input),
     outroEnabled: input.outroEnabled !== false,
     outroLine: input.outroLine?.trim() || '',
     reelBrief: input.reelBrief?.trim() || '',
@@ -41,11 +51,13 @@ export function startReelJob(input: CreateReelJobInput): ReelJob {
     logoStoragePath: null,
     logoPublicUrl: null,
     logoPosition: 'top-right',
+    logoDisplay: 'always',
     qrEnabled: false,
     qrBucketName: null,
     qrStoragePath: null,
     qrPublicUrl: null,
     qrPosition: 'bottom-right',
+    qrDisplay: 'always',
     agentHeadshotEnabled: false,
     agentHeadshotBucketName: null,
     agentHeadshotStoragePath: null,
@@ -84,7 +96,7 @@ export function attachReelJobMusic(jobId: string, bucketName: string, storagePat
 export function attachReelJobLogo(
   jobId: string,
   logo: { bucketName: string; storagePath: string; publicUrl: string },
-  options: { enabled: boolean; position: ReelLogoPosition },
+  options: { enabled: boolean; position: ReelLogoPosition; display?: ReelOverlayDisplay },
 ) {
   return updateReelJob(jobId, {
     logoEnabled: options.enabled,
@@ -92,13 +104,14 @@ export function attachReelJobLogo(
     logoStoragePath: logo.storagePath,
     logoPublicUrl: logo.publicUrl,
     logoPosition: options.position,
+    logoDisplay: options.display ?? 'always',
   })
 }
 
 export function attachReelJobQr(
   jobId: string,
   qr: { bucketName: string; storagePath: string; publicUrl: string },
-  options: { enabled: boolean; position: ReelLogoPosition },
+  options: { enabled: boolean; position: ReelLogoPosition; display?: ReelOverlayDisplay },
 ) {
   return updateReelJob(jobId, {
     qrEnabled: options.enabled,
@@ -106,6 +119,7 @@ export function attachReelJobQr(
     qrStoragePath: qr.storagePath,
     qrPublicUrl: qr.publicUrl,
     qrPosition: options.position,
+    qrDisplay: options.display ?? 'always',
   })
 }
 
@@ -140,7 +154,7 @@ async function processReelJob(jobId: string) {
     updateReelJob(jobId, { media: selectedMedia })
 
     setReelJobStatus(jobId, 'generating_story', 'Generating story…', 55)
-    const story =
+    let story =
       job.templateId === 'listing-showcase'
         ? buildListingShowcasePlan({ media: selectedMedia, job })
         : await generateReelStoryPlan({
@@ -151,6 +165,19 @@ async function processReelJob(jobId: string) {
             customCaption: job.caption || undefined,
           })
 
+    if (job.captionsEnabled === false) {
+      story = {
+        ...story,
+        plan: {
+          ...story.plan,
+          scenes: story.plan.scenes.map((scene) => ({
+            ...scene,
+            captionLine: null,
+          })),
+        },
+      }
+    }
+
     const sceneCount = story.plan.scenes.length
     const outroLine = resolveVoiceOutroLine({
       customOutro: job.outroLine || undefined,
@@ -159,12 +186,18 @@ async function processReelJob(jobId: string) {
     const mainScript = fitVoiceScriptToScenes(story.plan.voiceOverScript, sceneCount)
     const voiceScript = buildVoiceOverDisplayScript(mainScript, outroLine)
 
-    setReelJobStatus(jobId, 'writing_captions', 'Writing captions…', 65, {
-      plan: story.plan,
-      caption: story.caption,
-      hashtags: story.hashtags,
-      voiceOverScript: voiceScript,
-    })
+    setReelJobStatus(
+      jobId,
+      'writing_captions',
+      job.captionsEnabled === false ? 'Preparing timeline…' : 'Writing captions…',
+      65,
+      {
+        plan: story.plan,
+        caption: story.caption,
+        hashtags: story.hashtags,
+        voiceOverScript: voiceScript,
+      },
+    )
 
     let voiceOverBuffer: Buffer | null = null
 
@@ -194,6 +227,7 @@ async function processReelJob(jobId: string) {
             bucketName: job.logoBucketName,
             storagePath: job.logoStoragePath,
             position: job.logoPosition ?? 'top-right',
+            display: job.logoDisplay ?? 'always',
           }
         : null
 
@@ -203,6 +237,7 @@ async function processReelJob(jobId: string) {
             bucketName: job.qrBucketName,
             storagePath: job.qrStoragePath,
             position: job.qrPosition ?? 'bottom-right',
+            display: job.qrDisplay ?? 'always',
           }
         : null
 

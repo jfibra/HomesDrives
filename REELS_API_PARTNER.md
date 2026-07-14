@@ -74,9 +74,11 @@ x-api-key: rk_xxx
 | `templateId` | string | ✅ | Visual style — see [Templates](#templates) |
 | `aspectRatio` | `"portrait"` \| `"landscape"` | No | `portrait` = 9:16 for Reels/TikTok (default). `landscape` = 16:9 for YouTube/Facebook. |
 | `voiceOverEnabled` | boolean | No | Generate AI voiceover narration |
+| `captionsEnabled` | boolean | No | Legacy karaoke caption generation. Default: `true`. Bottom **scene titles** still render; karaoke subtitles are never burned in. Prefer `false` for Homes.ph branding. |
+| `subtitlesEnabled` | boolean | No | Alias for `captionsEnabled`. |
 | `reelBrief` | string | No | Property description for AI story generation |
-| `outroEnabled` | boolean | No | Add branded outro card. Default: `true` |
-| `outroLine` | string | No | Custom call-to-action on the outro card. For `listing-showcase`, this line is also shown as the CTA text in the closing logo scene (defaults to "Scan to view listing"). |
+| `outroEnabled` | boolean | No | Add spoken/branded outro. Default: `true` |
+| `outroLine` | string | No | Custom call-to-action on the outro. For `listing-showcase`, this line is also shown as the CTA text in the closing logo scene (defaults to "Scan to view listing"). |
 
 **`listing-showcase` fields** — only used when `templateId` is `"listing-showcase"` (see [Listing Showcase](#listing-showcase-template)):
 
@@ -126,11 +128,14 @@ x-api-key: rk_xxx
 | `files[]` | File | One or more images or videos. JPEG, PNG, HEIC, WEBP, MP4, MOV supported. Max 10 MB/photo, 100 MB/video. |
 | `mediaNotes` | JSON string | `["living room", "pool area"]` — one note per file, same order. Optional but improves AI captions. |
 | `music` | File (MP3) | Optional background music. Max 50 MB. |
-| `logo` | File (PNG/JPG) | Optional logo. For most templates this renders as a persistent corner watermark. For `listing-showcase` it instead appears full-size in the opening and closing logo scenes, plus small on the agent contact card. |
-| `logoPosition` | string | `"top-left"`, `"top-right"`, `"bottom-left"`, `"bottom-right"` — ignored by `listing-showcase`. |
+| `logo` | File (PNG/JPG) | Optional logo. For most templates this renders as a watermark. For `listing-showcase` it instead appears full-size in the opening and closing logo scenes, plus small on the agent contact card. |
+| `logoEnabled` | string | `"true"` to enable the logo overlay. |
+| `logoPosition` | string | `"top-left"`, `"top-right"`, `"top-center"`, `"bottom-left"`, `"bottom-right"`, `"bottom-center"` — ignored by `listing-showcase`. |
+| `logoDisplay` | string | `"always"` (default) or `"outro-only"` (last ~4 seconds only). Ignored by `listing-showcase`. |
 | `qr` | File (PNG/JPG) | Optional QR code image (e.g. linking to the listing). For most templates it's rendered as a corner overlay inside a white box container. For `listing-showcase` it's rendered inside the agent contact card instead. |
 | `qrEnabled` | string | `"true"` to enable rendering the QR code. |
-| `qrPosition` | string | `"top-left"`, `"top-right"`, `"bottom-left"`, `"bottom-right"` — defaults to `"bottom-right"`. Ignored by `listing-showcase`. |
+| `qrPosition` | string | Same values as `logoPosition` — defaults to `"bottom-right"`. Ignored by `listing-showcase`. |
+| `qrDisplay` | string | `"always"` (default) or `"outro-only"` (last ~4 seconds only). Use `"outro-only"` so QR/agent badge appears only at the end. Ignored by `listing-showcase`. |
 | `agentHeadshot` | File (PNG/JPG) | `listing-showcase` only. Agent photo, shown circle-cropped on the contact card. |
 | `agentHeadshotEnabled` | string | `"true"` to enable rendering the headshot. |
 
@@ -264,10 +269,15 @@ Optional body to override settings before rendering:
 ```json
 {
   "reelBrief": "Updated property description",
-  "voiceOverEnabled": false,
-  "templateId": "luxury"
+  "voiceOverEnabled": true,
+  "captionsEnabled": false,
+  "templateId": "social-trend"
 }
 ```
+
+| Field | Notes |
+|---|---|
+| `captionsEnabled` / `subtitlesEnabled` | Set either to `false` to disable burned-in bottom captions (voiceover still plays). |
 
 **Response `200`:** `{ "ok": true }`
 
@@ -412,7 +422,42 @@ Response: `{ "preview": { "title": "...", "duration": 240, "thumbnail": "..." } 
 3. **Agent contact card** — `agentHeadshot` (circle-cropped), `qr` (in a white box), and `agentName` / `agentPhone` / `agentEmail` / `agentAgencyName`, laid out like a business card. Only rendered if at least one of these is provided.
 4. **Logo outro** — your `logo` again, with `outroLine` (or "Scan to view listing" by default) as the call-to-action, fading to black.
 
-Because the logo and QR are embedded directly into these scenes, they are **not** also applied as a persistent corner watermark for this template — `logoPosition`/`qrPosition` are ignored.
+Because the logo and QR are embedded directly into these scenes, they are **not** also applied as a persistent corner watermark for this template — `logoPosition` / `qrPosition` / `logoDisplay` / `qrDisplay` are ignored.
+
+---
+
+## Homes.ph branding layout (recommended)
+
+For a full-reel Homes.ph logo + end-only agent/QR card without bottom captions:
+
+**Create:**
+
+```json
+{
+  "templateId": "social-trend",
+  "aspectRatio": "portrait",
+  "voiceOverEnabled": true,
+  "captionsEnabled": false,
+  "outroEnabled": true,
+  "outroLine": "Scan for listing details",
+  "reelBrief": "…"
+}
+```
+
+**Upload (multipart):**
+
+| Field | Value |
+|---|---|
+| `logo` | Homes.ph mark only |
+| `logoEnabled` | `"true"` |
+| `logoPosition` | `"top-center"` |
+| `logoDisplay` | `"always"` |
+| `qr` | Listing / agent end-card image (or QR alone) |
+| `qrEnabled` | `"true"` |
+| `qrPosition` | `"bottom-center"` (or preferred corner) |
+| `qrDisplay` | `"outro-only"` |
+
+This keeps the logo for the whole reel and shows the QR/end badge only on the last ~4 seconds — no need to append a fake end-card photo as the last media file.
 
 ---
 
