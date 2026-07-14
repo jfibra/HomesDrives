@@ -370,12 +370,12 @@ Typical time: **60–180 seconds**, depending on the number of photos and server
 | Element | Behavior |
 |---|---|
 | **Cinematic photo motion** | Dolly / push / track / float (server-chosen). Not a basic slideshow. |
-| **Bottom titles** | Short modern titles (1–4 words) in an editorial lower-third (slide-up, gold accent). |
+| **Bottom titles** | Abstract **blue + yellow-gold** geometric layouts (banners, corner blocks, framed ribbons) — not soft black bands. Titles are uppercase on solid panels. |
 | **Karaoke / subtitles** | **Never burned in.** Voiceover is audio-only. |
 | **Logo watermark** | Position + `always` / `outro-only` (non–listing-showcase). |
 | **QR / end badge** | Prefer `outro-only` so it appears on the branded end card / last seconds only. |
 | **End card** | When `outroEnabled`: logo reveal + optional QR + `outroLine` (~3s). |
-| **Listing price** | `listing-showcase` + `listingPrice` → **count-up**, then address + beds/baths/sqft **chips**. |
+| **Listing price** | `listing-showcase` + `listingPrice` → **count-up** on a blue veil + gold edge, then address + beds/baths/sqft **chips**. |
 | **Social caption** | Job `caption` / hashtags in the API response are for posting copy — not burned into the video. |
 
 ---
@@ -527,7 +527,7 @@ The server treats every reel as a **luxury motion edit**, not a slideshow:
 | **Story order** | Strongest / highest-quality shot opens (hook first) |
 | **Transitions** | Purposeful set: radial, flash-white, smooth pans, diag wipe, circle-open, wind, etc. |
 | **Grade** | Stronger template looks + subtle film grain |
-| **Type** | Editorial lower-third (Plus Jakarta / Manrope), accent line, no karaoke burn-in |
+| **Type** | Abstract **blue + yellow-gold** geometric title panels (not soft black lower-thirds) |
 | **End card** | When `outroEnabled`: dedicated branded CTA (logo reveal + optional QR + `outroLine`) |
 
 **Phase 2 (roadmap, not available yet):** AI depth/parallax, Remotion-grade motion graphics, true BPM beat sync, 60fps GPU encode.
