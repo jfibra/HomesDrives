@@ -1,5 +1,7 @@
 import { GoogleGenAI } from '@google/genai'
 
+import { pickCinematicMotion, normalizeMotion } from '@/lib/reels-maker/cinematic-motion'
+import { polishCinematicPlan, pickLuxuryTransition } from '@/lib/reels-maker/cinematic-plan'
 import { getReelTemplate } from '@/lib/reels-maker/templates'
 import { downloadReelObject } from '@/lib/reels-maker/storage'
 import { fitVoiceScriptToScenes } from '@/lib/reels-maker/voice-over'
@@ -25,17 +27,11 @@ function splitNarrationLines(script: string, count: number) {
   return Array.from({ length: count }, (_, index) => sentences[index % sentences.length])
 }
 
-function pickMotion(index: number): ReelScenePlan['motion'] {
-  if (index % 5 === 2) return 'slow-zoom-in'
-  return 'static'
-}
-
 function enrichScenesWithCaptions(
   scenes: ReelScenePlan[],
   voiceOverScript: string,
   socialCaption: string,
 ): ReelScenePlan[] {
-  // Voiceover script may inform scene titles; bottom karaoke captions are not burned in.
   const narrationLines = splitNarrationLines(voiceOverScript, scenes.length)
   const shortTitles = ['Just Listed', 'Open Spaces', 'City Views', 'Your Next Home', 'Private Showing']
 
@@ -57,11 +53,7 @@ function enrichScenesWithCaptions(
 
     return {
       ...scene,
-      motion:
-        scene.motion === 'gentle-pan-left' || scene.motion === 'gentle-pan-right'
-          ? pickMotion(index)
-          : scene.motion || pickMotion(index),
-      // Modern bottom title only — no burned-in subtitle/karaoke line
+      motion: normalizeMotion(scene.motion) || pickCinematicMotion(index),
       textOverlay: fromOverlay || fromNarration || fallbackTitle,
       captionLine: null,
     }
@@ -98,20 +90,6 @@ function buildVoiceOverFromBrief(
   return 'Every room tells a story. Step inside and see what makes this place special.'
 }
 
-function pickTransition(index: number): ReelScenePlan['transition'] {
-  const options: ReelScenePlan['transition'][] = [
-    'cross-dissolve',
-    'zoom-cut',
-    'slide-left',
-    'fade',
-    'smooth-zoom',
-    'slide-right',
-    'wipe-up',
-    'cross-dissolve',
-  ]
-  return options[index % options.length]
-}
-
 function buildFallbackPlan(
   media: ReelUploadedMedia[],
   templateId: ReelTemplateId,
@@ -127,16 +105,14 @@ function buildFallbackPlan(
 
   const scenes: ReelScenePlan[] = media.map((item, index) => ({
     mediaId: item.id,
-    durationSeconds: Number(
-      (template.defaultSceneDuration + (index % 3 === 0 ? 0.4 : index % 2 === 0 ? -0.3 : 0)).toFixed(2),
-    ),
-    transition: pickTransition(index),
-    motion: pickMotion(index),
-    textOverlay: index === media.length - 1 ? 'Your Story' : null,
+    durationSeconds: 2.5,
+    transition: pickLuxuryTransition(index),
+    motion: pickCinematicMotion(index),
+    textOverlay: null,
     captionLine: null,
   }))
 
-  return {
+  const plan: ReelStoryPlan = {
     title: 'Moments Worth Remembering',
     templateId,
     mood: template.label,
@@ -144,8 +120,10 @@ function buildFallbackPlan(
     voiceOverScript,
     suggestedHashtags: ['#HomesPH', '#RealEstate', '#Memories', '#Reels'],
     musicMood: templateId === 'luxury' ? 'Luxury' : 'Cinematic',
-    pacingNotes: 'Balanced cinematic pacing with gentle motion.',
+    pacingNotes: 'Luxury cinematic pacing with varied camera language.',
   }
+
+  return polishCinematicPlan(plan, media)
 }
 
 function parseStoryJson(raw: string): Partial<ReelStoryPlan> | null {
@@ -173,14 +151,11 @@ function normalizePlan(
     .filter((scene) => mediaIds.has(scene.mediaId))
     .map((scene, index) => ({
       mediaId: scene.mediaId,
-      durationSeconds: Math.min(
-        5.5,
-        Math.max(3.2, Number(scene.durationSeconds) || fallback.scenes[index]?.durationSeconds || 3.8),
-      ),
-      transition: scene.transition ?? fallback.scenes[index]?.transition ?? pickTransition(index),
-      motion: scene.motion ?? fallback.scenes[index]?.motion ?? pickMotion(index),
+      durationSeconds: Number(scene.durationSeconds) || fallback.scenes[index]?.durationSeconds || 2.5,
+      transition: scene.transition ?? fallback.scenes[index]?.transition ?? pickLuxuryTransition(index),
+      motion: normalizeMotion(scene.motion) || pickCinematicMotion(index),
+      sceneRole: scene.sceneRole,
       textOverlay: scene.textOverlay ?? null,
-      // Karaoke bottom captions are never burned in; keep null even if the model returns one.
       captionLine: null,
     }))
 
@@ -189,9 +164,10 @@ function normalizePlan(
     if (!used.has(item.id)) {
       scenes.push({
         mediaId: item.id,
-        durationSeconds: getReelTemplate(templateId).defaultSceneDuration,
-        transition: pickTransition(scenes.length),
-        motion: pickMotion(scenes.length),
+        durationSeconds: 2.2,
+        transition: pickLuxuryTransition(scenes.length),
+        motion: pickCinematicMotion(scenes.length),
+        sceneRole: undefined,
         textOverlay: null,
         captionLine: null,
       })
@@ -205,7 +181,7 @@ function normalizePlan(
       )
     : ''
 
-  return {
+  const plan: ReelStoryPlan = {
     title: partial.title?.trim() || fallback.title,
     templateId,
     mood: partial.mood?.trim() || fallback.mood,
@@ -221,6 +197,8 @@ function normalizePlan(
     musicMood: partial.musicMood?.trim() || fallback.musicMood,
     pacingNotes: partial.pacingNotes?.trim() || fallback.pacingNotes,
   }
+
+  return polishCinematicPlan(plan, media)
 }
 
 async function buildVisionParts(media: ReelUploadedMedia[]) {
@@ -313,27 +291,14 @@ export async function generateReelStoryPlan(params: {
   const captionHint = params.customCaption?.trim() || ''
 
   const prompt = [
-    'You are a senior social media video editor for Homes.ph real estate and lifestyle content.',
-    'Create a cinematic vertical Reel story plan (9:16) from the uploaded photos/videos.',
-    'Do NOT create a robotic slideshow. Build emotional flow: opening → highlights → emotional beats → closing.',
+    'You are a senior luxury real estate motion editor (Sotheby\'s / Compass / Serhant caliber).',
+    'Create a cinematic vertical Reel (9:16) that feels handcrafted — NEVER a PowerPoint slideshow.',
+    'First 2 seconds must hook attention. Strongest / most open exterior shot first.',
     '',
-    '=== USER BRIEF (highest priority) ===',
-    userBrief ||
-      'No detailed brief provided. Infer a warm, professional story from the photos and template.',
-  ]
-
-  if (captionHint) {
-    prompt.push('', '=== USER CAPTION HINT ===', captionHint)
-  }
-
-  prompt.push(
-    '',
-    'Your job:',
-    '- Look at each photo and understand what is shown (room, exterior, people, amenities, location, etc.).',
-    '- Combine the user brief with what you see in the images.',
-    '- Enhance rough user notes into polished, natural copy (fix grammar, add emotional warmth).',
-    '- Match each scene caption to the actual photo content — never generic filler.',
-    '- If the user mentions property details (bedrooms, price, location), weave them in naturally.',
+    userBrief
+      ? `USER BRIEF (priority — follow these details closely):\n${userBrief}`
+      : 'USER BRIEF: (none provided — invent tasteful property storytelling from the photos)',
+    captionHint ? `Preferred social caption tone: ${captionHint}` : '',
     '',
     `Template: ${template.label} — ${template.description}`,
     `Voice-over enabled: ${voiceOverEnabled ? 'yes' : 'no'}`,
@@ -352,9 +317,11 @@ export async function generateReelStoryPlan(params: {
           {
             mediaId: 'use exact id from media list',
             durationSeconds: 2.5,
+            sceneRole: 'hook | hero | detail | lifestyle | closing',
             transition:
-              'fade | cross-dissolve | cut | zoom-cut | slide-left | slide-right | wipe-up | smooth-zoom',
-            motion: 'slow-zoom-in | slow-zoom-out | gentle-pan-left | gentle-pan-right | static',
+              'cross-dissolve | radial | flash-white | smooth-left | smooth-right | diag-wipe | circle-open | zoom-cut | fade-white | squeeze-h | wind | slide-left | cut | fade',
+            motion:
+              'dolly-in | dolly-out | push-in-corner | reveal-from-top | vertical-drift | horizontal-track | float',
             textOverlay: 'short modern title 1-4 words',
             captionLine: null,
           },
@@ -365,41 +332,31 @@ export async function generateReelStoryPlan(params: {
     ),
     '',
     'Rules:',
-    '- Use each media id at most once unless fewer than 4 assets (then you may repeat best shots).',
-    '- Vary durations between 3.2 and 5.5 seconds — slow, cinematic holds (not a fast slideshow).',
-    '- Avoid repeating the same transition more than twice in a row.',
-    '- Mix transitions like zoom-cut, slide-left, cross-dissolve, and wipe-up for a pro reel feel.',
-    '- textOverlay: REQUIRED short modern title (1-4 words) burned at the BOTTOM of each scene — elegant, property-focused (e.g. "Just Listed", "Pool Deck", "City Views"). Do NOT write full sentences.',
-    '- captionLine: always null. Do not write bottom karaoke/subtitle lines — voiceover is audio-only.',
-    '- Prefer motion "static" or "slow-zoom-in" — avoid pans unless necessary.',
-    '- Prioritize higher qualityScore items earlier.',
-    '- voiceOverScript: REQUIRED when voice-over is enabled — exactly ONE sentence per photo, 4-6 words each (plain, specific, no filler adjectives). Use exactly as many sentences as photos. Do NOT include a closing call-to-action; outro is added automatically.',
+    '- Put the strongest open / exterior / hero facade FIRST (hook). Do not preserve weak upload order.',
+    '- NEVER repeat the same motion twice in a row. Prefer dolly-in, push-in-corner, float, horizontal-track, reveal-from-top.',
+    '- NEVER use static. NEVER use basic identical Ken Burns on every scene.',
+    '- sceneRole durations: hook 2.0-2.4s, hero 3.2-4.0s, detail 1.6-2.4s, lifestyle ~2s, closing 2.8-3.5s.',
+    '- Transitions must feel cinematic and purposeful (not random wipes). Match motion direction when possible.',
+    '- textOverlay: REQUIRED short modern title (1-4 words). captionLine: always null.',
+    '- voiceOverScript: when enabled — exactly ONE sentence per photo, 4-6 words. No closing CTA (outro is separate).',
     '- Write in the same language the user used in their brief (English or Filipino/Taglish).',
     '',
     'Media list (metadata):',
     JSON.stringify(mediaSummary, null, 2),
-  )
+  ]
 
   const promptText = prompt.join('\n')
 
   try {
     const ai = new GoogleGenAI({ apiKey: getGeminiKey() })
     const visionParts = await buildVisionParts(media)
-    const contents =
-      visionParts.length > 0
-        ? [
-            {
-              role: 'user' as const,
-              parts: [{ text: promptText }, ...visionParts],
-            },
-          ]
-        : promptText
+    const { response } = await generateStoryWithGemini(ai, [
+      { text: promptText },
+      ...visionParts,
+    ])
 
-    const { response, model } = await generateStoryWithGemini(ai, contents)
-    console.info(`[reels-maker/gemini-story] using model ${model}`)
-
-    const text = response.candidates?.[0]?.content?.parts?.find((part) => part.text)?.text ?? ''
-    const parsed = parseStoryJson(text)
+    const raw = response.text ?? ''
+    const parsed = parseStoryJson(raw)
     if (!parsed) {
       const caption =
         captionHint || userBrief.slice(0, 200) || 'Every picture tells a story, and these moments are worth remembering.'

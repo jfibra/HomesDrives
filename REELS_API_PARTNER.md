@@ -1,6 +1,6 @@
 # Homes.ph Reels API — Partner Integration Guide
 
-Generate professional AI-edited property reels (short-form videos) through the Homes.ph Reels service. The API handles everything: AI story planning, cinematic Ken Burns motion, color grading, animated text overlays, voiceover narration, music mixing, and final MP4 export.
+Generate professional AI-edited property reels (short-form videos) through the Homes.ph Reels service. The API handles everything: AI story planning, **cinematic camera moves** (dolly / push / float — not a basic slideshow), purposeful transitions, color grading with film grain, editorial typography, voiceover narration, music mixing, branded end cards, and final MP4 export.
 
 ---
 
@@ -60,9 +60,10 @@ x-api-key: rk_xxx
 
 ```json
 {
-  "templateId": "real-estate",
+  "templateId": "social-trend",
   "aspectRatio": "portrait",
   "voiceOverEnabled": true,
+  "captionsEnabled": false,
   "reelBrief": "3-bedroom luxury condo in BGC with pool and city views, asking P18M",
   "outroEnabled": true,
   "outroLine": "Contact us for a private showing"
@@ -73,23 +74,23 @@ x-api-key: rk_xxx
 |---|---|---|---|
 | `templateId` | string | ✅ | Visual style — see [Templates](#templates) |
 | `aspectRatio` | `"portrait"` \| `"landscape"` | No | `portrait` = 9:16 for Reels/TikTok (default). `landscape` = 16:9 for YouTube/Facebook. |
-| `voiceOverEnabled` | boolean | No | Generate AI voiceover narration |
-| `captionsEnabled` | boolean | No | Legacy karaoke caption generation. Default: `true`. Bottom **scene titles** still render; karaoke subtitles are never burned in. Prefer `false` for Homes.ph branding. |
+| `voiceOverEnabled` | boolean | No | Generate AI voiceover narration (audio only — no karaoke burn-in) |
+| `captionsEnabled` | boolean | No | Prefer `false`. Karaoke subtitles are **never** burned into the video; bottom scene **titles** still appear. |
 | `subtitlesEnabled` | boolean | No | Alias for `captionsEnabled`. |
 | `reelBrief` | string | No | Property description for AI story generation |
 | `outroEnabled` | boolean | No | Add spoken/branded outro. Default: `true` |
-| `outroLine` | string | No | Custom call-to-action on the outro. For `listing-showcase`, this line is also shown as the CTA text in the closing logo scene (defaults to "Scan to view listing"). |
+| `outroLine` | string | No | Custom call-to-action. For `listing-showcase`, shown as CTA text in the closing logo scene (defaults to "Scan to view listing"). |
 
 **`listing-showcase` fields** — only used when `templateId` is `"listing-showcase"` (see [Listing Showcase](#listing-showcase-template)):
 
 | Field | Type | Description |
 |---|---|---|
-| `listingPrice` | string | e.g. `"P18,000,000"`. Shown as a large animated price overlay on every photo. |
-| `listingAddress` | string | Shown below the price on every photo, and as the scene title. |
+| `listingPrice` | string | e.g. `"P18,000,000"`. Animates as a **count-up** price on every photo (eases to the final amount). Also accepts `₱12.5M` / `PHP 8.2M`. |
+| `listingAddress` | string | Shown under the price on every photo, and used as the reel title. |
 | `listingBeds` | string | e.g. `"3"` |
 | `listingBaths` | string | e.g. `"2"` |
 | `listingSqft` | string | e.g. `"120"` |
-| `listingUrl` | string | The listing page URL — documentation only; upload the actual QR image via the `qr` upload field (see below). |
+| `listingUrl` | string | Listing page URL — documentation only; upload the QR image via the `qr` upload field. |
 | `agentName` | string | Shown on the agent contact card. |
 | `agentPhone` | string | Shown on the agent contact card. |
 | `agentEmail` | string | Shown on the agent contact card. |
@@ -277,7 +278,7 @@ Optional body to override settings before rendering:
 
 | Field | Notes |
 |---|---|
-| `captionsEnabled` / `subtitlesEnabled` | Set either to `false` to disable burned-in bottom captions (voiceover still plays). |
+| `captionsEnabled` / `subtitlesEnabled` | Prefer `false`. Voiceover still plays; short bottom **titles** still appear. Karaoke/narration subtitles are never burned into the MP4. |
 
 **Response `200`:** `{ "ok": true }`
 
@@ -289,6 +290,17 @@ queued → analyzing → generating_story → writing_captions
 ```
 
 Typical time: **60–180 seconds**, depending on the number of photos and server load.
+
+---
+
+## On-video text (what partners get)
+
+| Element | Behavior |
+|---|---|
+| **Bottom titles** | Short modern titles (1–4 words) in a lower-third: soft veil, slide-up fade, gold accent line. First scene may show a small Homes.ph label above the title. |
+| **Karaoke / subtitles** | **Not burned in.** Voiceover is audio-only. Do not rely on bottom sentence captions. |
+| **Listing price** | With `listing-showcase` + `listingPrice`, the price **counts up** (ease-out) then holds the final amount. Address / beds·baths·sqft appear under it. |
+| **Social caption** | Job `caption` / hashtags are for posting copy in the API response — not burned into the video. |
 
 ---
 
@@ -418,7 +430,7 @@ Response: `{ "preview": { "title": "...", "duration": 240, "thumbnail": "..." } 
 `listing-showcase` builds a fixed structure instead of an AI-improvised story, so price and address are always exact:
 
 1. **Logo intro** — your `logo` fades in, scales up, with a soft glow, holds ~2s, then dissolves into the photo tour.
-2. **Photo tour** — each uploaded photo, 2–3s, Ken Burns motion, with a persistent bottom gradient showing `listingPrice` (large) and `listingAddress` / beds·baths·sqft (below it).
+2. **Photo tour** — cinematic camera moves (dolly, corner push, float, drift — not basic Ken Burns). Bottom lower-third shows `listingPrice` as a **count-up**, then address + **beds / baths / sqft chips**.
 3. **Agent contact card** — `agentHeadshot` (circle-cropped), `qr` (in a white box), and `agentName` / `agentPhone` / `agentEmail` / `agentAgencyName`, laid out like a business card. Only rendered if at least one of these is provided.
 4. **Logo outro** — your `logo` again, with `outroLine` (or "Scan to view listing" by default) as the call-to-action, fading to black.
 
@@ -426,9 +438,29 @@ Because the logo and QR are embedded directly into these scenes, they are **not*
 
 ---
 
+## Cinematic edit quality (Phase 1)
+
+The server now treats every reel as a **luxury motion edit**, not a slideshow:
+
+| Area | Behavior |
+|---|---|
+| **Camera** | Dolly-in/out, corner push, vertical drift, horizontal track, float — never repeats the same move twice in a row |
+| **Timing** | Scene roles: hook (~2s) → hero (3–4s) → detail (1.6–2.4s) → closing (~3s). Not identical holds. |
+| **Story order** | Strongest / highest-quality shot opens (hook first) |
+| **Transitions** | Purposeful xfade set: radial, flash-white, smooth pans, diag wipe, circle-open, wind, etc. |
+| **Grade** | Stronger template looks + subtle film grain |
+| **Type** | Editorial lower-third (Plus Jakarta / Manrope), accent line, no karaoke burn-in |
+| **End card** | When `outroEnabled`, a dedicated branded CTA scene (logo reveal + optional QR + `outroLine`) |
+
+**Phase 2 (roadmap):** AI depth/parallax, Remotion-grade motion graphics, true BPM beat sync, 60fps GPU encode.
+
+Partners do **not** need to send motion/transition fields — the server chooses cinematic moves. Optional `reelBrief` still improves storytelling.
+
+---
+
 ## Homes.ph branding layout (recommended)
 
-For a full-reel Homes.ph logo + end-only agent/QR card without bottom captions:
+Goal: Homes.ph logo **top-center** for the full reel · agent/QR **only at the end** · modern bottom titles · voiceover **without** karaoke subtitles.
 
 **Create:**
 
@@ -444,20 +476,36 @@ For a full-reel Homes.ph logo + end-only agent/QR card without bottom captions:
 }
 ```
 
+For a **counting price** on every photo, use `listing-showcase` instead and set `listingPrice` (e.g. `"P18,000,000"`).
+
 **Upload (multipart):**
 
 | Field | Value |
 |---|---|
-| `logo` | Homes.ph mark only |
+| `logo` | Homes.ph mark only (not a full agent composite) |
 | `logoEnabled` | `"true"` |
 | `logoPosition` | `"top-center"` |
 | `logoDisplay` | `"always"` |
-| `qr` | Listing / agent end-card image (or QR alone) |
+| `qr` | Listing QR and/or agent end-card image |
 | `qrEnabled` | `"true"` |
-| `qrPosition` | `"bottom-center"` (or preferred corner) |
+| `qrPosition` | `"bottom-center"` (or a corner) |
 | `qrDisplay` | `"outro-only"` |
 
 This keeps the logo for the whole reel and shows the QR/end badge only on the last ~4 seconds — no need to append a fake end-card photo as the last media file.
+
+### What partners can use now (quick reference)
+
+| Capability | How |
+|---|---|
+| Logo top-center full video | `logoPosition=top-center` + `logoDisplay=always` |
+| Logo bottom-center (also supported) | `logoPosition=bottom-center` |
+| QR / end badge only at end | `qrDisplay=outro-only` (~last 4 seconds) |
+| Logo only at end | `logoDisplay=outro-only` |
+| No karaoke subtitles | Default behavior; set `captionsEnabled: false` on create/render |
+| Modern bottom titles | Automatic on all non-listing templates |
+| Price count-up | `templateId: "listing-showcase"` + `listingPrice` |
+| Spoken / visual CTA | `outroEnabled` + `outroLine` (dedicated end-card scene) |
+| Cinematic motion / transitions | Automatic (server-side Phase 1 editor) |
 
 ---
 

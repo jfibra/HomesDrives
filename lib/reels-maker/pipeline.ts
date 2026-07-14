@@ -279,7 +279,8 @@ async function processReelJob(jobId: string) {
       agentHeadshot,
       listing,
       agent,
-      outroCtaText: job.templateId === 'listing-showcase' ? job.outroLine || undefined : undefined,
+      outroCtaText: job.outroLine || undefined,
+      outroEnabled: job.outroEnabled !== false,
       voiceOver: voiceOverBuffer,
     })
 

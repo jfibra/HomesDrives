@@ -139,6 +139,87 @@ export async function renderLogoOutroScene(params: {
   return { buffer, durationSeconds }
 }
 
+/**
+ * Universal branded end card for all templates when outroEnabled.
+ * Logo reveal + optional QR slide-up + CTA line — no PowerPoint bounce.
+ */
+export async function renderBrandedEndCardScene(params: {
+  frame: ReelFrameDimensions
+  logoBuffer?: Buffer | null
+  qrBuffer?: Buffer | null
+  ctaText?: string | null
+  durationSeconds?: number
+}): Promise<RenderedListingScene> {
+  const duration = params.durationSeconds ?? 3.2
+  const workDir = await mkdtemp(join(tmpdir(), 'reels-end-card-'))
+  const outputPath = join(workDir, 'end-card.mp4')
+
+  try {
+    const inputs: string[] = [
+      '-f',
+      'lavfi',
+      '-i',
+      `color=c=${CARD_BACKGROUND}:s=${params.frame.width}x${params.frame.height}:d=${duration}:r=${FPS}`,
+    ]
+
+    let inputIndex = 1
+    const filters: string[] = []
+    let base = '0:v'
+
+    if (params.logoBuffer) {
+      const logoPath = join(workDir, 'logo.png')
+      await writeFile(logoPath, params.logoBuffer)
+      inputs.push('-loop', '1', '-i', logoPath)
+      const idx = inputIndex++
+      const logoWidth = Math.round(params.frame.width * 0.4)
+      filters.push(
+        `[${idx}:v]scale=w=${logoWidth}:h=-1,format=rgba,scale=w='iw*(0.88+0.12*min(1\\,t/0.55))':h='ih*(0.88+0.12*min(1\\,t/0.55))':eval=frame[lg]`,
+        '[lg]split=2[lgsharp][lgblursrc]',
+        '[lgblursrc]gblur=sigma=24,colorchannelmixer=aa=0.45,fade=t=in:st=0:d=0.55:alpha=1[glow]',
+        '[lgsharp]fade=t=in:st=0:d=0.55:alpha=1[sharp]',
+        `[${base}][glow]overlay=x='(main_w-overlay_w)/2':y='main_h*0.28'[withglow]`,
+        `[withglow][sharp]overlay=x='(main_w-overlay_w)/2':y='main_h*0.28'[withlogo]`,
+      )
+      base = 'withlogo'
+    }
+
+    if (params.qrBuffer) {
+      const qrPath = join(workDir, 'qr.png')
+      await writeFile(qrPath, params.qrBuffer)
+      inputs.push('-loop', '1', '-i', qrPath)
+      const idx = inputIndex++
+      const qrSize = Math.round(params.frame.width * 0.26)
+      const qrPad = 14
+      filters.push(
+        `[${idx}:v]scale=${qrSize}:${qrSize}[qrs]`,
+        `[qrs]pad=iw+${qrPad * 2}:ih+${qrPad * 2}:${qrPad}:${qrPad}:white[qrbox]`,
+        `[qrbox]format=rgba,fade=t=in:st=0.75:d=0.5:alpha=1[qrfade]`,
+        `[${base}][qrfade]overlay=x='(main_w-overlay_w)/2':y='main_h*0.58'[withqr]`,
+      )
+      base = 'withqr'
+    }
+
+    const cta = params.ctaText?.trim() || 'Homes.ph'
+    const bodyFont = fontParam('body')
+    const ctaDelay = params.qrBuffer ? 1.15 : 0.85
+    const fade = fadeIn(ctaDelay, 0.45)
+    const yExpr = slideUp(params.qrBuffer ? 0.88 : 0.62, 20, ctaDelay, 0.45)
+    filters.push(
+      `[${base}]drawtext=${bodyFont}:text='${escapeDrawText(cta)}':fontcolor=${CAPTION_COLOR}:fontsize=34:x=(w-text_w)/2:y='${yExpr}':alpha='${fade}':shadowcolor=black@0.75:shadowx=2:shadowy=2[vout]`,
+    )
+
+    const buffer = await runFilterComplex({
+      inputs,
+      filterComplex: filters.join(';'),
+      durationSeconds: duration,
+      outputPath,
+    })
+    return { buffer, durationSeconds: duration }
+  } finally {
+    await safeRemoveDir(workDir)
+  }
+}
+
 /** The "business card" scene: headshot + QR + contact details + agency logo. */
 export async function renderAgentCardScene(params: {
   frame: ReelFrameDimensions

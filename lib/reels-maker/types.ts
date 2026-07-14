@@ -67,12 +67,39 @@ export type ReelSceneTransition =
   | 'slide-right'
   | 'wipe-up'
   | 'smooth-zoom'
+  | 'fade-white'
+  | 'flash-white'
+  | 'radial'
+  | 'circle-open'
+  | 'diag-wipe'
+  | 'smooth-left'
+  | 'smooth-right'
+  | 'squeeze-h'
+  | 'wind'
+
+/** Luxury camera language — legacy Ken Burns names remain as aliases. */
+export type ReelSceneMotion =
+  | 'dolly-in'
+  | 'dolly-out'
+  | 'push-in-corner'
+  | 'reveal-from-top'
+  | 'vertical-drift'
+  | 'horizontal-track'
+  | 'float'
+  | 'slow-zoom-in'
+  | 'slow-zoom-out'
+  | 'gentle-pan-left'
+  | 'gentle-pan-right'
+  | 'static'
+
+export type ReelSceneRole = 'hook' | 'hero' | 'detail' | 'lifestyle' | 'closing'
 
 export type ReelScenePlan = {
   mediaId: string
   durationSeconds: number
   transition: ReelSceneTransition
-  motion: 'slow-zoom-in' | 'slow-zoom-out' | 'gentle-pan-left' | 'gentle-pan-right' | 'static'
+  motion: ReelSceneMotion
+  sceneRole?: ReelSceneRole
   textOverlay?: string | null
   captionLine?: string | null
   /** Listing Showcase only: persistent price lower-third, replaces textOverlay/captionLine rendering when set. */

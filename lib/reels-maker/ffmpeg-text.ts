@@ -11,22 +11,23 @@ export const CAPTION_COLOR = 'white'
 
 const FONT_CANDIDATES = {
   title: [
+    join(FONTS_DIR, 'PlusJakartaSans-VF.ttf'),
     join(FONTS_DIR, 'PlayfairDisplay-Bold.ttf'),
     'C:/Windows/Fonts/georgiab.ttf',
-    'C:/Windows/Fonts/timesbd.ttf',
     '/System/Library/Fonts/Supplemental/Georgia Bold.ttf',
     '/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf',
   ],
   body: [
+    join(FONTS_DIR, 'Manrope-VF.ttf'),
     join(FONTS_DIR, 'Montserrat-SemiBold.ttf'),
     'C:/Windows/Fonts/segoeuib.ttf',
-    'C:/Windows/Fonts/arialbd.ttf',
     '/System/Library/Fonts/Supplemental/Arial Bold.ttf',
     '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
   ],
   brand: [
-    join(FONTS_DIR, 'Montserrat-Bold.ttf'),
-    'C:/Windows/Fonts/segoeuisb.ttf',
+    join(FONTS_DIR, 'Manrope-VF.ttf'),
+    join(FONTS_DIR, 'PlusJakartaSans-VF.ttf'),
+    join(FONTS_DIR, 'Montserrat-SemiBold.ttf'),
     'C:/Windows/Fonts/arialbd.ttf',
     '/System/Library/Fonts/Supplemental/Arial Bold.ttf',
   ],
@@ -38,6 +39,7 @@ export type SceneTextOptions = {
   reelTitle?: string
   isFirst?: boolean
   isLast?: boolean
+  sceneRole?: string
 }
 
 export function escapeDrawText(value: string) {
@@ -246,71 +248,81 @@ function buildPriceCountUpFilters(params: {
 }
 
 /**
- * Modern lower-third title — slide-up + fade, soft veil, gold accent reveal.
- * Replaces the old top-of-frame title treatment. Karaoke captions are not burned in.
+ * Modern editorial lower-third — headline + optional small location line + accent.
+ * Karaoke captions are intentionally not burned in.
  */
 function buildBottomTitleFilters(
   title: string,
   durationSeconds: number,
   isHero: boolean,
   entranceDelay = 0.1,
+  subtitle?: string | null,
 ) {
   const filters: string[] = []
   const titleLines = wrapTitle(title)
   const titleFont = fontParam('title')
+  const bodyFont = fontParam('body')
   const brandFont = fontParam('brand')
-  const fade = fadeIn(entranceDelay, 0.5)
   const end = durationSeconds.toFixed(2)
 
   const titleSize = isHero
     ? titleLines[0].length > 28
-      ? 44
+      ? 42
       : titleLines[0].length > 18
-        ? 52
-        : 58
+        ? 50
+        : 56
     : titleLines[0].length > 28
-      ? 40
-      : 48
+      ? 38
+      : 46
 
   filters.push(...buildGradientPanelFilters(durationSeconds, entranceDelay))
 
   if (isHero) {
     const brandDelay = Math.max(0.05, entranceDelay)
-    const brandFade = fadeIn(brandDelay, 0.4)
-    const brandY = slideUp(0.7, 22, brandDelay, 0.45)
+    const brandFade = fadeIn(brandDelay, 0.35)
+    const brandY = slideUp(0.68, 18, brandDelay, 0.4)
     filters.push(
-      `drawtext=${brandFont}:text='Homes.ph':fontcolor=${TITLE_ACCENT}@0.98:fontsize=24:x=(w-text_w)/2:y='${brandY}':alpha='${brandFade}':shadowcolor=black@0.5:shadowx=1:shadowy=1`,
+      `drawtext=${brandFont}:text='Homes.ph':fontcolor=${TITLE_ACCENT}@0.98:fontsize=22:x=(w-text_w)/2:y='${brandY}':alpha='${brandFade}':shadowcolor=black@0.5:shadowx=1:shadowy=1`,
     )
   }
 
-  const titleBaseY = isHero ? 0.78 : 0.8
+  const titleBaseY = isHero ? 0.76 : 0.8
   titleLines.forEach((line, lineIndex) => {
-    const lineDelay = entranceDelay + (isHero ? 0.12 : 0.05) + lineIndex * 0.08
-    const yExpr = slideUp(titleBaseY + lineIndex * 0.05, 34, lineDelay, 0.55)
-    const lineFade = fadeIn(lineDelay, 0.5)
+    const lineDelay = entranceDelay + (isHero ? 0.1 : 0.05) + lineIndex * 0.07
+    const yExpr = slideUp(titleBaseY + lineIndex * 0.048, 32, lineDelay, 0.5)
+    const lineFade = fadeIn(lineDelay, 0.45)
     filters.push(
-      `drawtext=${titleFont}:text='${escapeDrawText(line)}':fontcolor=${TITLE_COLOR}:fontsize=${titleSize}:x=(w-text_w)/2:y='${yExpr}':alpha='${lineFade}':shadowcolor=black@0.82:shadowx=3:shadowy=3:borderw=2:bordercolor=${TITLE_ACCENT}@0.7:line_spacing=6`,
+      `drawtext=${titleFont}:text='${escapeDrawText(line)}':fontcolor=${TITLE_COLOR}:fontsize=${titleSize}:x=(w-text_w)/2:y='${yExpr}':alpha='${lineFade}':shadowcolor=black@0.82:shadowx=3:shadowy=3:borderw=1:bordercolor=${TITLE_ACCENT}@0.55:line_spacing=6`,
     )
   })
 
-  const accentDelay = entranceDelay + (isHero ? 0.35 : 0.25)
-  const accentY = titleBaseY + titleLines.length * 0.05 + 0.015
+  const accentDelay = entranceDelay + (isHero ? 0.3 : 0.22)
+  const accentY = titleBaseY + titleLines.length * 0.048 + 0.012
   filters.push(buildAccentReveal(durationSeconds, accentDelay, accentY))
 
-  // Tiny hold mark so the lower-third feels finished
+  if (subtitle?.trim() && subtitle.trim().toLowerCase() !== title.trim().toLowerCase()) {
+    const subDelay = accentDelay + 0.12
+    const subY = slideUp(accentY + 0.035, 16, subDelay, 0.4)
+    filters.push(
+      `drawtext=${bodyFont}:text='${escapeDrawText(subtitle.trim().slice(0, 42))}':fontcolor=${CAPTION_COLOR}@0.88:fontsize=24:x=(w-text_w)/2:y='${subY}':alpha='${fadeIn(subDelay, 0.4)}':shadowcolor=black@0.7:shadowx=1:shadowy=1`,
+    )
+  }
+
   filters.push(
-    `drawbox=x=(iw-6)/2:y=ih*${(accentY + 0.025).toFixed(3)}:w=6:h=6:color=${TITLE_ACCENT}@0.9:t=fill:enable='between(t\\,${(accentDelay + 0.45).toFixed(2)}\\,${end})'`,
+    `drawbox=x=(iw-6)/2:y=ih*${(accentY + 0.02).toFixed(3)}:w=6:h=6:color=${TITLE_ACCENT}@0.9:t=fill:enable='between(t\\,${(accentDelay + 0.4).toFixed(2)}\\,${end})'`,
   )
 
   return filters
 }
 
-/** Listing Showcase: animated count-up price + address/facts lower-third. */
+/** Listing Showcase: animated count-up price + address + feature chips. */
 export function buildListingDetailsFilters(scene: ReelScenePlan, options: SceneTextOptions) {
   const filters: string[] = []
   const { durationSeconds, isFirst = false } = options
-  const entranceDelay = isFirst ? 0.45 : 0.1
+  const entranceDelay = isFirst ? 0.35 : 0.08
   const bodyFont = fontParam('body')
+  const brandFont = fontParam('brand')
+  const end = durationSeconds.toFixed(2)
 
   filters.push(...buildGradientPanelFilters(durationSeconds, entranceDelay))
 
@@ -321,22 +333,47 @@ export function buildListingDetailsFilters(scene: ReelScenePlan, options: SceneT
         priceText: price,
         durationSeconds,
         entranceDelay,
-        yRatio: 0.76,
-        fontSize: 68,
+        yRatio: 0.72,
+        fontSize: 64,
       }),
     )
   }
 
   const factsLines = (scene.listingFactsLines ?? []).filter((line): line is string => Boolean(line?.trim()))
-  factsLines.forEach((line, lineIndex) => {
-    const lineDelay = entranceDelay + 1.45 + lineIndex * 0.12
+  const address = factsLines[0]
+  const factsRaw = factsLines[1] ?? ''
+
+  if (address) {
+    const lineDelay = entranceDelay + 1.35
     const fade = fadeIn(lineDelay, 0.4)
-    const baseY = 0.88 + lineIndex * 0.045
-    const yExpr = slideUp(baseY, 20, lineDelay, 0.4)
+    const yExpr = slideUp(0.84, 18, lineDelay, 0.4)
     filters.push(
-      `drawtext=${bodyFont}:text='${escapeDrawText(line)}':fontcolor=${CAPTION_COLOR}@0.95:fontsize=30:x=(w-text_w)/2:y='${yExpr}':alpha='${fade}':shadowcolor=black@0.75:shadowx=2:shadowy=2`,
+      `drawtext=${bodyFont}:text='${escapeDrawText(address)}':fontcolor=${CAPTION_COLOR}@0.95:fontsize=28:x=(w-text_w)/2:y='${yExpr}':alpha='${fade}':shadowcolor=black@0.75:shadowx=2:shadowy=2`,
     )
-  })
+  }
+
+  // Feature chips: Beds · Baths · Sqft as pill-like drawbox + text rows
+  const chips = factsRaw
+    .split(/\s*[·|]\s*/)
+    .map((c) => c.trim())
+    .filter(Boolean)
+    .slice(0, 3)
+
+  if (chips.length) {
+    const chipDelay = entranceDelay + 1.55
+    const chipW = 200
+    const gap = 16
+    const totalW = chips.length * chipW + (chips.length - 1) * gap
+    chips.forEach((chip, chipIndex) => {
+      const delay = chipDelay + chipIndex * 0.08
+      const startX = `(iw-${totalW})/2+${chipIndex * (chipW + gap)}`
+      filters.push(
+        `drawbox=x='${startX}':y=ih*0.9:w=${chipW}:h=48:color=black@0.45:t=fill:enable='between(t\\,${delay.toFixed(2)}\\,${end})'`,
+        `drawbox=x='${startX}':y=ih*0.9:w=${chipW}:h=48:color=${TITLE_ACCENT}@0.55:t=2:enable='between(t\\,${delay.toFixed(2)}\\,${end})'`,
+        `drawtext=${brandFont}:text='${escapeDrawText(chip)}':fontcolor=${TITLE_COLOR}:fontsize=24:x='${startX}+(${chipW}-text_w)/2':y=ih*0.9+12:alpha='${fadeIn(delay, 0.35)}':shadowcolor=black@0.6:shadowx=1:shadowy=1`,
+      )
+    })
+  }
 
   return filters.length ? `,${filters.join(',')}` : ''
 }
@@ -358,6 +395,9 @@ export function buildAnimatedTextFilters(scene: ReelScenePlan, options: SceneTex
     return ''
   }
 
+  const isHero = sceneIndex === 0 || options.sceneRole === 'hook' || options.sceneRole === 'hero'
+  const subtitle = sceneIndex === 0 ? null : reelTitle
+
   // If the lower-third is a price string, use the counting animation instead of plain title type.
   if (parseListingPrice(resolved)) {
     filters.push(...buildGradientPanelFilters(durationSeconds, entranceDelay))
@@ -367,11 +407,13 @@ export function buildAnimatedTextFilters(scene: ReelScenePlan, options: SceneTex
         durationSeconds,
         entranceDelay,
         yRatio: 0.8,
-        fontSize: sceneIndex === 0 ? 64 : 56,
+        fontSize: isHero ? 64 : 56,
       }),
     )
   } else {
-    filters.push(...buildBottomTitleFilters(resolved, durationSeconds, sceneIndex === 0, entranceDelay))
+    filters.push(
+      ...buildBottomTitleFilters(resolved, durationSeconds, isHero, entranceDelay, subtitle),
+    )
   }
 
   return filters.length ? `,${filters.join(',')}` : ''

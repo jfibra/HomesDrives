@@ -16,15 +16,26 @@ type TransitionSpec = {
   duration: number
 }
 
+/** Map plan transition names → real FFmpeg xfade modes. */
 const TRANSITION_SPECS: Record<ReelSceneTransition, TransitionSpec> = {
-  fade: { xfade: 'fade', duration: 0.45 },
+  fade: { xfade: 'fade', duration: 0.42 },
   'cross-dissolve': { xfade: 'dissolve', duration: 0.55 },
-  cut: { xfade: 'fade', duration: 0.12 },
+  /** Near-hard cut — intentional punch, not a soft fade. */
+  cut: { xfade: 'fade', duration: 0.04 },
   'zoom-cut': { xfade: 'zoomin', duration: 0.52 },
-  'slide-left': { xfade: 'slideleft', duration: 0.5 },
-  'slide-right': { xfade: 'slideright', duration: 0.5 },
-  'wipe-up': { xfade: 'wipeup', duration: 0.48 },
+  'slide-left': { xfade: 'slideleft', duration: 0.48 },
+  'slide-right': { xfade: 'slideright', duration: 0.48 },
+  'wipe-up': { xfade: 'wipeup', duration: 0.45 },
   'smooth-zoom': { xfade: 'smoothdown', duration: 0.5 },
+  'fade-white': { xfade: 'fadewhite', duration: 0.4 },
+  'flash-white': { xfade: 'fadewhite', duration: 0.16 },
+  radial: { xfade: 'radial', duration: 0.5 },
+  'circle-open': { xfade: 'circleopen', duration: 0.52 },
+  'diag-wipe': { xfade: 'diagtl', duration: 0.48 },
+  'smooth-left': { xfade: 'smoothleft', duration: 0.55 },
+  'smooth-right': { xfade: 'smoothright', duration: 0.55 },
+  'squeeze-h': { xfade: 'squeezeh', duration: 0.45 },
+  wind: { xfade: 'hlwind', duration: 0.5 },
 }
 
 export type SceneClip = {
@@ -38,7 +49,7 @@ export function getTransitionSpec(clip: Pick<SceneClip, 'transition' | 'xfadeDur
   if (clip.transition === 'fadeblack') {
     return { xfade: 'fadeblack', duration: clip.xfadeDuration ?? ENTRANCE_XFADE_SEC }
   }
-  return TRANSITION_SPECS[clip.transition] ?? TRANSITION_SPECS.fade
+  return TRANSITION_SPECS[clip.transition as ReelSceneTransition] ?? TRANSITION_SPECS.fade
 }
 
 export function buildBookendedSceneClips(
@@ -54,6 +65,7 @@ export function buildBookendedSceneClips(
       path: sceneClips[0].path,
       durationSeconds: sceneClips[0].durationSeconds,
       transition: 'fadeblack',
+      xfadeDuration: ENTRANCE_XFADE_SEC,
     },
   ]
 

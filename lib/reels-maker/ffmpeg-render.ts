@@ -23,6 +23,10 @@ import { downloadReelObject } from '@/lib/reels-maker/storage'
 import { buildAnimatedTextFilters, buildListingDetailsFilters } from '@/lib/reels-maker/ffmpeg-text'
 import { buildColorGradeFilter } from '@/lib/reels-maker/ffmpeg-color-grade'
 import {
+  buildMotionFilter,
+  buildVideoMotionFilter,
+} from '@/lib/reels-maker/cinematic-motion'
+import {
   buildBookendedSceneClips,
   buildXfadeFilterGraph,
   mergedOutputPath,
@@ -32,7 +36,7 @@ import {
 import { getReelFrameDimensions, normalizeReelAspectRatio } from '@/lib/reels-maker/aspect-ratio'
 import type { ReelAspectRatio, ReelFrameDimensions } from '@/lib/reels-maker/aspect-ratio'
 
-import { buildReelVideoEncodeArgs, REEL_SCALE_FLAGS } from '@/lib/reels-maker/render-quality'
+import { buildReelVideoEncodeArgs } from '@/lib/reels-maker/render-quality'
 import type {
   ReelLogoPosition,
   ReelOverlayDisplay,
@@ -52,13 +56,6 @@ const CPU_COUNT = cpus().length
 const SCENE_RENDER_CONCURRENCY = Math.max(2, Math.min(4, CPU_COUNT - 1))
 const FFMPEG_THREADS_PER_SCENE = Math.max(1, Math.floor(CPU_COUNT / SCENE_RENDER_CONCURRENCY))
 const ENCODE_ARGS = [...buildReelVideoEncodeArgs(FPS)]
-
-function buildFrameFilters(frame: ReelFrameDimensions) {
-  const scaleFlags = `flags=${REEL_SCALE_FLAGS}`
-  const preScale = `scale=${frame.preScaleWidth}:${frame.preScaleHeight}:force_original_aspect_ratio=increase:${scaleFlags},crop=${frame.preScaleWidth}:${frame.preScaleHeight}`
-  const staticScale = `scale=${frame.width}:${frame.height}:force_original_aspect_ratio=increase:${scaleFlags},crop=${frame.width}:${frame.height},fps=${FPS}`
-  return { preScale, staticScale }
-}
 
 async function resolveFfmpegBinary() {
   if (process.env.FFMPEG_PATH) return process.env.FFMPEG_PATH
@@ -87,36 +84,6 @@ async function mapPool<T, R>(items: T[], concurrency: number, worker: (item: T, 
     Array.from({ length: Math.min(concurrency, items.length) }, () => runWorker()),
   )
   return results
-}
-
-function getMotionFilter(
-  motion: ReelScenePlan['motion'],
-  durationSeconds: number,
-  frame: ReelFrameDimensions,
-) {
-  const { preScale } = buildFrameFilters(frame)
-  const frames = Math.max(1, Math.round(durationSeconds * FPS))
-  // Smoothstep easing: t*t*(3-2*t) — eliminates linear robot-motion feel
-  const t = `on/${frames}`
-  const ease = `(${t})*(${t})*(3-2*(${t}))`
-
-  switch (motion) {
-    case 'slow-zoom-in': {
-      const z = `1.0+0.06*${ease}`
-      return `${preScale},zoompan=z='${z}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${frame.width}x${frame.height}:fps=${FPS}`
-    }
-    case 'slow-zoom-out': {
-      const z = `1.06-0.06*${ease}`
-      return `${preScale},zoompan=z='${z}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${frame.width}x${frame.height}:fps=${FPS}`
-    }
-    case 'gentle-pan-left':
-      return `${preScale},zoompan=z='1.04':x='(iw-iw/zoom)*${ease}':y='ih/2-(ih/zoom/2)':d=${frames}:s=${frame.width}x${frame.height}:fps=${FPS}`
-    case 'gentle-pan-right':
-      return `${preScale},zoompan=z='1.04':x='(iw-iw/zoom)*(1-${ease})':y='ih/2-(ih/zoom/2)':d=${frames}:s=${frame.width}x${frame.height}:fps=${FPS}`
-    case 'static':
-    default:
-      return buildFrameFilters(frame).staticScale
-  }
 }
 
 async function runFfmpeg(args: string[]) {
@@ -158,7 +125,7 @@ async function renderImageScene(
 ) {
   const outputPath = join(workDir, `scene-${index}.mp4`)
   const duration = scene.durationSeconds
-  const motion = getMotionFilter(
+  const motion = buildMotionFilter(
     resolveSceneMotion(scene.motion, duration, context),
     duration,
     frame,
@@ -170,6 +137,7 @@ async function renderImageScene(
     reelTitle: context.reelTitle,
     isFirst: context.isFirst,
     isLast: context.isLast,
+    sceneRole: scene.sceneRole,
   }
   const textFilter = scene.listingPriceText
     ? buildListingDetailsFilters(scene, textOptions)
@@ -217,6 +185,7 @@ async function renderVideoScene(
     reelTitle: context.reelTitle,
     isFirst: context.isFirst,
     isLast: context.isLast,
+    sceneRole: scene.sceneRole,
   }
   const textFilter = scene.listingPriceText
     ? buildListingDetailsFilters(scene, videoTextOptions)
@@ -226,7 +195,8 @@ async function renderVideoScene(
     isFirst: context.isFirst,
     isLast: context.isLast,
   })
-  const { staticScale } = buildFrameFilters(frame)
+  // Subtle cinematic push on video so clips aren't locked static
+  const motion = buildVideoMotionFilter(duration, frame)
 
   await runFfmpeg([
     '-y',
@@ -235,7 +205,7 @@ async function renderVideoScene(
     '-i',
     videoPath,
     '-vf',
-    `${staticScale},${colorGrade}${textFilter}${bookends}`,
+    `${motion},${colorGrade}${textFilter}${bookends}`,
     '-t',
     String(duration),
     '-an',
@@ -514,6 +484,7 @@ export async function renderReelWithFfmpeg(params: {
   listing?: { price?: string; address?: string; beds?: string; baths?: string; sqft?: string; listingUrl?: string } | null
   agent?: { name?: string; phone?: string; email?: string; agencyName?: string } | null
   outroCtaText?: string | null
+  outroEnabled?: boolean
   voiceOver?: Buffer | null
   voiceOverPromise?: Promise<Buffer | null> | null
 }) {
@@ -585,16 +556,20 @@ export async function renderReelWithFfmpeg(params: {
     const isListingShowcase = renderPlan.templateId === 'listing-showcase'
     let logoBuffer: Buffer | null = null
     let qrBuffer: Buffer | null = null
+    const outroEnabled = params.outroEnabled !== false
+
+    if (params.logo) {
+      logoBuffer = await downloadReelObject(params.logo.bucketName, params.logo.storagePath)
+    }
+    if (params.qr) {
+      qrBuffer = await downloadReelObject(params.qr.bucketName, params.qr.storagePath)
+    }
 
     if (isListingShowcase) {
       const { renderLogoIntroScene, renderLogoOutroScene, renderAgentCardScene } = await import(
         '@/lib/reels-maker/ffmpeg-listing-scenes'
       )
 
-      logoBuffer = params.logo
-        ? await downloadReelObject(params.logo.bucketName, params.logo.storagePath)
-        : null
-      qrBuffer = params.qr ? await downloadReelObject(params.qr.bucketName, params.qr.storagePath) : null
       const headshotBuffer = params.agentHeadshot
         ? await downloadReelObject(params.agentHeadshot.bucketName, params.agentHeadshot.storagePath)
         : null
@@ -629,7 +604,7 @@ export async function renderReelWithFfmpeg(params: {
         combined.push({ path: agentCardPath, durationSeconds: agentCard.durationSeconds, transition: 'fade' })
       }
 
-      if (logoBuffer) {
+      if (outroEnabled && logoBuffer) {
         const outro = await renderLogoOutroScene({
           frame,
           logoBuffer,
@@ -641,15 +616,38 @@ export async function renderReelWithFfmpeg(params: {
       }
 
       sceneClips = combined
+    } else if (outroEnabled && (logoBuffer || qrBuffer || params.outroCtaText?.trim())) {
+      // Dedicated end card for non-listing templates
+      const { renderBrandedEndCardScene } = await import('@/lib/reels-maker/ffmpeg-listing-scenes')
+      const endCard = await renderBrandedEndCardScene({
+        frame,
+        logoBuffer,
+        qrBuffer: params.qr?.display === 'outro-only' || !params.logo ? qrBuffer : qrBuffer,
+        ctaText: params.outroCtaText || 'Discover more on Homes.ph',
+      })
+      const endPath = join(workDir, 'branded-end-card.mp4')
+      await writeFile(endPath, endCard.buffer)
+      sceneClips = [
+        ...sceneClips,
+        { path: endPath, durationSeconds: endCard.durationSeconds, transition: 'fade' as const },
+      ]
     }
 
     const bookendedClips = buildBookendedSceneClips(sceneClips, blackLeaderPath, blackTailPath)
 
     let outputBuffer = await mergeScenesWithTransitions(bookendedClips, workDir)
 
+    // Skip full-video watermark if branding already lives on the end card for outro-only
+    const skipLogoOverlay =
+      isListingShowcase ||
+      (outroEnabled && params.logo?.display === 'outro-only' && Boolean(logoBuffer))
+    const skipQrOverlay =
+      isListingShowcase ||
+      (outroEnabled && params.qr?.display === 'outro-only' && Boolean(qrBuffer))
+
     const needsOutroTiming =
-      (!isListingShowcase && params.logo?.display === 'outro-only') ||
-      (!isListingShowcase && params.qr?.display === 'outro-only')
+      (!skipLogoOverlay && params.logo?.display === 'outro-only') ||
+      (!skipQrOverlay && params.qr?.display === 'outro-only')
 
     let outroEnableFrom: number | null = null
     if (needsOutroTiming) {
@@ -661,7 +659,7 @@ export async function renderReelWithFfmpeg(params: {
       }
     }
 
-    if (params.logo && !isListingShowcase) {
+    if (params.logo && !skipLogoOverlay) {
       const logoBytes = logoBuffer ?? (await downloadReelObject(params.logo.bucketName, params.logo.storagePath))
       const logoName = params.logo.storagePath.split('/').pop() ?? 'logo.png'
       const logoTiming =
@@ -678,7 +676,7 @@ export async function renderReelWithFfmpeg(params: {
       ))
     }
 
-    if (params.qr && !isListingShowcase) {
+    if (params.qr && !skipQrOverlay) {
       const qrBytes = qrBuffer ?? (await downloadReelObject(params.qr.bucketName, params.qr.storagePath))
       const qrName = params.qr.storagePath.split('/').pop() ?? 'qr.png'
       const qrTiming =
