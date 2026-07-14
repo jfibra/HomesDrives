@@ -45,14 +45,20 @@ export function getReelAspectRatioLabel(aspectRatio: ReelAspectRatio) {
 export function getReelFrameDimensions(aspectRatio: ReelAspectRatio): ReelFrameDimensions {
   const multiplier = REEL_PRESCALE_MULTIPLIER
 
+  /** FFmpeg scale/crop require positive integers; prefer even for yuv420p. */
+  const evenInt = (value: number) => {
+    const rounded = Math.max(2, Math.round(value))
+    return rounded % 2 === 0 ? rounded : rounded + 1
+  }
+
   if (aspectRatio === 'landscape') {
     const width = 1920
     const height = 1080
     return {
       width,
       height,
-      preScaleWidth: width * multiplier,
-      preScaleHeight: height * multiplier,
+      preScaleWidth: evenInt(width * multiplier),
+      preScaleHeight: evenInt(height * multiplier),
     }
   }
 
@@ -61,7 +67,7 @@ export function getReelFrameDimensions(aspectRatio: ReelAspectRatio): ReelFrameD
   return {
     width,
     height,
-    preScaleWidth: width * multiplier,
-    preScaleHeight: height * multiplier,
+    preScaleWidth: evenInt(width * multiplier),
+    preScaleHeight: evenInt(height * multiplier),
   }
 }

@@ -4,6 +4,31 @@ Generate professional AI-edited property reels (short-form videos) through the H
 
 ---
 
+## What’s new (for API partners)
+
+You do **not** need a new client protocol for cinematic quality. Use the same 5-step workflow. The server now edits like a luxury motion designer.
+
+| You control | Automatic (server) |
+|---|---|
+| Photos, music, logo, QR | Camera moves (dolly, corner push, float, drift…) |
+| `templateId`, `reelBrief` | Non-uniform scene timing (hook → hero → detail → closing) |
+| `logoPosition` / `logoDisplay` | Strongest shot first |
+| `qrPosition` / `qrDisplay` | Cinematic transitions (radial, flash-white, smooth pans…) |
+| `captionsEnabled: false` | Film grain + stronger grade |
+| `outroEnabled` + `outroLine` | Editorial bottom titles + branded **end-card** scene |
+| Listing fields (price, beds…) | Price **count-up** + feature chips (`listing-showcase`) |
+
+**Important for client apps:**
+
+1. **Do not burn your own karaoke captions** — bottom sentence subtitles are never burned in. Short titles still appear.
+2. **Do not append a fake “end card” photo** as the last media file — use `qrDisplay: "outro-only"` (and/or `logoDisplay: "outro-only"`) plus `outroEnabled` + `outroLine`.
+3. **Do not send motion/transition enums** — the server chooses them. A good `reelBrief` still improves story and VO.
+4. **Recommended branding create body** always includes `"captionsEnabled": false` and `"outroEnabled": true`.
+
+See [Cinematic edit quality (Phase 1)](#cinematic-edit-quality-phase-1) and [Homes.ph branding layout](#homesp-branding-layout-recommended).
+
+---
+
 ## Getting Started
 
 1. Contact Homes.ph to get your **API key** and the **base URL** for the service.
@@ -38,7 +63,7 @@ Requests without a valid key get `401 Unauthorized`.
 
 ```
 1. POST   /api/reels-maker/jobs              → create job, receive jobId
-2. POST   /api/reels-maker/jobs/:id/upload   → upload photos/videos
+2. POST   /api/reels-maker/jobs/:id/upload   → upload photos/videos (+ logo / QR)
 3. POST   /api/reels-maker/jobs/:id/render   → start AI + FFmpeg pipeline
 4. GET    /api/reels-maker/jobs/:id          → poll until status = "completed"
 5. GET    /api/reels-maker/jobs/:id/video    → download the final MP4
@@ -56,7 +81,7 @@ Content-Type: application/json
 x-api-key: rk_xxx
 ```
 
-**Body:**
+**Body (recommended Homes.ph style):**
 
 ```json
 {
@@ -66,30 +91,30 @@ x-api-key: rk_xxx
   "captionsEnabled": false,
   "reelBrief": "3-bedroom luxury condo in BGC with pool and city views, asking P18M",
   "outroEnabled": true,
-  "outroLine": "Contact us for a private showing"
+  "outroLine": "Scan for listing details"
 }
 ```
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `templateId` | string | ✅ | Visual style — see [Templates](#templates) |
+| `templateId` | string | ✅ | Visual style — see [Templates](#templates). Prefer `social-trend`, `luxury`, or `listing-showcase`. |
 | `aspectRatio` | `"portrait"` \| `"landscape"` | No | `portrait` = 9:16 for Reels/TikTok (default). `landscape` = 16:9 for YouTube/Facebook. |
-| `voiceOverEnabled` | boolean | No | Generate AI voiceover narration (audio only — no karaoke burn-in) |
+| `voiceOverEnabled` | boolean | No | Generate AI voiceover narration (**audio only** — no karaoke burn-in) |
 | `captionsEnabled` | boolean | No | Prefer `false`. Karaoke subtitles are **never** burned into the video; bottom scene **titles** still appear. |
 | `subtitlesEnabled` | boolean | No | Alias for `captionsEnabled`. |
-| `reelBrief` | string | No | Property description for AI story generation |
-| `outroEnabled` | boolean | No | Add spoken/branded outro. Default: `true` |
-| `outroLine` | string | No | Custom call-to-action. For `listing-showcase`, shown as CTA text in the closing logo scene (defaults to "Scan to view listing"). |
+| `reelBrief` | string | No | Property description — improves AI story, scene order, and voiceover |
+| `outroEnabled` | boolean | No | Default `true`. Adds spoken CTA (if VO on) **and** a branded visual **end-card** scene (logo reveal + optional QR + `outroLine`). |
+| `outroLine` | string | No | Call-to-action text on the end card / listing outro (e.g. `"Scan for listing details"`). |
 
 **`listing-showcase` fields** — only used when `templateId` is `"listing-showcase"` (see [Listing Showcase](#listing-showcase-template)):
 
 | Field | Type | Description |
 |---|---|---|
-| `listingPrice` | string | e.g. `"P18,000,000"`. Animates as a **count-up** price on every photo (eases to the final amount). Also accepts `₱12.5M` / `PHP 8.2M`. |
-| `listingAddress` | string | Shown under the price on every photo, and used as the reel title. |
-| `listingBeds` | string | e.g. `"3"` |
-| `listingBaths` | string | e.g. `"2"` |
-| `listingSqft` | string | e.g. `"120"` |
+| `listingPrice` | string | e.g. `"P18,000,000"`. **Count-up** price animation on every photo. Also accepts `₱12.5M` / `PHP 8.2M`. |
+| `listingAddress` | string | Shown under the price; also used as the reel title. |
+| `listingBeds` | string | e.g. `"3"` — shown as a feature chip |
+| `listingBaths` | string | e.g. `"2"` — shown as a feature chip |
+| `listingSqft` | string | e.g. `"120"` — shown as a feature chip |
 | `listingUrl` | string | Listing page URL — documentation only; upload the QR image via the `qr` upload field. |
 | `agentName` | string | Shown on the agent contact card. |
 | `agentPhone` | string | Shown on the agent contact card. |
@@ -100,17 +125,20 @@ x-api-key: rk_xxx
 
 ```json
 {
-  "id": "01HXYZ...",
-  "status": "queued",
-  "templateId": "real-estate",
-  "aspectRatio": "portrait",
-  "voiceOverEnabled": true,
-  "media": [],
-  "createdAt": "2025-01-15T10:00:00.000Z"
+  "job": {
+    "id": "01HXYZ...",
+    "status": "queued",
+    "templateId": "social-trend",
+    "aspectRatio": "portrait",
+    "voiceOverEnabled": true,
+    "captionsEnabled": false,
+    "media": [],
+    "createdAt": "2025-01-15T10:00:00.000Z"
+  }
 }
 ```
 
-Save the `id` — it is required for all subsequent requests.
+Save `job.id` — it is required for all subsequent requests. (Some clients may also see `id` flattened; prefer `job.id`.)
 
 ---
 
@@ -126,19 +154,32 @@ x-api-key: rk_xxx
 
 | Form field | Type | Notes |
 |---|---|---|
-| `files[]` | File | One or more images or videos. JPEG, PNG, HEIC, WEBP, MP4, MOV supported. Max 10 MB/photo, 100 MB/video. |
-| `mediaNotes` | JSON string | `["living room", "pool area"]` — one note per file, same order. Optional but improves AI captions. |
+| `files` / `files[]` | File | One or more images or videos. JPEG, PNG, HEIC, WEBP, MP4, MOV supported. Max 10 MB/photo, 100 MB/video. |
+| `mediaNotes` | JSON string | `["living room", "pool area"]` — one note per file, same order. Optional; helps storytelling. |
 | `music` | File (MP3) | Optional background music. Max 50 MB. |
-| `logo` | File (PNG/JPG) | Optional logo. For most templates this renders as a watermark. For `listing-showcase` it instead appears full-size in the opening and closing logo scenes, plus small on the agent contact card. |
-| `logoEnabled` | string | `"true"` to enable the logo overlay. |
-| `logoPosition` | string | `"top-left"`, `"top-right"`, `"top-center"`, `"bottom-left"`, `"bottom-right"`, `"bottom-center"` — ignored by `listing-showcase`. |
-| `logoDisplay` | string | `"always"` (default) or `"outro-only"` (last ~4 seconds only). Ignored by `listing-showcase`. |
-| `qr` | File (PNG/JPG) | Optional QR code image (e.g. linking to the listing). For most templates it's rendered as a corner overlay inside a white box container. For `listing-showcase` it's rendered inside the agent contact card instead. |
-| `qrEnabled` | string | `"true"` to enable rendering the QR code. |
+| `logo` | File (PNG/JPG) | Brand mark. Corner/center watermark **or** end-card (see `logoDisplay`). For `listing-showcase`: intro + outro + small on agent card. |
+| `logoEnabled` | string | `"true"` to enable. |
+| `logoPosition` | string | `"top-left"`, `"top-right"`, `"top-center"`, `"bottom-left"`, `"bottom-right"`, `"bottom-center"`. Use **`top-center`** for Homes.ph. Ignored by `listing-showcase`. |
+| `logoDisplay` | string | `"always"` (default, full reel) or `"outro-only"` (end window / end card). Ignored by `listing-showcase`. |
+| `qr` | File (PNG/JPG) | Listing QR or agent end-card composite. White-boxed watermark **or** end-card only. For `listing-showcase`: agent contact card. |
+| `qrEnabled` | string | `"true"` to enable. |
 | `qrPosition` | string | Same values as `logoPosition` — defaults to `"bottom-right"`. Ignored by `listing-showcase`. |
-| `qrDisplay` | string | `"always"` (default) or `"outro-only"` (last ~4 seconds only). Use `"outro-only"` so QR/agent badge appears only at the end. Ignored by `listing-showcase`. |
-| `agentHeadshot` | File (PNG/JPG) | `listing-showcase` only. Agent photo, shown circle-cropped on the contact card. |
-| `agentHeadshotEnabled` | string | `"true"` to enable rendering the headshot. |
+| `qrDisplay` | string | `"always"` or **`"outro-only"`** (recommended for agent/QR so it does not cover property shots). Ignored by `listing-showcase`. |
+| `agentHeadshot` | File (PNG/JPG) | `listing-showcase` only. Agent photo, circle-cropped on the contact card. |
+| `agentHeadshotEnabled` | string | `"true"` to enable. |
+
+**Homes.ph branding upload (copy-paste):**
+
+```js
+form.append('logo', fs.createReadStream('homes-logo.png'), 'homes-logo.png')
+form.append('logoEnabled', 'true')
+form.append('logoPosition', 'top-center')
+form.append('logoDisplay', 'always')
+form.append('qr', fs.createReadStream('listing-qr.png'), 'listing-qr.png')
+form.append('qrEnabled', 'true')
+form.append('qrPosition', 'bottom-center')
+form.append('qrDisplay', 'outro-only')
+```
 
 **Node.js example:**
 
@@ -148,9 +189,17 @@ import FormData from 'form-data'
 import fetch from 'node-fetch'
 
 const form = new FormData()
-form.append('files[]', fs.createReadStream('living-room.jpg'), 'living-room.jpg')
-form.append('files[]', fs.createReadStream('pool.jpg'), 'pool.jpg')
+form.append('files', fs.createReadStream('living-room.jpg'), 'living-room.jpg')
+form.append('files', fs.createReadStream('pool.jpg'), 'pool.jpg')
 form.append('mediaNotes', JSON.stringify(['Living room', 'Pool area']))
+form.append('logo', fs.createReadStream('homes-logo.png'), 'homes-logo.png')
+form.append('logoEnabled', 'true')
+form.append('logoPosition', 'top-center')
+form.append('logoDisplay', 'always')
+form.append('qr', fs.createReadStream('listing-qr.png'), 'listing-qr.png')
+form.append('qrEnabled', 'true')
+form.append('qrPosition', 'bottom-center')
+form.append('qrDisplay', 'outro-only')
 
 await fetch(`${BASE_URL}/api/reels-maker/jobs/${jobId}/upload`, {
   method: 'POST',
@@ -159,7 +208,7 @@ await fetch(`${BASE_URL}/api/reels-maker/jobs/${jobId}/upload`, {
 })
 ```
 
-**Response `200`:** `{ "ok": true, "mediaCount": 2 }`
+**Response `200`:** `{ "job": { ... }, "uploadedMedia": [ ... ] }`
 
 ---
 
@@ -184,11 +233,18 @@ x-api-key: rk_xxx
       "role": "media"
     },
     {
-      "clientId": "bgmusic",
-      "fileName": "music.mp3",
-      "contentType": "audio/mpeg",
-      "size": 5242880,
-      "role": "music"
+      "clientId": "logo",
+      "fileName": "homes-logo.png",
+      "contentType": "image/png",
+      "size": 120000,
+      "role": "logo"
+    },
+    {
+      "clientId": "qr",
+      "fileName": "listing-qr.png",
+      "contentType": "image/png",
+      "size": 80000,
+      "role": "qr"
     }
   ]
 }
@@ -223,7 +279,7 @@ await fetch(upload.uploadUrl, {
 })
 ```
 
-**Step 3 — finalize:**
+**Step 3 — finalize** (include logo/QR display flags):
 
 ```
 POST /api/reels-maker/jobs/:jobId/upload/finalize
@@ -233,6 +289,12 @@ x-api-key: rk_xxx
 
 ```json
 {
+  "logoEnabled": true,
+  "logoPosition": "top-center",
+  "logoDisplay": "always",
+  "qrEnabled": true,
+  "qrPosition": "bottom-center",
+  "qrDisplay": "outro-only",
   "uploads": [
     {
       "role": "media",
@@ -243,17 +305,24 @@ x-api-key: rk_xxx
       "userNote": "Living room"
     },
     {
-      "role": "music",
-      "fileName": "music.mp3",
-      "mimeType": "audio/mpeg",
+      "role": "logo",
+      "fileName": "homes-logo.png",
+      "mimeType": "image/png",
       "bucketName": "homes-ph-reels",
-      "storagePath": "jobs/01HXYZ/music/xyz.mp3"
+      "storagePath": "jobs/01HXYZ/logo/xyz.png"
+    },
+    {
+      "role": "qr",
+      "fileName": "listing-qr.png",
+      "mimeType": "image/png",
+      "bucketName": "homes-ph-reels",
+      "storagePath": "jobs/01HXYZ/qr/qr.png"
     }
   ]
 }
 ```
 
-**Response `200`:** `{ "ok": true }`
+**Response `200`:** `{ "job": { ... }, "uploadedMedia": [ ... ] }`
 
 ---
 
@@ -272,15 +341,18 @@ Optional body to override settings before rendering:
   "reelBrief": "Updated property description",
   "voiceOverEnabled": true,
   "captionsEnabled": false,
+  "outroEnabled": true,
+  "outroLine": "Scan for listing details",
   "templateId": "social-trend"
 }
 ```
 
 | Field | Notes |
 |---|---|
-| `captionsEnabled` / `subtitlesEnabled` | Prefer `false`. Voiceover still plays; short bottom **titles** still appear. Karaoke/narration subtitles are never burned into the MP4. |
+| `captionsEnabled` / `subtitlesEnabled` | Prefer `false`. Voiceover still plays; short bottom **titles** still appear. Karaoke subtitles are never burned into the MP4. |
+| `outroEnabled` / `outroLine` | Controls spoken CTA + visual end-card. |
 
-**Response `200`:** `{ "ok": true }`
+**Response `200`:** `{ "jobId": "...", "started": true }`
 
 Rendering is **asynchronous**. It runs through these stages:
 
@@ -293,14 +365,18 @@ Typical time: **60–180 seconds**, depending on the number of photos and server
 
 ---
 
-## On-video text (what partners get)
+## What appears in the finished video
 
 | Element | Behavior |
 |---|---|
-| **Bottom titles** | Short modern titles (1–4 words) in a lower-third: soft veil, slide-up fade, gold accent line. First scene may show a small Homes.ph label above the title. |
-| **Karaoke / subtitles** | **Not burned in.** Voiceover is audio-only. Do not rely on bottom sentence captions. |
-| **Listing price** | With `listing-showcase` + `listingPrice`, the price **counts up** (ease-out) then holds the final amount. Address / beds·baths·sqft appear under it. |
-| **Social caption** | Job `caption` / hashtags are for posting copy in the API response — not burned into the video. |
+| **Cinematic photo motion** | Dolly / push / track / float (server-chosen). Not a basic slideshow. |
+| **Bottom titles** | Short modern titles (1–4 words) in an editorial lower-third (slide-up, gold accent). |
+| **Karaoke / subtitles** | **Never burned in.** Voiceover is audio-only. |
+| **Logo watermark** | Position + `always` / `outro-only` (non–listing-showcase). |
+| **QR / end badge** | Prefer `outro-only` so it appears on the branded end card / last seconds only. |
+| **End card** | When `outroEnabled`: logo reveal + optional QR + `outroLine` (~3s). |
+| **Listing price** | `listing-showcase` + `listingPrice` → **count-up**, then address + beds/baths/sqft **chips**. |
+| **Social caption** | Job `caption` / hashtags in the API response are for posting copy — not burned into the video. |
 
 ---
 
@@ -315,24 +391,26 @@ x-api-key: rk_xxx
 
 ```json
 {
-  "id": "01HXYZ...",
-  "status": "rendering",
-  "progress": 72,
-  "message": "Rendering scene 4 of 6...",
-  "templateId": "real-estate",
-  "aspectRatio": "portrait",
-  "plan": {
-    "title": "BGC Dream Home",
-    "scenes": [ ... ]
-  },
-  "resultUrl": null,
-  "error": null,
-  "updatedAt": "2025-01-15T10:01:30.000Z"
+  "job": {
+    "id": "01HXYZ...",
+    "status": "rendering",
+    "progress": 72,
+    "message": "Rendering video…",
+    "templateId": "social-trend",
+    "aspectRatio": "portrait",
+    "plan": {
+      "title": "BGC Dream Home",
+      "scenes": [ "... server-planned cinematic scenes ..." ]
+    },
+    "resultUrl": null,
+    "error": null,
+    "updatedAt": "2025-01-15T10:01:30.000Z"
+  }
 }
 ```
 
-- When `status === "completed"` → `resultUrl` has the direct video URL.
-- When `status === "failed"` → `error` has a description.
+- When `job.status === "completed"` → prefer downloading via `/video`.
+- When `job.status === "failed"` → `job.error` has a description.
 
 **Recommended polling interval:** every **5 seconds**.
 
@@ -398,12 +476,12 @@ Response: `{ "preview": { "title": "...", "duration": 240, "thumbnail": "..." } 
 | `queued` | Created, waiting to start |
 | `uploading` | Media is being attached |
 | `analyzing` | AI analyzing uploaded photos/videos |
-| `generating_story` | AI writing scene narrative |
-| `writing_captions` | Captions being finalized |
+| `generating_story` | AI writing cinematic scene plan |
+| `writing_captions` | Timeline / titles finalized |
 | `creating_voiceover` | Text-to-speech audio generating |
 | `rendering` | FFmpeg rendering scenes |
 | `uploading_result` | Video being saved to storage |
-| `completed` | Done — `resultUrl` is set |
+| `completed` | Done — video ready |
 | `failed` | Error — check `error` field |
 
 ---
@@ -414,7 +492,7 @@ Response: `{ "preview": { "title": "...", "duration": 240, "thumbnail": "..." } 
 |---|---|
 | `real-estate` | Bright, warm, professional property showcase |
 | `cinematic` | Filmic tones, desaturated, wide-format feel |
-| `luxury` | Deep contrast, warm gold tones |
+| `luxury` | Deep contrast, warm gold tones — great for premium listings |
 | `modern` | Clean, high-contrast, sharp |
 | `minimal` | Soft, desaturated, editorial |
 | `travel` | Vivid saturation, adventurous energy |
@@ -422,7 +500,7 @@ Response: `{ "preview": { "title": "...", "duration": 240, "thumbnail": "..." } 
 | `event` | High energy, punchy contrast |
 | `birthday` | Colorful, celebratory |
 | `wedding` | Soft romantic, pastel tones |
-| `social-trend` | Ultra-saturated, viral style |
+| `social-trend` | Ultra-saturated, viral style — default for Homes.ph social |
 | `listing-showcase` | Structured listing tour — see below |
 
 ### Listing Showcase Template
@@ -430,9 +508,9 @@ Response: `{ "preview": { "title": "...", "duration": 240, "thumbnail": "..." } 
 `listing-showcase` builds a fixed structure instead of an AI-improvised story, so price and address are always exact:
 
 1. **Logo intro** — your `logo` fades in, scales up, with a soft glow, holds ~2s, then dissolves into the photo tour.
-2. **Photo tour** — cinematic camera moves (dolly, corner push, float, drift — not basic Ken Burns). Bottom lower-third shows `listingPrice` as a **count-up**, then address + **beds / baths / sqft chips**.
-3. **Agent contact card** — `agentHeadshot` (circle-cropped), `qr` (in a white box), and `agentName` / `agentPhone` / `agentEmail` / `agentAgencyName`, laid out like a business card. Only rendered if at least one of these is provided.
-4. **Logo outro** — your `logo` again, with `outroLine` (or "Scan to view listing" by default) as the call-to-action, fading to black.
+2. **Photo tour** — cinematic camera moves (dolly, corner push, float, drift). Bottom lower-third shows `listingPrice` as a **count-up**, then address + **beds / baths / sqft chips**.
+3. **Agent contact card** — `agentHeadshot` (circle-cropped), `qr` (in a white box), and `agentName` / `agentPhone` / `agentEmail` / `agentAgencyName`. Only rendered if at least one of these is provided.
+4. **Logo outro** — your `logo` again, with `outroLine` (or "Scan to view listing" by default).
 
 Because the logo and QR are embedded directly into these scenes, they are **not** also applied as a persistent corner watermark for this template — `logoPosition` / `qrPosition` / `logoDisplay` / `qrDisplay` are ignored.
 
@@ -440,27 +518,27 @@ Because the logo and QR are embedded directly into these scenes, they are **not*
 
 ## Cinematic edit quality (Phase 1)
 
-The server now treats every reel as a **luxury motion edit**, not a slideshow:
+The server treats every reel as a **luxury motion edit**, not a slideshow:
 
 | Area | Behavior |
 |---|---|
-| **Camera** | Dolly-in/out, corner push, vertical drift, horizontal track, float — never repeats the same move twice in a row |
+| **Camera** | Dolly-in/out, corner push, vertical drift, horizontal track, float — avoids repeating the same move |
 | **Timing** | Scene roles: hook (~2s) → hero (3–4s) → detail (1.6–2.4s) → closing (~3s). Not identical holds. |
 | **Story order** | Strongest / highest-quality shot opens (hook first) |
-| **Transitions** | Purposeful xfade set: radial, flash-white, smooth pans, diag wipe, circle-open, wind, etc. |
+| **Transitions** | Purposeful set: radial, flash-white, smooth pans, diag wipe, circle-open, wind, etc. |
 | **Grade** | Stronger template looks + subtle film grain |
 | **Type** | Editorial lower-third (Plus Jakarta / Manrope), accent line, no karaoke burn-in |
-| **End card** | When `outroEnabled`, a dedicated branded CTA scene (logo reveal + optional QR + `outroLine`) |
+| **End card** | When `outroEnabled`: dedicated branded CTA (logo reveal + optional QR + `outroLine`) |
 
-**Phase 2 (roadmap):** AI depth/parallax, Remotion-grade motion graphics, true BPM beat sync, 60fps GPU encode.
+**Phase 2 (roadmap, not available yet):** AI depth/parallax, Remotion-grade motion graphics, true BPM beat sync, 60fps GPU encode.
 
-Partners do **not** need to send motion/transition fields — the server chooses cinematic moves. Optional `reelBrief` still improves storytelling.
+Partners do **not** send motion/transition fields — the server chooses cinematic moves. Optional `reelBrief` still improves storytelling.
 
 ---
 
 ## Homes.ph branding layout (recommended)
 
-Goal: Homes.ph logo **top-center** for the full reel · agent/QR **only at the end** · modern bottom titles · voiceover **without** karaoke subtitles.
+Goal: Homes.ph logo **top-center** for the full reel · agent/QR **only at the end** · modern bottom titles · voiceover **without** karaoke subtitles · cinematic motion.
 
 **Create:**
 
@@ -472,11 +550,11 @@ Goal: Homes.ph logo **top-center** for the full reel · agent/QR **only at the e
   "captionsEnabled": false,
   "outroEnabled": true,
   "outroLine": "Scan for listing details",
-  "reelBrief": "…"
+  "reelBrief": "3BR luxury condo in BGC with pool and city views, asking P18M"
 }
 ```
 
-For a **counting price** on every photo, use `listing-showcase` instead and set `listingPrice` (e.g. `"P18,000,000"`).
+For a **counting price** on every photo, use `templateId: "listing-showcase"` and set `listingPrice` (e.g. `"P18,000,000"`).
 
 **Upload (multipart):**
 
@@ -491,21 +569,21 @@ For a **counting price** on every photo, use `listing-showcase` instead and set 
 | `qrPosition` | `"bottom-center"` (or a corner) |
 | `qrDisplay` | `"outro-only"` |
 
-This keeps the logo for the whole reel and shows the QR/end badge only on the last ~4 seconds — no need to append a fake end-card photo as the last media file.
+This keeps the logo for the whole reel and shows the QR/end badge on the branded end card — no need to append a fake end-card photo as the last media file.
 
-### What partners can use now (quick reference)
+### Quick reference — what partners can use
 
 | Capability | How |
 |---|---|
 | Logo top-center full video | `logoPosition=top-center` + `logoDisplay=always` |
-| Logo bottom-center (also supported) | `logoPosition=bottom-center` |
-| QR / end badge only at end | `qrDisplay=outro-only` (~last 4 seconds) |
+| Logo bottom-center | `logoPosition=bottom-center` |
+| QR / end badge only at end | `qrDisplay=outro-only` |
 | Logo only at end | `logoDisplay=outro-only` |
-| No karaoke subtitles | Default behavior; set `captionsEnabled: false` on create/render |
-| Modern bottom titles | Automatic on all non-listing templates |
-| Price count-up | `templateId: "listing-showcase"` + `listingPrice` |
-| Spoken / visual CTA | `outroEnabled` + `outroLine` (dedicated end-card scene) |
-| Cinematic motion / transitions | Automatic (server-side Phase 1 editor) |
+| No karaoke subtitles | `captionsEnabled: false` (karaoke never burned in either way) |
+| Modern bottom titles | Automatic |
+| Price count-up + chips | `templateId: "listing-showcase"` + `listingPrice` / beds / baths / sqft |
+| Spoken + visual CTA | `outroEnabled: true` + `outroLine` |
+| Cinematic motion / transitions | Automatic — no client fields required |
 
 ---
 
@@ -522,6 +600,7 @@ All errors return JSON:
 | `400` | Bad request — missing or invalid field |
 | `401` | Invalid or missing `x-api-key` |
 | `404` | Job not found |
+| `409` | Job already processing or completed |
 | `500` | Server error — check `error` field |
 
 ---
@@ -538,27 +617,37 @@ const API_KEY  = 'rk_your_key_here'
 const headers  = { 'x-api-key': API_KEY }
 
 // ── 1. Create job ──────────────────────────────────────────────────────────────
-const job = await fetch(`${BASE_URL}/api/reels-maker/jobs`, {
+const created = await fetch(`${BASE_URL}/api/reels-maker/jobs`, {
   method: 'POST',
   headers: { ...headers, 'Content-Type': 'application/json' },
   body: JSON.stringify({
-    templateId: 'real-estate',
+    templateId: 'social-trend',
     aspectRatio: 'portrait',
     voiceOverEnabled: true,
+    captionsEnabled: false,
     reelBrief: '3BR luxury condo in BGC with pool and city views, asking P18M',
-    outroLine: 'Contact us for a private showing',
+    outroEnabled: true,
+    outroLine: 'Scan for listing details',
   }),
 }).then(r => r.json())
 
-const jobId = job.id
+const jobId = created.job?.id ?? created.id
 console.log('Job created:', jobId)
 
-// ── 2. Upload photos ───────────────────────────────────────────────────────────
+// ── 2. Upload photos + branding ────────────────────────────────────────────────
 const form = new FormData()
-form.append('files[]', fs.createReadStream('photo1.jpg'), 'photo1.jpg')
-form.append('files[]', fs.createReadStream('photo2.jpg'), 'photo2.jpg')
-form.append('files[]', fs.createReadStream('photo3.jpg'), 'photo3.jpg')
+form.append('files', fs.createReadStream('photo1.jpg'), 'photo1.jpg')
+form.append('files', fs.createReadStream('photo2.jpg'), 'photo2.jpg')
+form.append('files', fs.createReadStream('photo3.jpg'), 'photo3.jpg')
 form.append('mediaNotes', JSON.stringify(['Living room', 'Master bedroom', 'Pool']))
+form.append('logo', fs.createReadStream('homes-logo.png'), 'homes-logo.png')
+form.append('logoEnabled', 'true')
+form.append('logoPosition', 'top-center')
+form.append('logoDisplay', 'always')
+form.append('qr', fs.createReadStream('listing-qr.png'), 'listing-qr.png')
+form.append('qrEnabled', 'true')
+form.append('qrPosition', 'bottom-center')
+form.append('qrDisplay', 'outro-only')
 
 await fetch(`${BASE_URL}/api/reels-maker/jobs/${jobId}/upload`, {
   method: 'POST',
@@ -570,23 +659,25 @@ console.log('Media uploaded')
 // ── 3. Start rendering ─────────────────────────────────────────────────────────
 await fetch(`${BASE_URL}/api/reels-maker/jobs/${jobId}/render`, {
   method: 'POST',
-  headers,
+  headers: { ...headers, 'Content-Type': 'application/json' },
+  body: JSON.stringify({ captionsEnabled: false }),
 })
 console.log('Rendering started')
 
 // ── 4. Poll until done ─────────────────────────────────────────────────────────
 let status = 'queued'
 while (!['completed', 'failed'].includes(status)) {
-  await new Promise(r => setTimeout(r, 5000)) // wait 5s
+  await new Promise(r => setTimeout(r, 5000))
   const data = await fetch(`${BASE_URL}/api/reels-maker/jobs/${jobId}`, { headers }).then(r => r.json())
-  status = data.status
-  console.log(`[${data.progress}%] ${data.message}`)
+  const job = data.job ?? data
+  status = job.status
+  console.log(`[${job.progress}%] ${job.message}`)
 
   if (status === 'completed') {
-    console.log('Video ready at:', data.resultUrl)
+    console.log('Video ready')
   }
   if (status === 'failed') {
-    console.error('Render failed:', data.error)
+    console.error('Render failed:', job.error)
     process.exit(1)
   }
 }
@@ -597,16 +688,18 @@ res.body.pipe(fs.createWriteStream('output.mp4'))
 console.log('Saved to output.mp4')
 ```
 
-**Listing Showcase example** (steps 4–5 — polling/download — are identical to above):
+**Listing Showcase example** (polling/download identical to above):
 
 ```js
-// ── 1. Create job with listing + agent details ─────────────────────────────────
-const job = await fetch(`${BASE_URL}/api/reels-maker/jobs`, {
+const created = await fetch(`${BASE_URL}/api/reels-maker/jobs`, {
   method: 'POST',
   headers: { ...headers, 'Content-Type': 'application/json' },
   body: JSON.stringify({
     templateId: 'listing-showcase',
     aspectRatio: 'portrait',
+    voiceOverEnabled: true,
+    captionsEnabled: false,
+    outroEnabled: true,
     outroLine: 'Contact us today',
     listingPrice: 'P18,000,000',
     listingAddress: 'BGC, Taguig City',
@@ -621,12 +714,11 @@ const job = await fetch(`${BASE_URL}/api/reels-maker/jobs`, {
   }),
 }).then(r => r.json())
 
-const jobId = job.id
+const jobId = created.job?.id ?? created.id
 
-// ── 2. Upload photos, logo, QR, and agent headshot ──────────────────────────────
 const form = new FormData()
-form.append('files[]', fs.createReadStream('living-room.jpg'), 'living-room.jpg')
-form.append('files[]', fs.createReadStream('pool.jpg'), 'pool.jpg')
+form.append('files', fs.createReadStream('living-room.jpg'), 'living-room.jpg')
+form.append('files', fs.createReadStream('pool.jpg'), 'pool.jpg')
 form.append('logo', fs.createReadStream('agency-logo.png'), 'agency-logo.png')
 form.append('logoEnabled', 'true')
 form.append('qr', fs.createReadStream('listing-qr.png'), 'listing-qr.png')
@@ -640,8 +732,11 @@ await fetch(`${BASE_URL}/api/reels-maker/jobs/${jobId}/upload`, {
   body: form,
 })
 
-// ── 3. Start rendering ─────────────────────────────────────────────────────────
-await fetch(`${BASE_URL}/api/reels-maker/jobs/${jobId}/render`, { method: 'POST', headers })
+await fetch(`${BASE_URL}/api/reels-maker/jobs/${jobId}/render`, {
+  method: 'POST',
+  headers: { ...headers, 'Content-Type': 'application/json' },
+  body: JSON.stringify({}),
+})
 ```
 
 ---
@@ -649,12 +744,13 @@ await fetch(`${BASE_URL}/api/reels-maker/jobs/${jobId}/render`, { method: 'POST'
 ## Notes
 
 - **Supported formats:** JPEG, PNG, HEIC, WEBP, AVIF (photos); MP4, MOV, M4V (videos).
-- **Minimum media:** At least 1 image or video required.
+- **Minimum media:** At least 1 image or video required. **5–10 stills** give the best cinematic results.
 - **Render time:** 60–180 seconds depending on scene count and server load.
 - **Output spec:** H.264 MP4, 1080×1920 @ 30fps (portrait) or 1920×1080 (landscape), CRF 17.
 - **Job storage:** Jobs persist indefinitely. Clean up unused jobs with `DELETE /jobs/:id`.
 - **API keys** are per-partner and can be revoked without affecting other integrations.
+- **Workarounds to stop using:** fake last-frame end cards; compositing agent+logo into one full-reel watermark; relying on `reelBrief` alone to kill bottom karaoke (use `captionsEnabled: false`).
 
 ---
 
-*For API key issuance or support, contact your Homes.ph integration contact.*
+*For API key issuance or support, contact your Homes.ph integration contact. Partners can also download this file from Admin → Reels API keys.*
