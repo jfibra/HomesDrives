@@ -1,31 +1,51 @@
 # Homes.ph Reels API — Partner Integration Guide
 
-Generate professional AI-edited property reels (short-form videos) through the Homes.ph Reels service. The API handles everything: AI story planning, **cinematic camera moves** (dolly / push / float — not a basic slideshow), purposeful transitions, color grading with film grain, editorial typography, voiceover narration, music mixing, branded end cards, and final MP4 export.
+Generate professional AI-edited property reels (short-form videos) through the Homes.ph Reels service. The API handles everything: AI story planning, **cinematic camera moves** (dolly / push / float — not a basic slideshow), purposeful transitions, color grading with film grain, slanted lower-thirds, voiceover narration, music mixing, **luxury intro + branded outro cards**, and final MP4 export.
 
 ---
 
 ## What’s new (for API partners)
 
-You do **not** need a new client protocol for cinematic quality. Use the same 5-step workflow. The server now edits like a luxury motion designer.
+You do **not** need a new client protocol. Use the same 5-step workflow. Copy the branding recipe below so your reels match the current Homes.ph edit.
+
+### Reel structure (automatic)
+
+Every reel with branding now builds as:
+
+```
+1. Luxury intro   (~3.2s)  — only if you upload logo
+2. Photo tour              — cinematic motion + slanted lower-thirds
+3. Branded outro  (~4.5s)  — if outroEnabled + logo / QR / agent content
+```
+
+| Beat | What partners see | How to enable |
+|---|---|---|
+| **Intro** | Black/gold plate first → your **logo fades + scales in at center** → dissolves into photos | Upload `logo` (`logoEnabled=true`) |
+| **Photo tour** | Cinematic moves + slow slanted lower-thirds; optional top-center logo watermark | Photos + optional `logoPosition=top-center` / `logoDisplay=always` |
+| **Outro** | Geometric blue plate → top **logo** → circular **agent photo** → **name / phone** → **QR** (+ house badge) | `outroEnabled: true` + upload `logo` / `qr` / `agentHeadshot` + set `agentName` / `agentPhone` |
+
+### Control vs automatic
 
 | You control | Automatic (server) |
 |---|---|
-| Photos, music, logo, QR | Camera moves (dolly, corner push, float, drift…) |
-| `templateId`, `reelBrief` | Non-uniform scene timing (hook → hero → detail → closing) |
-| `logoPosition` / `logoDisplay` | Strongest shot first |
-| `qrPosition` / `qrDisplay` | Cinematic transitions (radial, flash-white, smooth pans…) |
+| Photos, music, logo, QR, agent headshot | Luxury intro plate + centered logo reveal |
+| `templateId`, `reelBrief` | Camera moves (dolly, corner push, float, drift…) |
+| `logoPosition` / `logoDisplay` | Non-uniform scene timing (hook → hero → detail → closing) |
+| `qrPosition` / `qrDisplay` | Strongest shot first + cinematic transitions |
 | `captionsEnabled: false` | Film grain + stronger grade |
-| `outroEnabled` + `outroLine` | Editorial bottom titles + branded **end-card** scene |
+| `outroEnabled` + `outroLine` + agent fields | Slanted lower-thirds + **branded geometric outro** |
 | Listing fields (price, beds…) | Price **count-up** + feature chips (`listing-showcase`) |
 
 **Important for client apps:**
 
-1. **Do not burn your own karaoke captions** — bottom sentence subtitles are never burned in. Short titles still appear.
-2. **Do not append a fake “end card” photo** as the last media file — use `qrDisplay: "outro-only"` (and/or `logoDisplay: "outro-only"`) plus `outroEnabled` + `outroLine`.
+1. **Do not burn your own karaoke captions** — bottom sentence subtitles are never burned in. Short slanted titles still appear.
+2. **Do not append a fake “end card” photo** as the last media file — use `qrDisplay: "outro-only"` plus `outroEnabled` and upload `logo` / `qr` / `agentHeadshot`.
 3. **Do not send motion/transition enums** — the server chooses them. A good `reelBrief` still improves story and VO.
 4. **Recommended branding create body** always includes `"captionsEnabled": false` and `"outroEnabled": true`.
+5. **Use a white / light logo** for best contrast on the dark intro + outro plates (e.g. `whiteLogo.png` style).
+6. **Prefer a square-ish headshot** — the server circle-crops it for the outro.
 
-See [Cinematic edit quality (Phase 1)](#cinematic-edit-quality-phase-1) and [Homes.ph branding layout](#homesp-branding-layout-recommended).
+See [Luxury intro & branded outro](#luxury-intro--branded-outro), [Cinematic edit quality (Phase 1)](#cinematic-edit-quality-phase-1), and [Homes.ph branding layout](#homesp-branding-layout-recommended).
 
 ---
 
@@ -91,7 +111,9 @@ x-api-key: rk_xxx
   "captionsEnabled": false,
   "reelBrief": "3-bedroom luxury condo in BGC with pool and city views, asking P18M",
   "outroEnabled": true,
-  "outroLine": "Scan for listing details"
+  "outroLine": "Scan for listing details",
+  "agentName": "Maria Santos",
+  "agentPhone": "+63 917 000 0000"
 }
 ```
 
@@ -103,8 +125,12 @@ x-api-key: rk_xxx
 | `captionsEnabled` | boolean | No | Prefer `false`. Karaoke subtitles are **never** burned into the video; bottom scene **titles** still appear. |
 | `subtitlesEnabled` | boolean | No | Alias for `captionsEnabled`. |
 | `reelBrief` | string | No | Property description — improves AI story, scene order, and voiceover |
-| `outroEnabled` | boolean | No | Default `true`. Adds spoken CTA (if VO on) **and** a branded visual **end-card** scene (logo reveal + optional QR + `outroLine`). |
-| `outroLine` | string | No | Call-to-action text on the end card / listing outro (e.g. `"Scan for listing details"`). |
+| `outroEnabled` | boolean | No | Default `true`. Builds the **branded geometric outro** (logo → agent photo → name/phone → QR) when any of those assets/fields are present. Also drives the spoken VO CTA when voiceover is on. |
+| `outroLine` | string | No | Spoken / optional CTA line (e.g. `"Scan for listing details"`). Visual logo/QR/agent layout does **not** require this string — upload assets instead. |
+| `agentName` | string | No | White name line on the branded outro (any template). |
+| `agentPhone` | string | No | White phone line on the branded outro (any template). |
+| `agentEmail` | string | No | Optional secondary line on the outro. |
+| `agentAgencyName` | string | No | Used on the outro when `agentName` is omitted. |
 
 **`listing-showcase` fields** — only used when `templateId` is `"listing-showcase"` (see [Listing Showcase](#listing-showcase-template)):
 
@@ -116,10 +142,6 @@ x-api-key: rk_xxx
 | `listingBaths` | string | e.g. `"2"` — shown as a feature chip |
 | `listingSqft` | string | e.g. `"120"` — shown as a feature chip |
 | `listingUrl` | string | Listing page URL — documentation only; upload the QR image via the `qr` upload field. |
-| `agentName` | string | Shown on the agent contact card. |
-| `agentPhone` | string | Shown on the agent contact card. |
-| `agentEmail` | string | Shown on the agent contact card. |
-| `agentAgencyName` | string | Shown on the agent contact card. |
 
 **Response `201`:**
 
@@ -157,21 +179,21 @@ x-api-key: rk_xxx
 | `files` / `files[]` | File | One or more images or videos. JPEG, PNG, HEIC, WEBP, MP4, MOV supported. Max 10 MB/photo, 100 MB/video. |
 | `mediaNotes` | JSON string | `["living room", "pool area"]` — one note per file, same order. Optional; helps storytelling. |
 | `music` | File (MP3) | Optional background music. Max 50 MB. |
-| `logo` | File (PNG/JPG) | Brand mark. Corner/center watermark **or** end-card (see `logoDisplay`). For `listing-showcase`: intro + outro + small on agent card. |
+| `logo` | File (PNG/JPG) | Brand mark. Prefer **white / light** for dark intro + outro plates. Also used as photo-tour watermark when `logoDisplay=always`. Always drives the luxury **intro** (if uploaded) and top of the **outro**. |
 | `logoEnabled` | string | `"true"` to enable. |
-| `logoPosition` | string | `"top-left"`, `"top-right"`, `"top-center"`, `"bottom-left"`, `"bottom-right"`, `"bottom-center"`. Use **`top-center`** for Homes.ph. Ignored by `listing-showcase`. |
-| `logoDisplay` | string | `"always"` (default, full reel) or `"outro-only"` (end window / end card). Ignored by `listing-showcase`. |
-| `qr` | File (PNG/JPG) | Listing QR or agent end-card composite. White-boxed watermark **or** end-card only. For `listing-showcase`: agent contact card. |
+| `logoPosition` | string | `"top-left"`, `"top-right"`, `"top-center"`, `"bottom-left"`, `"bottom-right"`, `"bottom-center"`. Use **`top-center`** for Homes.ph watermark during the photo tour. Ignored by `listing-showcase` (logo only on intro/outro). |
+| `logoDisplay` | string | `"always"` (default, watermark during photo tour) or `"outro-only"` (skip watermark; logo still appears on intro/outro cards). Ignored by `listing-showcase`. |
+| `qr` | File (PNG/JPG) | Listing QR. Prefer `qrDisplay=outro-only` so it only appears on the branded outro (white pad + house badge). |
 | `qrEnabled` | string | `"true"` to enable. |
-| `qrPosition` | string | Same values as `logoPosition` — defaults to `"bottom-right"`. Ignored by `listing-showcase`. |
-| `qrDisplay` | string | `"always"` or **`"outro-only"`** (recommended for agent/QR so it does not cover property shots). Ignored by `listing-showcase`. |
-| `agentHeadshot` | File (PNG/JPG) | `listing-showcase` only. Agent photo, circle-cropped on the contact card. |
+| `qrPosition` | string | Same values as `logoPosition` — defaults to `"bottom-right"`. Only matters if `qrDisplay=always`. Ignored by `listing-showcase`. |
+| `qrDisplay` | string | `"always"` or **`"outro-only"`** (recommended — QR on branded outro only, not over property shots). Ignored by `listing-showcase`. |
+| `agentHeadshot` | File (PNG/JPG) | Agent photo for the branded outro (circle-cropped + white ring). Works on **any** template when `outroEnabled`. |
 | `agentHeadshotEnabled` | string | `"true"` to enable. |
 
-**Homes.ph branding upload (copy-paste):**
+**Homes.ph branding upload (copy-paste — intro + watermark + full outro):**
 
 ```js
-form.append('logo', fs.createReadStream('homes-logo.png'), 'homes-logo.png')
+form.append('logo', fs.createReadStream('homes-logo-white.png'), 'homes-logo-white.png')
 form.append('logoEnabled', 'true')
 form.append('logoPosition', 'top-center')
 form.append('logoDisplay', 'always')
@@ -179,6 +201,8 @@ form.append('qr', fs.createReadStream('listing-qr.png'), 'listing-qr.png')
 form.append('qrEnabled', 'true')
 form.append('qrPosition', 'bottom-center')
 form.append('qrDisplay', 'outro-only')
+form.append('agentHeadshot', fs.createReadStream('agent-photo.jpg'), 'agent-photo.jpg')
+form.append('agentHeadshotEnabled', 'true')
 ```
 
 **Node.js example:**
@@ -192,7 +216,7 @@ const form = new FormData()
 form.append('files', fs.createReadStream('living-room.jpg'), 'living-room.jpg')
 form.append('files', fs.createReadStream('pool.jpg'), 'pool.jpg')
 form.append('mediaNotes', JSON.stringify(['Living room', 'Pool area']))
-form.append('logo', fs.createReadStream('homes-logo.png'), 'homes-logo.png')
+form.append('logo', fs.createReadStream('homes-logo-white.png'), 'homes-logo-white.png')
 form.append('logoEnabled', 'true')
 form.append('logoPosition', 'top-center')
 form.append('logoDisplay', 'always')
@@ -200,6 +224,8 @@ form.append('qr', fs.createReadStream('listing-qr.png'), 'listing-qr.png')
 form.append('qrEnabled', 'true')
 form.append('qrPosition', 'bottom-center')
 form.append('qrDisplay', 'outro-only')
+form.append('agentHeadshot', fs.createReadStream('agent-photo.jpg'), 'agent-photo.jpg')
+form.append('agentHeadshotEnabled', 'true')
 
 await fetch(`${BASE_URL}/api/reels-maker/jobs/${jobId}/upload`, {
   method: 'POST',
@@ -250,7 +276,7 @@ x-api-key: rk_xxx
 }
 ```
 
-`role`: `"media"`, `"music"`, `"logo"`, `"qr"`, or `"agentHeadshot"` (`listing-showcase` only).
+`role`: `"media"`, `"music"`, `"logo"`, `"qr"`, or `"agentHeadshot"` (agent photo for branded outro — any template).
 
 **Response `200`:**
 
@@ -350,7 +376,8 @@ Optional body to override settings before rendering:
 | Field | Notes |
 |---|---|
 | `captionsEnabled` / `subtitlesEnabled` | Prefer `false`. Voiceover still plays; short bottom **titles** still appear. Karaoke subtitles are never burned into the MP4. |
-| `outroEnabled` / `outroLine` | Controls spoken CTA + visual end-card. |
+| `outroEnabled` / `outroLine` | Spoken CTA + whether the branded geometric outro is built. |
+| `agentName` / `agentPhone` / `agentEmail` / `agentAgencyName` | Text on the branded outro. |
 
 **Response `200`:** `{ "jobId": "...", "started": true }`
 
@@ -369,14 +396,59 @@ Typical time: **60–180 seconds**, depending on the number of photos and server
 
 | Element | Behavior |
 |---|---|
+| **Luxury intro** | If `logo` uploaded: black/gold plate holds → centered logo reveal → dissolve into photos (~3.2s). **All templates.** |
 | **Cinematic photo motion** | Dolly / push / track / float (server-chosen). Not a basic slideshow. |
-| **Bottom titles** | Slanted broadcast lower-third (logo tab + white title ribbon + blue subtitle), **slides in slowly left → right (~1.15s)** |
+| **Bottom titles** | Slanted broadcast lower-third (logo tab + white title ribbon + blue subtitle), slides in slowly left → right (~1.15s). |
 | **Karaoke / subtitles** | **Never burned in.** Voiceover is audio-only. |
-| **Logo watermark** | Position + `always` / `outro-only` (non–listing-showcase). |
-| **QR / end badge** | Prefer `outro-only` so it appears on the branded end card / last seconds only. |
-| **End card** | When `outroEnabled`: logo reveal + optional QR + `outroLine` (~3s). |
-| **Listing price** | `listing-showcase` + `listingPrice` → **count-up** on a blue veil + gold edge, then address + beds/baths/sqft **chips**. |
+| **Logo watermark** | During photo tour only when `logoDisplay=always` (non–`listing-showcase`). Intro/outro always use the uploaded logo when present. |
+| **QR watermark** | Prefer `outro-only` so QR appears on the branded outro only. |
+| **Branded outro** | When `outroEnabled` + branding/agent/QR: geometric blue plate → logo → circular agent photo → name/phone → QR + house badge (~4.5s). **All templates.** |
+| **Listing price** | `listing-showcase` + `listingPrice` → **count-up**, then address + beds/baths/sqft **chips**. |
 | **Social caption** | Job `caption` / hashtags in the API response are for posting copy — not burned into the video. |
+
+---
+
+## Luxury intro & branded outro
+
+### Intro (automatic when `logo` is uploaded)
+
+1. Luxury **black plate with gold corner accents** holds alone (~0.85s).
+2. Your `logo` **fades + scales** into the center with a soft glow.
+3. Soft dissolve into the first listing photo.
+
+Total ≈ **3.2 seconds**. No extra API flag — uploading `logo` is enough.
+
+### Outro (when `outroEnabled` is true)
+
+Single end card on a **dark geometric blue** plate, top → bottom:
+
+| Layer | Source |
+|---|---|
+| Top logo | Uploaded `logo` |
+| Circular photo | Uploaded `agentHeadshot` (circle-cropped) |
+| Name | `agentName` (create/render body) |
+| Phone | `agentPhone` |
+| QR + blue house badge | Uploaded `qr` |
+
+Missing pieces are skipped and spacing tightens automatically (e.g. logo + QR only still works).
+
+**Copy-paste create body for a full outro:**
+
+```json
+{
+  "templateId": "social-trend",
+  "aspectRatio": "portrait",
+  "voiceOverEnabled": true,
+  "captionsEnabled": false,
+  "outroEnabled": true,
+  "outroLine": "Scan for listing details",
+  "agentName": "Maria Santos",
+  "agentPhone": "+63 917 000 0000",
+  "reelBrief": "3BR luxury condo in BGC with pool and city views, asking P18M"
+}
+```
+
+Then upload `logo` + `qr` (`qrDisplay=outro-only`) + `agentHeadshot` as shown in [Upload Media](#2-upload-media).
 
 ---
 
@@ -507,12 +579,11 @@ Response: `{ "preview": { "title": "...", "duration": 240, "thumbnail": "..." } 
 
 `listing-showcase` builds a fixed structure instead of an AI-improvised story, so price and address are always exact:
 
-1. **Logo intro** — your `logo` fades in, scales up, with a soft glow, holds ~2s, then dissolves into the photo tour.
-2. **Photo tour** — cinematic camera moves (dolly, corner push, float, drift). Bottom lower-third shows `listingPrice` as a **count-up**, then address + **beds / baths / sqft chips**.
-3. **Agent contact card** — `agentHeadshot` (circle-cropped), `qr` (in a white box), and `agentName` / `agentPhone` / `agentEmail` / `agentAgencyName`. Only rendered if at least one of these is provided.
-4. **Logo outro** — your `logo` again, with `outroLine` (or "Scan to view listing" by default).
+1. **Luxury intro** — black/gold plate → centered `logo` (~3.2s) → dissolve into the photo tour.
+2. **Photo tour** — cinematic camera moves. Lower-third shows `listingPrice` as a **count-up**, then address + **beds / baths / sqft chips**.
+3. **Branded outro** — geometric blue plate with top `logo`, circular `agentHeadshot`, `agentName` / `agentPhone`, and `qr` (+ house badge). Same outro used by other templates when branding is provided.
 
-Because the logo and QR are embedded directly into these scenes, they are **not** also applied as a persistent corner watermark for this template — `logoPosition` / `qrPosition` / `logoDisplay` / `qrDisplay` are ignored.
+Because the logo and QR are embedded into the intro/outro cards, they are **not** also applied as a persistent corner watermark for this template — `logoPosition` / `qrPosition` / `logoDisplay` / `qrDisplay` are ignored (still upload `logo` + `qr` for the cards).
 
 ---
 
@@ -522,13 +593,14 @@ The server treats every reel as a **luxury motion edit**, not a slideshow:
 
 | Area | Behavior |
 |---|---|
+| **Intro** | Black/gold plate → centered logo (~3.2s) when `logo` is uploaded |
 | **Camera** | Dolly-in/out, corner push, vertical drift, horizontal track, float — avoids repeating the same move |
-| **Timing** | Every photo holds **~2.35s** so soft ~0.5s blends still feel like a 2s stay. |
+| **Timing** | Every photo holds **~2.35s** so soft ~0.5s blends still feel like a 2s stay |
 | **Story order** | Strongest / highest-quality shot opens (hook first) |
-| **Transitions** | Soft cinematic blends: dissolve, smooth L/R, slide, wipe-up (matched to pan direction) — no hard cuts between photos |
+| **Transitions** | Soft cinematic blends: dissolve, smooth L/R, slide, wipe-up (matched to pan direction) |
 | **Grade** | Stronger template looks + subtle film grain |
-| **Type** | Straight pans L↔R / T↔B + slanted lower-third (logo / title / subtitle) |
-| **End card** | When `outroEnabled`: dedicated branded CTA (logo reveal + optional QR + `outroLine`) |
+| **Type** | Slanted lower-third (logo tab / white title / blue subtitle), slow left→right reveal |
+| **Outro** | Geometric blue plate → logo → agent photo → name/phone → QR (~4.5s) when `outroEnabled` |
 
 **Phase 2 (roadmap, not available yet):** AI depth/parallax, Remotion-grade motion graphics, true BPM beat sync, 60fps GPU encode.
 
@@ -538,7 +610,7 @@ Partners do **not** send motion/transition fields — the server chooses cinemat
 
 ## Homes.ph branding layout (recommended)
 
-Goal: Homes.ph logo **top-center** for the full reel · agent/QR **only at the end** · modern bottom titles · voiceover **without** karaoke subtitles · cinematic motion.
+Goal: **luxury intro** · Homes.ph logo **top-center** during photos · **agent + QR only on branded outro** · slanted lower-thirds · voiceover **without** karaoke · cinematic motion.
 
 **Create:**
 
@@ -550,39 +622,50 @@ Goal: Homes.ph logo **top-center** for the full reel · agent/QR **only at the e
   "captionsEnabled": false,
   "outroEnabled": true,
   "outroLine": "Scan for listing details",
+  "agentName": "Maria Santos",
+  "agentPhone": "+63 917 000 0000",
   "reelBrief": "3BR luxury condo in BGC with pool and city views, asking P18M"
 }
 ```
 
-For a **counting price** on every photo, use `templateId: "listing-showcase"` and set `listingPrice` (e.g. `"P18,000,000"`).
+For a **counting price** on every photo, use `templateId: "listing-showcase"` and set `listingPrice` (e.g. `"P18,000,000"`) — agent fields + outro work the same way.
 
 **Upload (multipart):**
 
 | Field | Value |
 |---|---|
-| `logo` | Homes.ph mark only (not a full agent composite) |
+| `logo` | Homes.ph **white / light** mark (best on dark intro/outro plates) |
 | `logoEnabled` | `"true"` |
 | `logoPosition` | `"top-center"` |
 | `logoDisplay` | `"always"` |
-| `qr` | Listing QR and/or agent end-card image |
+| `qr` | Listing QR image |
 | `qrEnabled` | `"true"` |
-| `qrPosition` | `"bottom-center"` (or a corner) |
+| `qrPosition` | `"bottom-center"` (ignored when `outro-only`) |
 | `qrDisplay` | `"outro-only"` |
+| `agentHeadshot` | Agent photo (circle-cropped on outro) |
+| `agentHeadshotEnabled` | `"true"` |
 
-This keeps the logo for the whole reel and shows the QR/end badge on the branded end card — no need to append a fake end-card photo as the last media file.
+**Resulting timeline:**
+
+1. Intro (~3.2s) — black/gold plate → centered logo  
+2. Photos — cinematic motion + lower-thirds + top-center logo watermark  
+3. Outro (~4.5s) — blue geometric plate → logo → agent → QR  
+
+No need to append a fake end-card photo as the last media file.
 
 ### Quick reference — what partners can use
 
 | Capability | How |
 |---|---|
-| Logo top-center full video | `logoPosition=top-center` + `logoDisplay=always` |
-| Logo bottom-center | `logoPosition=bottom-center` |
-| QR / end badge only at end | `qrDisplay=outro-only` |
-| Logo only at end | `logoDisplay=outro-only` |
+| Luxury intro | Upload `logo` |
+| Logo top-center during photos | `logoPosition=top-center` + `logoDisplay=always` |
+| Logo only on intro/outro (no watermark) | `logoDisplay=outro-only` (still upload `logo`) |
+| QR / agent only at end | `qrDisplay=outro-only` + `agentHeadshot` + `agentName` / `agentPhone` |
+| Full branded outro | `outroEnabled: true` + logo + QR + headshot + agent fields |
 | No karaoke subtitles | `captionsEnabled: false` (karaoke never burned in either way) |
-| Modern bottom titles | Automatic |
+| Slanted lower-thirds | Automatic |
 | Price count-up + chips | `templateId: "listing-showcase"` + `listingPrice` / beds / baths / sqft |
-| Spoken + visual CTA | `outroEnabled: true` + `outroLine` |
+| Spoken CTA | `outroEnabled: true` + `outroLine` |
 | Cinematic motion / transitions | Automatic — no client fields required |
 
 ---
@@ -628,6 +711,8 @@ const created = await fetch(`${BASE_URL}/api/reels-maker/jobs`, {
     reelBrief: '3BR luxury condo in BGC with pool and city views, asking P18M',
     outroEnabled: true,
     outroLine: 'Scan for listing details',
+    agentName: 'Maria Santos',
+    agentPhone: '+63 917 000 0000',
   }),
 }).then(r => r.json())
 
@@ -640,7 +725,7 @@ form.append('files', fs.createReadStream('photo1.jpg'), 'photo1.jpg')
 form.append('files', fs.createReadStream('photo2.jpg'), 'photo2.jpg')
 form.append('files', fs.createReadStream('photo3.jpg'), 'photo3.jpg')
 form.append('mediaNotes', JSON.stringify(['Living room', 'Master bedroom', 'Pool']))
-form.append('logo', fs.createReadStream('homes-logo.png'), 'homes-logo.png')
+form.append('logo', fs.createReadStream('homes-logo-white.png'), 'homes-logo-white.png')
 form.append('logoEnabled', 'true')
 form.append('logoPosition', 'top-center')
 form.append('logoDisplay', 'always')
@@ -648,6 +733,8 @@ form.append('qr', fs.createReadStream('listing-qr.png'), 'listing-qr.png')
 form.append('qrEnabled', 'true')
 form.append('qrPosition', 'bottom-center')
 form.append('qrDisplay', 'outro-only')
+form.append('agentHeadshot', fs.createReadStream('agent-photo.jpg'), 'agent-photo.jpg')
+form.append('agentHeadshotEnabled', 'true')
 
 await fetch(`${BASE_URL}/api/reels-maker/jobs/${jobId}/upload`, {
   method: 'POST',
@@ -745,6 +832,7 @@ await fetch(`${BASE_URL}/api/reels-maker/jobs/${jobId}/render`, {
 
 - **Supported formats:** JPEG, PNG, HEIC, WEBP, AVIF (photos); MP4, MOV, M4V (videos).
 - **Minimum media:** At least 1 image or video required. **5–10 stills** give the best cinematic results.
+- **Intro / outro assets:** Use a **white or light logo** for dark plates. Upload a clear agent headshot (any crop; server circle-crops). QR should be high-contrast PNG/JPG.
 - **Render time:** 60–180 seconds depending on scene count and server load.
 - **Output spec:** H.264 MP4, 1080×1920 @ 30fps (portrait) or 1920×1080 (landscape), CRF 17.
 - **Job storage:** Jobs persist indefinitely. Clean up unused jobs with `DELETE /jobs/:id`.

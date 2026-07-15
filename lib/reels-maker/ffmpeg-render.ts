@@ -714,74 +714,58 @@ export async function renderReelWithFfmpeg(params: {
       qrBuffer = await downloadReelObject(params.qr.bucketName, params.qr.storagePath)
     }
 
-    if (isListingShowcase) {
-      const { renderLogoIntroScene, renderLogoOutroScene, renderAgentCardScene } = await import(
-        '@/lib/reels-maker/ffmpeg-listing-scenes'
-      )
+    const { renderLogoIntroScene, renderBrandedOutroScene } = await import(
+      '@/lib/reels-maker/ffmpeg-listing-scenes'
+    )
 
-      const headshotBuffer = params.agentHeadshot
-        ? await downloadReelObject(params.agentHeadshot.bucketName, params.agentHeadshot.storagePath)
-        : null
+    const combined: typeof sceneClips = []
 
-      const combined: typeof sceneClips = []
+    // Luxury intro for any reel with a logo: branded plate → centered mark → photos
+    if (logoBuffer) {
+      report('Building intro…', 84)
+      const intro = await renderLogoIntroScene({ frame, logoBuffer })
+      const introPath = join(workDir, 'logo-intro.mp4')
+      await writeFile(introPath, intro.buffer)
+      combined.push({ path: introPath, durationSeconds: intro.durationSeconds, transition: 'fade' })
+    }
 
-      if (logoBuffer) {
-        const intro = await renderLogoIntroScene({ frame, logoBuffer })
-        const introPath = join(workDir, 'listing-intro.mp4')
-        await writeFile(introPath, intro.buffer)
-        combined.push({ path: introPath, durationSeconds: intro.durationSeconds, transition: 'fade' })
-      }
+    sceneClips.forEach((clip, index) => {
+      combined.push(index === 0 && combined.length ? { ...clip, transition: 'cross-dissolve' } : clip)
+    })
 
-      sceneClips.forEach((clip, index) => {
-        combined.push(index === 0 && combined.length ? { ...clip, transition: 'cross-dissolve' } : clip)
-      })
+    const headshotBuffer = params.agentHeadshot
+      ? await downloadReelObject(params.agentHeadshot.bucketName, params.agentHeadshot.storagePath)
+      : null
+    const agent = params.agent ?? {}
+    const hasOutroContent = Boolean(
+      logoBuffer ||
+        qrBuffer ||
+        headshotBuffer ||
+        agent.name ||
+        agent.phone ||
+        agent.email ||
+        agent.agencyName ||
+        params.outroCtaText?.trim(),
+    )
 
-      const agent = params.agent ?? {}
-      const hasAgentCardContent = Boolean(
-        headshotBuffer || qrBuffer || agent.name || agent.phone || agent.email || agent.agencyName,
-      )
-      if (hasAgentCardContent) {
-        const agentCard = await renderAgentCardScene({
-          frame,
-          logoBuffer,
-          headshotBuffer,
-          qrBuffer,
-          agent,
-        })
-        const agentCardPath = join(workDir, 'listing-agent-card.mp4')
-        await writeFile(agentCardPath, agentCard.buffer)
-        combined.push({ path: agentCardPath, durationSeconds: agentCard.durationSeconds, transition: 'fade' })
-      }
-
-      if (outroEnabled && logoBuffer) {
-        const outro = await renderLogoOutroScene({
-          frame,
-          logoBuffer,
-          ctaText: params.outroCtaText || 'Scan to view listing',
-        })
-        const outroPath = join(workDir, 'listing-outro.mp4')
-        await writeFile(outroPath, outro.buffer)
-        combined.push({ path: outroPath, durationSeconds: outro.durationSeconds, transition: 'fade' })
-      }
-
-      sceneClips = combined
-    } else if (outroEnabled && (logoBuffer || qrBuffer || params.outroCtaText?.trim())) {
-      // Dedicated end card for non-listing templates
-      report('Building end card…', 85)
-      const { renderBrandedEndCardScene } = await import('@/lib/reels-maker/ffmpeg-listing-scenes')
-      const endCard = await renderBrandedEndCardScene({
+    if (outroEnabled && hasOutroContent) {
+      report('Building outro…', 85)
+      const outro = await renderBrandedOutroScene({
         frame,
         logoBuffer,
-        qrBuffer: params.qr?.display === 'outro-only' || !params.logo ? qrBuffer : qrBuffer,
-        ctaText: params.outroCtaText || 'Discover more on Homes.ph',
+        headshotBuffer,
+        qrBuffer,
+        agent,
+        ctaText:
+          params.outroCtaText ||
+          (qrBuffer ? null : isListingShowcase ? 'Scan to view listing' : 'Discover more on Homes.ph'),
       })
-      const endPath = join(workDir, 'branded-end-card.mp4')
-      await writeFile(endPath, endCard.buffer)
-      sceneClips = [
-        ...sceneClips,
-        { path: endPath, durationSeconds: endCard.durationSeconds, transition: 'fade' as const },
-      ]
+      const outroPath = join(workDir, 'branded-outro.mp4')
+      await writeFile(outroPath, outro.buffer)
+      combined.push({ path: outroPath, durationSeconds: outro.durationSeconds, transition: 'fade' })
     }
+
+    sceneClips = combined
 
     report('Merging scenes…', 87)
     const bookendedClips = buildBookendedSceneClips(sceneClips, blackLeaderPath, blackTailPath)
