@@ -263,7 +263,7 @@ async function renderVideoScene(
     isFirst: context.isFirst,
     isLast: context.isLast,
   })
-  const motion = buildVideoMotionFilter(duration, frame)
+  const motion = buildVideoMotionFilter(duration, frame, resolveSceneMotion(scene.motion, duration, context))
 
   const { title, subtitle } = resolveSceneLowerThirdCopy({
     sceneIndex: index,

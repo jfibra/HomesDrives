@@ -105,7 +105,7 @@ function buildFallbackPlan(
 
   const scenes: ReelScenePlan[] = media.map((item, index) => ({
     mediaId: item.id,
-    durationSeconds: 2.5,
+    durationSeconds: 2.0,
     transition: pickLuxuryTransition(index),
     motion: pickCinematicMotion(index),
     textOverlay: null,
@@ -164,7 +164,7 @@ function normalizePlan(
     if (!used.has(item.id)) {
       scenes.push({
         mediaId: item.id,
-        durationSeconds: 2.2,
+        durationSeconds: 2.0,
         transition: pickLuxuryTransition(scenes.length),
         motion: pickCinematicMotion(scenes.length),
         sceneRole: undefined,
@@ -316,12 +316,12 @@ export async function generateReelStoryPlan(params: {
         scenes: [
           {
             mediaId: 'use exact id from media list',
-            durationSeconds: 2.5,
+            durationSeconds: 2.0,
             sceneRole: 'hook | hero | detail | lifestyle | closing',
             transition:
               'cross-dissolve | radial | flash-white | smooth-left | smooth-right | diag-wipe | circle-open | zoom-cut | fade-white | squeeze-h | wind | slide-left | cut | fade',
             motion:
-              'dolly-in | dolly-out | push-in-corner | reveal-from-top | vertical-drift | horizontal-track | float',
+              'gentle-pan-left | gentle-pan-right | reveal-from-top | vertical-drift',
             textOverlay: 'short modern title 1-4 words',
             captionLine: null,
           },
@@ -333,10 +333,10 @@ export async function generateReelStoryPlan(params: {
     '',
     'Rules:',
     '- Put the strongest open / exterior / hero facade FIRST (hook). Do not preserve weak upload order.',
-    '- NEVER repeat the same motion twice in a row. Prefer dolly-in, push-in-corner, float, horizontal-track, reveal-from-top.',
-    '- NEVER use static. NEVER use basic identical Ken Burns on every scene.',
-    '- sceneRole durations: EVERY scene at least 2.0s (never shorter). hook ~2.0-2.5s, hero ~2.4-3.2s, detail/lifestyle ~2.0-2.6s, closing ~2.4-3.2s.',
-    '- Transitions must feel cinematic and purposeful (not random wipes). Match motion direction when possible.',
+    '- NEVER repeat the same motion twice in a row. Use ONLY straight pans: gentle-pan-left (R→L), gentle-pan-right (L→R), reveal-from-top (T→B), vertical-drift (B→T). No float/circular/dolly.',
+    '- NEVER use static. NEVER use float or circular camera motion.',
+    '- sceneRole durations: EVERY scene exactly 2.0 seconds.',
+    '- Transitions must be short fades/slides (not circle-open / radial). Match pan direction when possible.',
     '- textOverlay: REQUIRED short modern title (1-4 words). captionLine: always null.',
     '- voiceOverScript: when enabled — exactly ONE sentence per photo, 4-6 words. No closing CTA (outro is separate).',
     '- Write in the same language the user used in their brief (English or Filipino/Taglish).',

@@ -7,7 +7,7 @@ export const MIN_SCENE_SEC = 2.0
 /** Upper bound per photo when stretching to match narration. */
 export const MAX_SCENE_SEC = 14
 
-/** Clamp every scene to at least {@link MIN_SCENE_SEC}. */
+/** Clamp every scene to at least {@link MIN_SCENE_SEC} (exact 2s hold unless VO stretches longer). */
 export function enforceMinSceneDurations(plan: ReelStoryPlan): ReelStoryPlan {
   return {
     ...plan,

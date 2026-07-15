@@ -55,7 +55,7 @@ export function buildListingShowcasePlan(params: {
 
   const scenes: ReelScenePlan[] = media.map((item, index) => ({
     mediaId: item.id,
-    durationSeconds: 2.5,
+    durationSeconds: 2.0,
     transition: pickLuxuryTransition(index),
     motion: pickCinematicMotion(index),
     textOverlay: null,

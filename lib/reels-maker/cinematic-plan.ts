@@ -9,12 +9,14 @@ import type {
 } from '@/lib/reels-maker/types'
 
 const ROLE_DURATION: Record<ReelSceneRole, { min: number; max: number }> = {
-  hook: { min: 2.0, max: 2.5 },
-  hero: { min: 2.4, max: 3.2 },
-  detail: { min: 2.0, max: 2.6 },
-  lifestyle: { min: 2.0, max: 2.5 },
-  closing: { min: 2.4, max: 3.2 },
+  hook: { min: 2.0, max: 2.0 },
+  hero: { min: 2.0, max: 2.0 },
+  detail: { min: 2.0, max: 2.0 },
+  lifestyle: { min: 2.0, max: 2.0 },
+  closing: { min: 2.0, max: 2.0 },
 }
+
+void ROLE_DURATION
 
 const ALL_TRANSITIONS: ReelSceneTransition[] = [
   'cross-dissolve',
@@ -43,10 +45,11 @@ function roleForIndex(index: number, total: number): ReelSceneRole {
   return 'detail'
 }
 
-function durationForRole(role: ReelSceneRole, index: number): number {
-  const band = ROLE_DURATION[role]
-  const t = (index % 5) / 5
-  return Number((band.min + (band.max - band.min) * t).toFixed(2))
+function durationForRole(_role: ReelSceneRole, _index: number): number {
+  void _role
+  void _index
+  // Hard hold — every photo stays exactly 2 seconds
+  return 2.0
 }
 
 /** Continuity-aware transition pick from previous motion → next role. */
@@ -61,16 +64,15 @@ export function chooseTransition(params: {
 
   let preferred: ReelSceneTransition
   if (nextRole === 'closing') preferred = 'fade'
-  else if (nextRole === 'hook') preferred = 'fade-white'
-  else if (prev === 'horizontal-track' || prev === 'gentle-pan-left') preferred = 'smooth-left'
-  else if (prev === 'gentle-pan-right') preferred = 'smooth-right'
-  else if (prev === 'dolly-in' || prev === 'push-in-corner') preferred = index % 2 === 0 ? 'radial' : 'zoom-cut'
-  else if (prev === 'reveal-from-top' || prev === 'vertical-drift') preferred = 'wipe-up'
-  else if (nextRole === 'detail') preferred = index % 2 === 0 ? 'flash-white' : 'diag-wipe'
-  else preferred = ALL_TRANSITIONS[index % ALL_TRANSITIONS.length]
+  else if (nextRole === 'hook') preferred = 'cut'
+  else if (prev === 'gentle-pan-left' || prev === 'horizontal-track') preferred = 'slide-left'
+  else if (prev === 'gentle-pan-right') preferred = 'slide-right'
+  else if (prev === 'reveal-from-top') preferred = 'wipe-up'
+  else if (prev === 'vertical-drift') preferred = 'fade'
+  else preferred = index % 2 === 0 ? 'fade' : 'cross-dissolve'
 
   if (previousTransition && preferred === previousTransition) {
-    preferred = ALL_TRANSITIONS[(index + 4) % ALL_TRANSITIONS.length]
+    preferred = preferred === 'fade' ? 'cross-dissolve' : 'fade'
   }
   return preferred
 }
@@ -144,13 +146,13 @@ export function polishCinematicPlan(
       nextRole: role,
       previousTransition: index > 0 ? scenes[index - 1]?.transition : null,
     })
-    // Hook always punches in
-    const hookMotion = index === 0 ? (motion === 'dolly-out' ? 'dolly-in' : motion) : motion
     return {
       ...scene,
       sceneRole: role,
-      motion: index === 0 ? (hookMotion === 'float' ? 'dolly-in' : hookMotion) : motion,
-      transition: index === 0 ? 'cut' : transition,
+      motion,
+      // Prefer short cuts so the 2s hold isn't eaten by long crossfades
+      transition: index === 0 ? 'cut' : transition === 'cut' ? 'fade' : transition,
+      durationSeconds: 2.0,
     }
   })
 
@@ -161,14 +163,14 @@ export function polishCinematicPlan(
     scenes,
     pacingNotes:
       plan.pacingNotes ||
-      'Luxury cinematic pacing: hook punch, varied camera language, purposeful transitions.',
+      '2s holds with straight L/R and T/B pans — no circular camera drift.',
   }
 }
 
 function clampSceneDurations(scenes: ReelScenePlan[]): ReelScenePlan[] {
   return scenes.map((scene) => ({
     ...scene,
-    durationSeconds: Number(Math.max(2.0, scene.durationSeconds > 0 ? scene.durationSeconds : 2.0).toFixed(2)),
+    durationSeconds: 2.0,
   }))
 }
 

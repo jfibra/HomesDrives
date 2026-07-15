@@ -523,11 +523,11 @@ The server treats every reel as a **luxury motion edit**, not a slideshow:
 | Area | Behavior |
 |---|---|
 | **Camera** | Dolly-in/out, corner push, vertical drift, horizontal track, float — avoids repeating the same move |
-| **Timing** | Scene roles: hook (~2s) → hero (3–4s) → detail (1.6–2.4s) → closing (~3s). Not identical holds. |
+| **Timing** | Every photo holds **exactly 2.0s**. Short fades so the hold isn’t eaten by long crossfades. |
 | **Story order** | Strongest / highest-quality shot opens (hook first) |
-| **Transitions** | Purposeful set: radial, flash-white, smooth pans, diag wipe, circle-open, wind, etc. |
+| **Transitions** | Short fades / slide L-R / wipe-up (≈0.2s) — no long circular wipes |
 | **Grade** | Stronger template looks + subtle film grain |
-| **Type** | Slanted lower-third with logo left, title ribbon, subtitle bar |
+| **Type** | Straight pans L↔R / T↔B + slanted lower-third (logo / title / subtitle) |
 | **End card** | When `outroEnabled`: dedicated branded CTA (logo reveal + optional QR + `outroLine`) |
 
 **Phase 2 (roadmap, not available yet):** AI depth/parallax, Remotion-grade motion graphics, true BPM beat sync, 60fps GPU encode.
