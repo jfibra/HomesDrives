@@ -206,14 +206,17 @@ export function buildLowerThirdRevealFilterComplex(options?: {
   delaySeconds?: number
   durationSeconds?: number
 }) {
-  const delay = options?.delaySeconds ?? 0.12
-  const anim = options?.durationSeconds ?? 0.55
+  const delay = options?.delaySeconds ?? 0.15
+  const anim = options?.durationSeconds ?? 1.15
   const d = delay.toFixed(3)
   const a = anim.toFixed(3)
-  // Slide from fully off-screen left → settled x=0
-  const xExpr = `-w+w*min(1\\,max(0\\,(t-${d})/${a}))`
+  // Ease-out style slide: progress^0.65 spends more time near the end (softer settle)
+  const progress = `min(1\\,max(0\\,(t-${d})/${a}))`
+  const eased = `pow(${progress}\\,0.65)`
+  const xExpr = `-w+w*(${eased})`
+  const fadeDur = Math.min(0.45, anim * 0.35).toFixed(3)
   return (
-    `[1:v]format=rgba,fade=t=in:st=${d}:d=0.20:alpha=1[lt];` +
+    `[1:v]format=rgba,fade=t=in:st=${d}:d=${fadeDur}:alpha=1[lt];` +
     `[base][lt]overlay=x='${xExpr}':y=0:format=auto,format=yuv420p[vout]`
   )
 }

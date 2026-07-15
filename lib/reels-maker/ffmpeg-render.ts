@@ -208,10 +208,10 @@ async function renderImageScene(
     logoBuffer: context.logoBuffer,
   })
 
-  const revealDelay = context.isFirst ? 0.22 : 0.1
+  const revealDelay = context.isFirst ? 0.28 : 0.15
   const lowerThirdReveal = buildLowerThirdRevealFilterComplex({
     delaySeconds: revealDelay,
-    durationSeconds: 0.55,
+    durationSeconds: 1.15,
   })
 
   await runFfmpeg(
@@ -307,10 +307,10 @@ async function renderVideoScene(
     subtitle,
     logoBuffer: context.logoBuffer,
   })
-  const revealDelay = context.isFirst ? 0.22 : 0.1
+  const revealDelay = context.isFirst ? 0.28 : 0.15
   const lowerThirdReveal = buildLowerThirdRevealFilterComplex({
     delaySeconds: revealDelay,
-    durationSeconds: 0.55,
+    durationSeconds: 1.15,
   })
 
   await runFfmpeg(
