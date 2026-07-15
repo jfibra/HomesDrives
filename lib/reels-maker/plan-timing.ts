@@ -1,8 +1,8 @@
 import { buildBookendedSceneClips, estimateMergedDuration } from '@/lib/reels-maker/ffmpeg-transitions'
 import type { ReelStoryPlan } from '@/lib/reels-maker/types'
 
-/** Hard floor — every photo stays on screen at least this long (no blink-cuts). */
-export const MIN_SCENE_SEC = 2.0
+/** Hard floor — every photo holds long enough that soft blends still feel like ~2s. */
+export const MIN_SCENE_SEC = 2.35
 
 /** Upper bound per photo when stretching to match narration. */
 export const MAX_SCENE_SEC = 14

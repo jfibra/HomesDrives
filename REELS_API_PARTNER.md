@@ -523,9 +523,9 @@ The server treats every reel as a **luxury motion edit**, not a slideshow:
 | Area | Behavior |
 |---|---|
 | **Camera** | Dolly-in/out, corner push, vertical drift, horizontal track, float — avoids repeating the same move |
-| **Timing** | Every photo holds **exactly 2.0s**. Short fades so the hold isn’t eaten by long crossfades. |
+| **Timing** | Every photo holds **~2.35s** so soft ~0.5s blends still feel like a 2s stay. |
 | **Story order** | Strongest / highest-quality shot opens (hook first) |
-| **Transitions** | Short fades / slide L-R / wipe-up (≈0.2s) — no long circular wipes |
+| **Transitions** | Soft cinematic blends: dissolve, smooth L/R, slide, wipe-up (matched to pan direction) — no hard cuts between photos |
 | **Grade** | Stronger template looks + subtle film grain |
 | **Type** | Straight pans L↔R / T↔B + slanted lower-third (logo / title / subtitle) |
 | **End card** | When `outroEnabled`: dedicated branded CTA (logo reveal + optional QR + `outroLine`) |

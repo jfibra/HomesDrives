@@ -16,26 +16,26 @@ type TransitionSpec = {
   duration: number
 }
 
-/** Map plan transition names → real FFmpeg xfade modes.
- *  Keep transitions short so a 2s photo hold still feels like ~2s on screen. */
+/** Map plan transition names → FFmpeg xfade modes (smooth, FFmpeg 4.4-safe). */
 const TRANSITION_SPECS: Record<ReelSceneTransition, TransitionSpec> = {
-  fade: { xfade: 'fade', duration: 0.2 },
-  'cross-dissolve': { xfade: 'dissolve', duration: 0.22 },
-  cut: { xfade: 'fade', duration: 0.04 },
-  'zoom-cut': { xfade: 'fade', duration: 0.18 },
-  'slide-left': { xfade: 'slideleft', duration: 0.25 },
-  'slide-right': { xfade: 'slideright', duration: 0.25 },
-  'wipe-up': { xfade: 'wipeup', duration: 0.22 },
-  'smooth-zoom': { xfade: 'fade', duration: 0.2 },
-  'fade-white': { xfade: 'fade', duration: 0.18 },
-  'flash-white': { xfade: 'fade', duration: 0.12 },
-  radial: { xfade: 'fade', duration: 0.2 },
-  'circle-open': { xfade: 'fade', duration: 0.2 },
-  'diag-wipe': { xfade: 'wipeleft', duration: 0.22 },
-  'smooth-left': { xfade: 'slideleft', duration: 0.25 },
-  'smooth-right': { xfade: 'slideright', duration: 0.25 },
-  'squeeze-h': { xfade: 'fade', duration: 0.18 },
-  wind: { xfade: 'fade', duration: 0.2 },
+  fade: { xfade: 'fade', duration: 0.48 },
+  'cross-dissolve': { xfade: 'dissolve', duration: 0.55 },
+  /** Near-hard cut — reserved for rare punch moments. */
+  cut: { xfade: 'fade', duration: 0.08 },
+  'zoom-cut': { xfade: 'smoothdown', duration: 0.5 },
+  'slide-left': { xfade: 'slideleft', duration: 0.5 },
+  'slide-right': { xfade: 'slideright', duration: 0.5 },
+  'wipe-up': { xfade: 'wipeup', duration: 0.48 },
+  'smooth-zoom': { xfade: 'smoothdown', duration: 0.52 },
+  'fade-white': { xfade: 'fadewhite', duration: 0.42 },
+  'flash-white': { xfade: 'fadewhite', duration: 0.28 },
+  radial: { xfade: 'smoothleft', duration: 0.5 },
+  'circle-open': { xfade: 'circleopen', duration: 0.5 },
+  'diag-wipe': { xfade: 'diagtl', duration: 0.48 },
+  'smooth-left': { xfade: 'smoothleft', duration: 0.55 },
+  'smooth-right': { xfade: 'smoothright', duration: 0.55 },
+  'squeeze-h': { xfade: 'smoothright', duration: 0.48 },
+  wind: { xfade: 'hlwind', duration: 0.5 },
 }
 
 export type SceneClip = {

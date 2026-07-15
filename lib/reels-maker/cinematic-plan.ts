@@ -48,11 +48,11 @@ function roleForIndex(index: number, total: number): ReelSceneRole {
 function durationForRole(_role: ReelSceneRole, _index: number): number {
   void _role
   void _index
-  // Hard hold — every photo stays exactly 2 seconds
-  return 2.0
+  // Slightly over 2s so soft ~0.5s blends still leave ~2s of clear photo
+  return 2.35
 }
 
-/** Continuity-aware transition pick from previous motion → next role. */
+/** Continuity-aware transition — soft cinematic blends matched to pan direction. */
 export function chooseTransition(params: {
   index: number
   previousMotion?: ReelSceneMotion | null
@@ -62,17 +62,30 @@ export function chooseTransition(params: {
   const { index, previousMotion, nextRole, previousTransition } = params
   const prev = previousMotion ? normalizeMotion(previousMotion) : null
 
+  const softCycle: ReelSceneTransition[] = [
+    'cross-dissolve',
+    'smooth-left',
+    'fade',
+    'smooth-right',
+    'slide-left',
+    'wipe-up',
+    'slide-right',
+    'smooth-zoom',
+  ]
+
   let preferred: ReelSceneTransition
-  if (nextRole === 'closing') preferred = 'fade'
-  else if (nextRole === 'hook') preferred = 'cut'
-  else if (prev === 'gentle-pan-left' || prev === 'horizontal-track') preferred = 'slide-left'
-  else if (prev === 'gentle-pan-right') preferred = 'slide-right'
+  if (nextRole === 'closing') preferred = 'cross-dissolve'
+  else if (prev === 'gentle-pan-left' || prev === 'horizontal-track') preferred = 'smooth-left'
+  else if (prev === 'gentle-pan-right') preferred = 'smooth-right'
   else if (prev === 'reveal-from-top') preferred = 'wipe-up'
-  else if (prev === 'vertical-drift') preferred = 'fade'
-  else preferred = index % 2 === 0 ? 'fade' : 'cross-dissolve'
+  else if (prev === 'vertical-drift') preferred = 'smooth-zoom'
+  else preferred = softCycle[index % softCycle.length]
+
+  // Never hard-cut between photos — always blend
+  if (preferred === 'cut') preferred = 'cross-dissolve'
 
   if (previousTransition && preferred === previousTransition) {
-    preferred = preferred === 'fade' ? 'cross-dissolve' : 'fade'
+    preferred = softCycle[(index + 3) % softCycle.length]
   }
   return preferred
 }
@@ -150,9 +163,9 @@ export function polishCinematicPlan(
       ...scene,
       sceneRole: role,
       motion,
-      // Prefer short cuts so the 2s hold isn't eaten by long crossfades
-      transition: index === 0 ? 'cut' : transition === 'cut' ? 'fade' : transition,
-      durationSeconds: 2.0,
+      transition,
+      // 2.35s clip + ~0.5s blend ≈ ~2s of clear photo before the next wipe begins
+      durationSeconds: 2.35,
     }
   })
 
@@ -163,14 +176,14 @@ export function polishCinematicPlan(
     scenes,
     pacingNotes:
       plan.pacingNotes ||
-      '2s holds with straight L/R and T/B pans — no circular camera drift.',
+      'Directional pans with soft dissolve / smooth slide transitions between photos.',
   }
 }
 
 function clampSceneDurations(scenes: ReelScenePlan[]): ReelScenePlan[] {
   return scenes.map((scene) => ({
     ...scene,
-    durationSeconds: 2.0,
+    durationSeconds: Number(Math.max(2.35, scene.durationSeconds > 0 ? scene.durationSeconds : 2.35).toFixed(2)),
   }))
 }
 
