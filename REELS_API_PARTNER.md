@@ -370,7 +370,7 @@ Typical time: **60–180 seconds**, depending on the number of photos and server
 | Element | Behavior |
 |---|---|
 | **Cinematic photo motion** | Dolly / push / track / float (server-chosen). Not a basic slideshow. |
-| **Bottom titles** | Framed **editorial templates** (unique layout per scene): photo cards on deep-blue canvas, glass title panels, gold accents — not full-bleed text over photos. |
+| **Bottom titles** | Slanted broadcast lower-third (logo tab + white title ribbon + blue subtitle) |
 | **Karaoke / subtitles** | **Never burned in.** Voiceover is audio-only. |
 | **Logo watermark** | Position + `always` / `outro-only` (non–listing-showcase). |
 | **QR / end badge** | Prefer `outro-only` so it appears on the branded end card / last seconds only. |
@@ -527,7 +527,7 @@ The server treats every reel as a **luxury motion edit**, not a slideshow:
 | **Story order** | Strongest / highest-quality shot opens (hook first) |
 | **Transitions** | Purposeful set: radial, flash-white, smooth pans, diag wipe, circle-open, wind, etc. |
 | **Grade** | Stronger template looks + subtle film grain |
-| **Type** | Unique framed editorial layouts per scene (Instagram Story / luxury magazine style) |
+| **Type** | Slanted lower-third with logo left, title ribbon, subtitle bar |
 | **End card** | When `outroEnabled`: dedicated branded CTA (logo reveal + optional QR + `outroLine`) |
 
 **Phase 2 (roadmap, not available yet):** AI depth/parallax, Remotion-grade motion graphics, true BPM beat sync, 60fps GPU encode.

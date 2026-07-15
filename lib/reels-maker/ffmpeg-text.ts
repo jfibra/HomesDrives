@@ -109,20 +109,20 @@ function enableBetween(start: number, end: number) {
 }
 
 /**
- * Refined lower-third titles — blue + yellow-gold accents.
- * Deliberately light: soft veil + thin gold line + clean type.
- * Avoids solid slabs, top ribbons under the logo, and full-frame borders.
+ * Clean lower-third titles — soft veil, gold hairline, white type.
+ * No framed templates / abstract shape packs.
  */
 function buildAbstractTitleFilters(
   title: string,
   durationSeconds: number,
-  layoutIndex: number,
+  _layoutIndex: number,
   entranceDelay: number,
   subtitle?: string | null,
 ) {
+  void _layoutIndex
   const filters: string[] = []
   const titleLines = wrapTitle(title, 24)
-  const titleFont = fontParam('body') // modern sans reads cleaner for uppercase scene titles
+  const titleFont = fontParam('body')
   const bodyFont = fontParam('body')
   const end = durationSeconds
   const start = entranceDelay
@@ -132,71 +132,24 @@ function buildAbstractTitleFilters(
   const titleSize =
     titleLines[0].length > 20 ? 36 : titleLines[0].length > 14 ? 42 : 48
 
-  const variant = layoutIndex % 3
-
-  // Soft bottom veil shared by all variants (never a solid opaque wall)
+  // Soft bottom veil only — keep the property photo full-bleed
   filters.push(
     `drawbox=x=0:y='ih*0.78':w=iw:h='ih*0.22':color=${BLUE_DEEP}@0.42:t=fill:${en}`,
     `drawbox=x=0:y='ih*0.86':w=iw:h='ih*0.14':color=${BLUE_PRIMARY}@0.38:t=fill:${en}`,
+    `drawbox=x='(iw-200)/2':y='ih*0.84':w=200:h=3:color=${GOLD}@0.95:t=fill:${en}`,
   )
 
-  if (variant === 0) {
-    // Centered editorial — gold hairline + small gold ticks
+  titleLines.forEach((line, lineIndex) => {
+    const lineDelay = entranceDelay + 0.08 + lineIndex * 0.06
+    const y = `h*${0.795 + lineIndex * 0.035}`
     filters.push(
-      `drawbox=x='(iw-220)/2':y='ih*0.84':w=220:h=3:color=${GOLD}@0.95:t=fill:${en}`,
-      `drawbox=x='iw*0.08':y='ih*0.92':w=14:h=14:color=${GOLD}@0.9:t=fill:${en}`,
-      `drawbox=x='iw*0.92-14':y='ih*0.92':w=14:h=14:color=${GOLD}@0.9:t=fill:${en}`,
+      `drawtext=${titleFont}:text='${escapeDrawText(line)}':fontcolor=${TITLE_COLOR}:fontsize=${titleSize}:x=(w-text_w)/2:y='${y}':alpha='${fadeIn(lineDelay, 0.35)}':shadowcolor=black@0.55:shadowx=2:shadowy=2`,
     )
-    titleLines.forEach((line, lineIndex) => {
-      const lineDelay = entranceDelay + 0.08 + lineIndex * 0.06
-      const y = `h*${0.795 + lineIndex * 0.035}`
-      filters.push(
-        `drawtext=${titleFont}:text='${escapeDrawText(line)}':fontcolor=${TITLE_COLOR}:fontsize=${titleSize}:x=(w-text_w)/2:y='${y}':alpha='${fadeIn(lineDelay, 0.35)}':shadowcolor=black@0.55:shadowx=2:shadowy=2`,
-      )
-    })
-    if (sub) {
-      filters.push(
-        `drawtext=${bodyFont}:text='${escapeDrawText(sub)}':fontcolor=${GOLD}:fontsize=20:x=(w-text_w)/2:y='h*0.895':alpha='${fadeIn(entranceDelay + 0.22, 0.35)}':shadowcolor=black@0.45:shadowx=1:shadowy=1`,
-      )
-    }
-  } else if (variant === 1) {
-    // Left accent bar — thin blue rail + gold L-bracket
+  })
+  if (sub) {
     filters.push(
-      `drawbox=x='iw*0.06':y='ih*0.80':w=5:h='ih*0.12':color=${BLUE_PRIMARY}@0.95:t=fill:${en}`,
-      `drawbox=x='iw*0.06':y='ih*0.80':w=28:h=4:color=${GOLD}@0.95:t=fill:${en}`,
-      `drawbox=x='iw*0.06':y='ih*0.92':w=28:h=4:color=${GOLD}@0.95:t=fill:${en}`,
-      `drawbox=x='iw*0.06':y='ih*0.80':w=4:h=28:color=${GOLD}@0.95:t=fill:${en}`,
+      `drawtext=${bodyFont}:text='${escapeDrawText(sub)}':fontcolor=${GOLD}:fontsize=20:x=(w-text_w)/2:y='h*0.895':alpha='${fadeIn(entranceDelay + 0.22, 0.35)}':shadowcolor=black@0.45:shadowx=1:shadowy=1`,
     )
-    titleLines.forEach((line, lineIndex) => {
-      const lineDelay = entranceDelay + 0.1 + lineIndex * 0.06
-      filters.push(
-        `drawtext=${titleFont}:text='${escapeDrawText(line)}':fontcolor=${TITLE_COLOR}:fontsize=${titleSize}:x='w*0.10':y='h*${0.81 + lineIndex * 0.038}':alpha='${fadeIn(lineDelay, 0.35)}':shadowcolor=black@0.5:shadowx=2:shadowy=2`,
-      )
-    })
-    if (sub) {
-      filters.push(
-        `drawtext=${bodyFont}:text='${escapeDrawText(sub)}':fontcolor=${GOLD}:fontsize=20:x='w*0.10':y='h*0.905':alpha='${fadeIn(entranceDelay + 0.24, 0.35)}':shadowcolor=black@0.4:shadowx=1:shadowy=1`,
-      )
-    }
-  } else {
-    // Floating gold pill under title — no top ribbon, no blue frame
-    const pillY = titleLines.length > 1 ? 0.875 : 0.86
-    filters.push(
-      `drawbox=x='iw*0.18':y='ih*${pillY}':w='iw*0.64':h=3:color=${GOLD}@0.92:t=fill:${en}`,
-      `drawbox=x='iw*0.18':y='ih*${pillY}':w=18:h=18:color=${GOLD}@0.95:t=fill:${en}`,
-      `drawbox=x='iw*0.82-18':y='ih*${pillY}':w=18:h=18:color=${BLUE_PRIMARY}@0.9:t=fill:${en}`,
-    )
-    titleLines.forEach((line, lineIndex) => {
-      const lineDelay = entranceDelay + 0.1 + lineIndex * 0.06
-      filters.push(
-        `drawtext=${titleFont}:text='${escapeDrawText(line)}':fontcolor=${TITLE_COLOR}:fontsize=${titleSize}:x=(w-text_w)/2:y='h*${0.80 + lineIndex * 0.035}':alpha='${fadeIn(lineDelay, 0.35)}':shadowcolor=black@0.55:shadowx=2:shadowy=2`,
-      )
-    })
-    if (sub) {
-      filters.push(
-        `drawtext=${bodyFont}:text='${escapeDrawText(sub)}':fontcolor=0xF5F7FA:fontsize=20:x=(w-text_w)/2:y='h*0.91':alpha='${fadeIn(entranceDelay + 0.24, 0.35)}':shadowcolor=black@0.5:shadowx=1:shadowy=1`,
-      )
-    }
   }
 
   return filters
@@ -348,8 +301,7 @@ function buildPriceCountUpFilters(params: {
 }
 
 /**
- * Abstract blue + yellow-gold title graphics — light lower-thirds only.
- * Replaces heavy solid panels / top gold ribbons / full-frame borders.
+ * Clean blue + gold lower-third — full-bleed photo, no abstract template frames.
  */
 function buildBottomTitleFilters(
   title: string,
@@ -426,7 +378,7 @@ export function buildListingDetailsFilters(scene: ReelScenePlan, options: SceneT
 }
 
 /**
- * Scene titles — light blue + gold lower-thirds (photo stays visible).
+ * Scene titles — clean lower-thirds on full-bleed photos.
  * Karaoke captions are never burned in. Price-like titles get count-up treatment.
  */
 export function buildAnimatedTextFilters(scene: ReelScenePlan, options: SceneTextOptions) {

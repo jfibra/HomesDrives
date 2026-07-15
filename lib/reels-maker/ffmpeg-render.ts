@@ -20,15 +20,16 @@ import { applyLogoOverlayToVideo } from '@/lib/reels-maker/ffmpeg-logo'
 import { applyQrOverlayToVideo } from '@/lib/reels-maker/ffmpeg-qr'
 import { scalePlanForVoiceDuration, enforceMinSceneDurations } from '@/lib/reels-maker/plan-timing'
 import { downloadReelObject } from '@/lib/reels-maker/storage'
-import { buildAnimatedTextFilters, buildListingDetailsFilters } from '@/lib/reels-maker/ffmpeg-text'
+import { buildListingDetailsFilters } from '@/lib/reels-maker/ffmpeg-text'
 import { buildColorGradeFilter } from '@/lib/reels-maker/ffmpeg-color-grade'
 import {
+  buildMotionFilter,
   buildVideoMotionFilter,
 } from '@/lib/reels-maker/cinematic-motion'
 import {
-  buildEditorialSceneFilterComplex,
-  editorialCanvasColor,
-} from '@/lib/reels-maker/ffmpeg-editorial-layouts'
+  resolveSceneLowerThirdCopy,
+  writeLowerThirdPng,
+} from '@/lib/reels-maker/ffmpeg-lower-third'
 import {
   buildBookendedSceneClips,
   buildXfadeFilterGraph,
@@ -133,6 +134,7 @@ type SceneRenderContext = {
   reelTitle?: string
   isFirst: boolean
   isLast: boolean
+  logoBuffer?: Buffer | null
 }
 
 async function renderImageScene(
@@ -146,21 +148,66 @@ async function renderImageScene(
 ) {
   const outputPath = join(workDir, `scene-${index}.mp4`)
   const duration = scene.durationSeconds
-  const motion = resolveSceneMotion(scene.motion, duration, context)
-  const { filterComplex, layout } = buildEditorialSceneFilterComplex({
+  const motion = buildMotionFilter(
+    resolveSceneMotion(scene.motion, duration, context),
+    duration,
     frame,
-    scene,
-    sceneIndex: index,
+  )
+  const colorGrade = buildColorGradeFilter(templateId)
+  const bookends = buildSceneBookendFilters({
     durationSeconds: duration,
-    motion,
-    templateId,
-    reelTitle: context.reelTitle,
     isFirst: context.isFirst,
     isLast: context.isLast,
   })
-  console.info(`[reels-maker/ffmpeg-render] scene ${index} editorial layout=${layout}`)
 
-  const canvas = editorialCanvasColor()
+  const { title, subtitle } = resolveSceneLowerThirdCopy({
+    sceneIndex: index,
+    textOverlay: scene.textOverlay,
+    reelTitle: context.reelTitle,
+    listingPriceText: scene.listingPriceText,
+    sceneRole: scene.sceneRole,
+  })
+
+  // Listing price count-up stays as animated drawtext; everything else uses the slanted lower third.
+  if (scene.listingPriceText?.trim() && !scene.textOverlay?.trim()) {
+    const textFilter = buildListingDetailsFilters(scene, {
+      durationSeconds: duration,
+      sceneIndex: index,
+      reelTitle: context.reelTitle,
+      isFirst: context.isFirst,
+      isLast: context.isLast,
+      sceneRole: scene.sceneRole,
+    })
+    await runFfmpeg(
+      [
+        '-y',
+        '-threads',
+        String(FFMPEG_THREADS_PER_SCENE),
+        '-loop',
+        '1',
+        '-framerate',
+        String(FPS),
+        '-i',
+        imagePath,
+        '-vf',
+        `${motion},${colorGrade}${textFilter}${bookends}`,
+        '-t',
+        String(duration),
+        ...ENCODE_ARGS,
+        outputPath,
+      ],
+      FFMPEG_TIMEOUT_SCENE_MS,
+    )
+    return outputPath
+  }
+
+  const lowerThirdPath = await writeLowerThirdPng(workDir, index, frame.width, frame.height, {
+    title,
+    subtitle,
+    logoBuffer: context.logoBuffer,
+  })
+
+  const fadeIn = context.isFirst ? 0.25 : 0.12
 
   await runFfmpeg(
     [
@@ -173,12 +220,14 @@ async function renderImageScene(
       String(FPS),
       '-i',
       imagePath,
-      '-f',
-      'lavfi',
+      '-loop',
+      '1',
+      '-framerate',
+      String(FPS),
       '-i',
-      `color=c=0x${canvas}:s=${frame.width}x${frame.height}:d=${duration}:r=${FPS}`,
+      lowerThirdPath,
       '-filter_complex',
-      filterComplex,
+      `[0:v]${motion},${colorGrade}${bookends}[base];[1:v]format=rgba,fade=t=in:st=${fadeIn}:d=0.35:alpha=1[lt];[base][lt]overlay=0:0:format=auto,format=yuv420p[vout]`,
       '-map',
       '[vout]',
       '-t',
@@ -204,24 +253,56 @@ async function renderVideoScene(
   const outputPath = join(workDir, `scene-${index}.mp4`)
   const duration = scene.durationSeconds
   const colorGrade = buildColorGradeFilter(templateId)
-  const videoTextOptions = {
-    durationSeconds: duration,
-    sceneIndex: index,
-    reelTitle: context.reelTitle,
-    isFirst: context.isFirst,
-    isLast: context.isLast,
-    sceneRole: scene.sceneRole,
-  }
-  const textFilter = scene.listingPriceText
-    ? buildListingDetailsFilters(scene, videoTextOptions)
-    : buildAnimatedTextFilters(scene, videoTextOptions)
   const bookends = buildSceneBookendFilters({
     durationSeconds: duration,
     isFirst: context.isFirst,
     isLast: context.isLast,
   })
-  // Subtle cinematic push on video so clips aren't locked static
   const motion = buildVideoMotionFilter(duration, frame)
+
+  const { title, subtitle } = resolveSceneLowerThirdCopy({
+    sceneIndex: index,
+    textOverlay: scene.textOverlay,
+    reelTitle: context.reelTitle,
+    listingPriceText: scene.listingPriceText,
+    sceneRole: scene.sceneRole,
+  })
+
+  if (scene.listingPriceText?.trim() && !scene.textOverlay?.trim()) {
+    const textFilter = buildListingDetailsFilters(scene, {
+      durationSeconds: duration,
+      sceneIndex: index,
+      reelTitle: context.reelTitle,
+      isFirst: context.isFirst,
+      isLast: context.isLast,
+      sceneRole: scene.sceneRole,
+    })
+    await runFfmpeg(
+      [
+        '-y',
+        '-threads',
+        String(FFMPEG_THREADS_PER_SCENE),
+        '-i',
+        videoPath,
+        '-vf',
+        `${motion},${colorGrade}${textFilter}${bookends}`,
+        '-t',
+        String(duration),
+        '-an',
+        ...ENCODE_ARGS,
+        outputPath,
+      ],
+      FFMPEG_TIMEOUT_SCENE_MS,
+    )
+    return outputPath
+  }
+
+  const lowerThirdPath = await writeLowerThirdPng(workDir, index, frame.width, frame.height, {
+    title,
+    subtitle,
+    logoBuffer: context.logoBuffer,
+  })
+  const fadeIn = context.isFirst ? 0.25 : 0.12
 
   await runFfmpeg(
     [
@@ -230,8 +311,16 @@ async function renderVideoScene(
       String(FFMPEG_THREADS_PER_SCENE),
       '-i',
       videoPath,
-      '-vf',
-      `${motion},${colorGrade}${textFilter}${bookends}`,
+      '-loop',
+      '1',
+      '-framerate',
+      String(FPS),
+      '-i',
+      lowerThirdPath,
+      '-filter_complex',
+      `[0:v]${motion},${colorGrade}${bookends}[base];[1:v]format=rgba,fade=t=in:st=${fadeIn}:d=0.35:alpha=1[lt];[base][lt]overlay=0:0:format=auto,format=yuv420p[vout]`,
+      '-map',
+      '[vout]',
       '-t',
       String(duration),
       '-an',
@@ -563,12 +652,19 @@ export async function renderReelWithFfmpeg(params: {
 
     report('Downloading media…', 79)
     const voicePromise = Promise.resolve(voiceOver)
-    const [resolvedVoiceOver, mediaPaths, blackLeaderPath, blackTailPath] = await Promise.all([
-      voicePromise,
-      downloadMediaToWorkDir(uniqueMedia, workDir, frame),
-      renderBlackClip(workDir, 'black-leader', BLACK_LEADER_SEC, frame),
-      renderBlackClip(workDir, 'black-tail', BLACK_TAIL_SEC, frame),
-    ])
+    const logoDownload =
+      params.logo != null
+        ? downloadReelObject(params.logo.bucketName, params.logo.storagePath).catch(() => null)
+        : Promise.resolve(null)
+
+    const [resolvedVoiceOver, mediaPaths, blackLeaderPath, blackTailPath, earlyLogoBuffer] =
+      await Promise.all([
+        voicePromise,
+        downloadMediaToWorkDir(uniqueMedia, workDir, frame),
+        renderBlackClip(workDir, 'black-leader', BLACK_LEADER_SEC, frame),
+        renderBlackClip(workDir, 'black-tail', BLACK_TAIL_SEC, frame),
+        logoDownload,
+      ])
 
     report(`Rendering ${totalScenes} scenes…`, 82)
     const scenePaths = await mapPool(scenes, SCENE_RENDER_CONCURRENCY, async ({ scene, index, mediaItem }) => {
@@ -579,6 +675,7 @@ export async function renderReelWithFfmpeg(params: {
         reelTitle: renderPlan.title,
         isFirst: index === 0,
         isLast: index === totalScenes - 1,
+        logoBuffer: earlyLogoBuffer,
       }
 
       return mediaItem.kind === 'video'
@@ -597,11 +694,11 @@ export async function renderReelWithFfmpeg(params: {
     }))
 
     const isListingShowcase = renderPlan.templateId === 'listing-showcase'
-    let logoBuffer: Buffer | null = null
+    let logoBuffer: Buffer | null = earlyLogoBuffer
     let qrBuffer: Buffer | null = null
     const outroEnabled = params.outroEnabled !== false
 
-    if (params.logo) {
+    if (params.logo && !logoBuffer) {
       logoBuffer = await downloadReelObject(params.logo.bucketName, params.logo.storagePath)
     }
     if (params.qr) {
