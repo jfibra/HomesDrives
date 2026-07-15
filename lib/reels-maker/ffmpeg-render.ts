@@ -29,6 +29,7 @@ import {
 import {
   resolveSceneLowerThirdCopy,
   writeLowerThirdPng,
+  buildLowerThirdRevealFilterComplex,
 } from '@/lib/reels-maker/ffmpeg-lower-third'
 import {
   buildBookendedSceneClips,
@@ -207,7 +208,11 @@ async function renderImageScene(
     logoBuffer: context.logoBuffer,
   })
 
-  const fadeIn = context.isFirst ? 0.25 : 0.12
+  const revealDelay = context.isFirst ? 0.22 : 0.1
+  const lowerThirdReveal = buildLowerThirdRevealFilterComplex({
+    delaySeconds: revealDelay,
+    durationSeconds: 0.55,
+  })
 
   await runFfmpeg(
     [
@@ -227,7 +232,7 @@ async function renderImageScene(
       '-i',
       lowerThirdPath,
       '-filter_complex',
-      `[0:v]${motion},${colorGrade}${bookends}[base];[1:v]format=rgba,fade=t=in:st=${fadeIn}:d=0.35:alpha=1[lt];[base][lt]overlay=0:0:format=auto,format=yuv420p[vout]`,
+      `[0:v]${motion},${colorGrade}${bookends}[base];${lowerThirdReveal}`,
       '-map',
       '[vout]',
       '-t',
@@ -302,7 +307,11 @@ async function renderVideoScene(
     subtitle,
     logoBuffer: context.logoBuffer,
   })
-  const fadeIn = context.isFirst ? 0.25 : 0.12
+  const revealDelay = context.isFirst ? 0.22 : 0.1
+  const lowerThirdReveal = buildLowerThirdRevealFilterComplex({
+    delaySeconds: revealDelay,
+    durationSeconds: 0.55,
+  })
 
   await runFfmpeg(
     [
@@ -318,7 +327,7 @@ async function renderVideoScene(
       '-i',
       lowerThirdPath,
       '-filter_complex',
-      `[0:v]${motion},${colorGrade}${bookends}[base];[1:v]format=rgba,fade=t=in:st=${fadeIn}:d=0.35:alpha=1[lt];[base][lt]overlay=0:0:format=auto,format=yuv420p[vout]`,
+      `[0:v]${motion},${colorGrade}${bookends}[base];${lowerThirdReveal}`,
       '-map',
       '[vout]',
       '-t',

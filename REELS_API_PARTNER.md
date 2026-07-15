@@ -370,7 +370,7 @@ Typical time: **60–180 seconds**, depending on the number of photos and server
 | Element | Behavior |
 |---|---|
 | **Cinematic photo motion** | Dolly / push / track / float (server-chosen). Not a basic slideshow. |
-| **Bottom titles** | Slanted broadcast lower-third (logo tab + white title ribbon + blue subtitle) |
+| **Bottom titles** | Slanted broadcast lower-third (logo tab + white title ribbon + blue subtitle), **wipes in left → right** |
 | **Karaoke / subtitles** | **Never burned in.** Voiceover is audio-only. |
 | **Logo watermark** | Position + `always` / `outro-only` (non–listing-showcase). |
 | **QR / end badge** | Prefer `outro-only` so it appears on the branded end card / last seconds only. |

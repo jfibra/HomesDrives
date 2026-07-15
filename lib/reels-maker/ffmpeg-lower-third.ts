@@ -197,3 +197,25 @@ export function resolveSceneLowerThirdCopy(params: {
 
   return { title, subtitle }
 }
+
+/**
+ * Left→right wipe reveal for the lower-third PNG (input [1:v] onto [base]).
+ * Crops the overlay wider over time so it appears to draw from left to right.
+ */
+export function buildLowerThirdRevealFilterComplex(options?: {
+  delaySeconds?: number
+  durationSeconds?: number
+}) {
+  const delay = options?.delaySeconds ?? 0.12
+  const anim = options?.durationSeconds ?? 0.55
+  const d = delay.toFixed(3)
+  const a = anim.toFixed(3)
+  // Even pixel widths keep yuv420p happy on older FFmpeg builds
+  const cropW = `max(2\\,trunc(iw*min(1\\,max(0\\,(t-${d})/${a}))/2)*2)`
+  return (
+    `[1:v]format=rgba,` +
+    `crop=w='${cropW}':h=ih:x=0:y=0,` +
+    `fade=t=in:st=${d}:d=0.18:alpha=1[lt];` +
+    `[base][lt]overlay=0:0:format=auto,format=yuv420p[vout]`
+  )
+}
