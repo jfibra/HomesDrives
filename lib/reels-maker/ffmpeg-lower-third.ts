@@ -199,8 +199,8 @@ export function resolveSceneLowerThirdCopy(params: {
 }
 
 /**
- * Left→right wipe reveal for the lower-third PNG (input [1:v] onto [base]).
- * Crops the overlay wider over time so it appears to draw from left to right.
+ * Left→right entrance for the lower-third PNG (input [1:v] onto [base]).
+ * Uses overlay x animation (works on FFmpeg 4.4) — crop=w='…t…' does not.
  */
 export function buildLowerThirdRevealFilterComplex(options?: {
   delaySeconds?: number
@@ -210,12 +210,10 @@ export function buildLowerThirdRevealFilterComplex(options?: {
   const anim = options?.durationSeconds ?? 0.55
   const d = delay.toFixed(3)
   const a = anim.toFixed(3)
-  // Even pixel widths keep yuv420p happy on older FFmpeg builds
-  const cropW = `max(2\\,trunc(iw*min(1\\,max(0\\,(t-${d})/${a}))/2)*2)`
+  // Slide from fully off-screen left → settled x=0
+  const xExpr = `-w+w*min(1\\,max(0\\,(t-${d})/${a}))`
   return (
-    `[1:v]format=rgba,` +
-    `crop=w='${cropW}':h=ih:x=0:y=0,` +
-    `fade=t=in:st=${d}:d=0.18:alpha=1[lt];` +
-    `[base][lt]overlay=0:0:format=auto,format=yuv420p[vout]`
+    `[1:v]format=rgba,fade=t=in:st=${d}:d=0.20:alpha=1[lt];` +
+    `[base][lt]overlay=x='${xExpr}':y=0:format=auto,format=yuv420p[vout]`
   )
 }
