@@ -14,30 +14,26 @@ const execFileAsync = promisify(execFile)
 /** Match outro logo scale (~50% of frame width). */
 const LOGO_WIDTH_RATIO = 0.5
 const LOGO_MARGIN = 36
-/** Soft black plate behind the watermark so it reads on bright photos. */
-const PLATE_OPACITY = 0.28
-const PLATE_PAD_X_RATIO = 0.14
-const PLATE_PAD_Y_RATIO = 0.22
+/** Soft full-width black bar behind the watermark so it reads on bright photos. */
+const PLATE_OPACITY = 0.12
+const PLATE_PAD_Y_RATIO = 0.28
 
 function logoMaxWidth(frameWidth: number) {
   return Math.round(frameWidth * LOGO_WIDTH_RATIO)
 }
 
 function overlayCoords(position: ReelLogoPosition) {
+  // Plate is full frame width — always pin x to 0; only vertical edge changes.
   switch (position) {
-    case 'top-left':
-      return `${LOGO_MARGIN}:${LOGO_MARGIN}`
-    case 'top-center':
-      return `(main_w-overlay_w)/2:${LOGO_MARGIN}`
     case 'bottom-left':
-      return `${LOGO_MARGIN}:main_h-overlay_h-${LOGO_MARGIN}`
     case 'bottom-center':
-      return `(main_w-overlay_w)/2:main_h-overlay_h-${LOGO_MARGIN}`
     case 'bottom-right':
-      return `main_w-overlay_w-${LOGO_MARGIN}:main_h-overlay_h-${LOGO_MARGIN}`
+      return `0:main_h-overlay_h`
+    case 'top-left':
+    case 'top-center':
     case 'top-right':
     default:
-      return `main_w-overlay_w-${LOGO_MARGIN}:${LOGO_MARGIN}`
+      return `0:0`
   }
 }
 
@@ -46,7 +42,7 @@ export type OverlayTimingOptions = {
   enableFromSeconds?: number | null
 }
 
-/** Resize logo and composite onto a low-opacity black rounded plate. */
+/** Resize logo and composite onto a low-opacity full-width black bar. */
 async function prepareWatermarkLogoPng(logoBuffer: Buffer, frameWidth: number): Promise<Buffer> {
   const { default: sharp } = await import('sharp')
   const maxW = logoMaxWidth(frameWidth)
@@ -59,18 +55,19 @@ async function prepareWatermarkLogoPng(logoBuffer: Buffer, frameWidth: number): 
   const meta = await sharp(logoPng).metadata()
   const lw = meta.width ?? maxW
   const lh = meta.height ?? Math.round(maxW * 0.35)
-  const padX = Math.round(lw * PLATE_PAD_X_RATIO)
-  const padY = Math.round(lh * PLATE_PAD_Y_RATIO)
-  const plateW = lw + padX * 2
+  const padY = Math.max(LOGO_MARGIN, Math.round(lh * PLATE_PAD_Y_RATIO))
+  const plateW = frameWidth
   const plateH = lh + padY * 2
-  const radius = Math.round(Math.min(plateW, plateH) * 0.18)
 
   const plateSvg = Buffer.from(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${plateW}" height="${plateH}">
-      <rect x="0" y="0" width="${plateW}" height="${plateH}" rx="${radius}" ry="${radius}"
+      <rect x="0" y="0" width="${plateW}" height="${plateH}"
         fill="black" fill-opacity="${PLATE_OPACITY}"/>
     </svg>`,
   )
+
+  const logoLeft = Math.round((plateW - lw) / 2)
+  const logoTop = padY
 
   return sharp({
     create: {
@@ -82,7 +79,7 @@ async function prepareWatermarkLogoPng(logoBuffer: Buffer, frameWidth: number): 
   })
     .composite([
       { input: await sharp(plateSvg).png().toBuffer(), left: 0, top: 0 },
-      { input: logoPng, left: padX, top: padY },
+      { input: logoPng, left: logoLeft, top: logoTop },
     ])
     .png()
     .toBuffer()

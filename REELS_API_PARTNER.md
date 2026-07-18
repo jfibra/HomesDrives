@@ -104,6 +104,7 @@ x-api-key: rk_xxx
   "templateId": "social-trend",
   "aspectRatio": "portrait",
   "voiceOverEnabled": true,
+  "voiceGender": "woman",
   "captionsEnabled": false,
   "reelBrief": "3-bedroom luxury condo in BGC with pool and city views, asking P18M",
   "outroEnabled": true,
@@ -118,6 +119,7 @@ x-api-key: rk_xxx
 | `templateId` | string | ✅ | Visual style — see [Templates](#templates). Prefer `social-trend`, `luxury`, or `listing-showcase`. |
 | `aspectRatio` | `"portrait"` \| `"landscape"` | No | `portrait` = 9:16 for Reels/TikTok (default). `landscape` = 16:9 for YouTube/Facebook. |
 | `voiceOverEnabled` | boolean | No | Generate AI voiceover narration (**audio only** — no karaoke burn-in) |
+| `voiceGender` | `"woman"` \| `"man"` | No | Narrator voice. Default `"woman"`. Also accepts `"female"` / `"male"`. |
 | `captionsEnabled` | boolean | No | Prefer `false`. Karaoke subtitles are **never** burned into the video; bottom scene **titles** still appear. |
 | `subtitlesEnabled` | boolean | No | Alias for `captionsEnabled`. |
 | `reelBrief` | string | No | Property description — improves AI story, scene order, and voiceover |
@@ -149,6 +151,7 @@ x-api-key: rk_xxx
     "templateId": "social-trend",
     "aspectRatio": "portrait",
     "voiceOverEnabled": true,
+    "voiceGender": "woman",
     "captionsEnabled": false,
     "media": [],
     "createdAt": "2025-01-15T10:00:00.000Z"
@@ -175,11 +178,11 @@ x-api-key: rk_xxx
 | `files` / `files[]` | File | One or more images or videos. JPEG, PNG, HEIC, WEBP, MP4, MOV supported. Max 10 MB/photo, 100 MB/video. |
 | `mediaNotes` | JSON string | `["living room", "pool area"]` — one note per file, same order. Optional; helps storytelling. |
 | `music` | File (MP3) | Optional background music. Max 50 MB. |
-| `logo` | File (PNG/JPG) | Brand mark. Prefer **white / light**. Used as the **large top watermark** during photos (same scale as outro, with a soft black plate behind it) and on the left tab of the lower-third + top of the branded **outro**. |
+| `logo` | File (PNG/JPG) | Brand mark. Prefer **white / light**. Used as the **large top watermark** during photos (same scale as outro, with a soft **full-width** black bar behind it) and on the left tab of the lower-third + top of the branded **outro**. |
 | `logoEnabled` | string | `"true"` to enable. |
 | `logoPosition` | string | `"top-left"`, `"top-right"`, `"top-center"`, `"bottom-left"`, `"bottom-right"`, `"bottom-center"`. Use **`top-center`** for Homes.ph watermark during the photo tour. Ignored by `listing-showcase` (logo only on the outro). |
 | `logoDisplay` | string | `"always"` (default, watermark during photo tour) or `"outro-only"` (skip watermark; logo still appears on the outro). Ignored by `listing-showcase`. |
-| `accentLogo` | File (PNG/JPG) | Optional second mark for the **right end-tab** of the slanted lower-third title ribbon. Partners can upload a different logo here (agency mark, developer logo, etc.). |
+| `accentLogo` | File (PNG/JPG) | Optional mark for the **left blue logo tab** on the lower-third (beside the white title). When set, it replaces `logo` in that tab only — top watermark / outro still use `logo`. |
 | `accentLogoEnabled` | string | `"true"` to enable (defaults to true when `accentLogo` is uploaded). |
 | `qr` | File (PNG/JPG) | Listing QR. Prefer `qrDisplay=outro-only` so it only appears on the branded outro (white pad). |
 | `qrEnabled` | string | `"true"` to enable. |
@@ -368,6 +371,7 @@ Optional body to override settings before rendering:
 {
   "reelBrief": "Updated property description",
   "voiceOverEnabled": true,
+  "voiceGender": "man",
   "captionsEnabled": false,
   "outroEnabled": true,
   "outroLine": "Scan for listing details",
@@ -380,6 +384,7 @@ Optional body to override settings before rendering:
 | Field | Notes |
 |---|---|
 | `captionsEnabled` / `subtitlesEnabled` | Prefer `false`. Voiceover still plays; short bottom **titles** still appear. Karaoke subtitles are never burned into the MP4. |
+| `voiceGender` | `"woman"` (default) or `"man"`. Also accepts `"female"` / `"male"`. Override narrator voice at render time. |
 | `outroEnabled` / `outroLine` | Spoken CTA + whether the branded mascot outro is built. |
 | `agentName` / `agentPhone` / `agentEmail` / `agentAgencyName` | **Required for name/phone on the outro.** Works on **any** template (`social-trend`, `luxury`, `listing-showcase`, …). Send on **create and/or render**. |
 
@@ -402,9 +407,9 @@ Typical time: **60–180 seconds**, depending on the number of photos and server
 |---|---|
 | **Cinematic photo motion** | Starts immediately. Dolly / push / track / float (server-chosen). Not a basic slideshow. |
 | **Bottom titles** | Slanted broadcast lower-third (logo tab + white title ribbon + blue subtitle), slides in slowly left → right (~1.15s). |
-| **Karaoke / subtitles** | **Never burned in.** Voiceover is audio-only. |
-| **Logo watermark** | During photo tour when `logoDisplay=always` (non–`listing-showcase`): **~50% frame width** (same scale as outro), with a **soft black plate** (~28% opacity) behind it for contrast. Also appears on the branded outro when uploaded. |
-| **Lower-third logos** | Left blue tab = `logo`. Right end-tab = optional `accentLogo` (partner-customizable). |
+| **Karaoke / subtitles** | **Never burned in.** Voiceover is audio-only. Choose narrator with `voiceGender`: `"woman"` (default) or `"man"`. |
+| **Logo watermark** | During photo tour when `logoDisplay=always` (non–`listing-showcase`): **~50% frame width** logo, centered on a **full-width soft black bar** (~12% opacity). Also appears on the branded outro when uploaded. |
+| **Lower-third logos** | Left navy tab (beside the white title) = `accentLogo` if uploaded, otherwise `logo`. No logo on the right. |
 | **QR watermark** | Prefer `outro-only` so QR appears on the branded outro only. |
 | **Branded outro** | When `outroEnabled` + branding/agent/QR: navy mascot plate → logo → circular agent photo → name/phone → QR (~4.5s). **All templates.** |
 | **Listing price** | `listing-showcase` + `listingPrice` → **count-up**, then address + beds/baths/sqft **chips**. |
@@ -435,6 +440,7 @@ Missing pieces are skipped and spacing tightens automatically (e.g. logo + QR on
   "templateId": "social-trend",
   "aspectRatio": "portrait",
   "voiceOverEnabled": true,
+  "voiceGender": "woman",
   "captionsEnabled": false,
   "outroEnabled": true,
   "outroLine": "Scan for listing details",
@@ -614,6 +620,7 @@ Goal: photos **start immediately** · Homes.ph logo **top-center** during photos
   "templateId": "social-trend",
   "aspectRatio": "portrait",
   "voiceOverEnabled": true,
+  "voiceGender": "woman",
   "captionsEnabled": false,
   "outroEnabled": true,
   "outroLine": "Scan for listing details",
@@ -633,7 +640,7 @@ For a **counting price** on every photo, use `templateId: "listing-showcase"` an
 | `logoEnabled` | `"true"` |
 | `logoPosition` | `"top-center"` |
 | `logoDisplay` | `"always"` |
-| `accentLogo` | Optional second mark for the **right** lower-third tab (agency / developer logo) |
+| `accentLogo` | Optional mark for the **left logo tab** on the lower-third (beside the title). Top watermark still uses `logo`. |
 | `accentLogoEnabled` | `"true"` |
 | `qr` | Listing QR image |
 | `qrEnabled` | `"true"` |
@@ -654,8 +661,8 @@ No need to append a fake end-card photo as the last media file.
 | Capability | How |
 |---|---|
 | Start on listing photos | Automatic (no intro card) |
-| Logo top-center during photos | `logoPosition=top-center` + `logoDisplay=always` (large watermark + soft black plate) |
-| Custom logo on lower-third right tab | Upload `accentLogo` (+ `accentLogoEnabled=true`) |
+| Logo top-center during photos | `logoPosition=top-center` + `logoDisplay=always` (large watermark + full-width soft black bar) |
+| Custom logo in left lower-third tab | Upload `accentLogo` (+ `accentLogoEnabled=true`), or use `logo` |
 | Logo only on outro (no watermark) | `logoDisplay=outro-only` (still upload `logo`) |
 | QR / agent only at end | `qrDisplay=outro-only` + `agentHeadshot` + `agentName` / `agentPhone` |
 | Full branded outro | `outroEnabled: true` + logo + QR + headshot + agent fields |
@@ -704,6 +711,7 @@ const created = await fetch(`${BASE_URL}/api/reels-maker/jobs`, {
     templateId: 'social-trend',
     aspectRatio: 'portrait',
     voiceOverEnabled: true,
+    voiceGender: 'woman', // or 'man'
     captionsEnabled: false,
     reelBrief: '3BR luxury condo in BGC with pool and city views, asking P18M',
     outroEnabled: true,
@@ -786,6 +794,7 @@ const created = await fetch(`${BASE_URL}/api/reels-maker/jobs`, {
     templateId: 'listing-showcase',
     aspectRatio: 'portrait',
     voiceOverEnabled: true,
+    voiceGender: 'woman', // or 'man'
     captionsEnabled: false,
     outroEnabled: true,
     outroLine: 'Contact us today',

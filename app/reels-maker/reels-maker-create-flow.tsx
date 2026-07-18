@@ -30,7 +30,7 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { REEL_ASPECT_RATIO_OPTIONS } from '@/lib/reels-maker/aspect-ratio'
 import { REEL_TEMPLATES } from '@/lib/reels-maker/templates'
-import type { ReelAspectRatio, ReelJob, ReelLogoPosition, ReelTemplateId } from '@/lib/reels-maker/types'
+import type { ReelAspectRatio, ReelJob, ReelLogoPosition, ReelTemplateId, ReelVoiceGender } from '@/lib/reels-maker/types'
 import { cn } from '@/lib/utils'
 
 type LocalMedia = {
@@ -95,6 +95,8 @@ type ReelsMakerCreateFlowProps = {
   clearUploadedMusic: () => void
   voiceOverEnabled: boolean
   setVoiceOverEnabled: (value: boolean) => void
+  voiceGender: ReelVoiceGender
+  setVoiceGender: (value: ReelVoiceGender) => void
   outroEnabled: boolean
   setOutroEnabled: (value: boolean) => void
   outroLine: string
@@ -262,6 +264,8 @@ export function ReelsMakerCreateFlow(props: ReelsMakerCreateFlowProps) {
     clearUploadedMusic,
     voiceOverEnabled,
     setVoiceOverEnabled,
+    voiceGender,
+    setVoiceGender,
     outroEnabled,
     setOutroEnabled,
     outroLine,
@@ -595,6 +599,37 @@ export function ReelsMakerCreateFlow(props: ReelsMakerCreateFlowProps) {
                       className="space-y-3 rounded-xl border bg-slate-50 p-3"
                       style={{ borderColor: 'var(--ds-outline-variant)' }}
                     >
+                      <div>
+                        <p className="text-sm font-semibold">Narrator voice</p>
+                        <p className="mb-2 text-xs" style={{ color: 'var(--ds-on-surface-variant)' }}>
+                          Choose a man or woman voice for the narration
+                        </p>
+                        <div className="grid grid-cols-2 gap-2">
+                          {(
+                            [
+                              { value: 'woman' as const, label: 'Woman' },
+                              { value: 'man' as const, label: 'Man' },
+                            ] as const
+                          ).map((option) => {
+                            const selected = voiceGender === option.value
+                            return (
+                              <button
+                                key={option.value}
+                                type="button"
+                                onClick={() => setVoiceGender(option.value)}
+                                className="rounded-xl border px-3 py-2.5 text-sm font-semibold transition"
+                                style={{
+                                  borderColor: selected ? 'var(--ds-primary)' : 'var(--ds-outline-variant)',
+                                  background: selected ? 'color-mix(in srgb, var(--ds-primary) 12%, white)' : 'white',
+                                  color: selected ? 'var(--ds-primary)' : 'var(--ds-on-surface)',
+                                }}
+                              >
+                                {option.label}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <p className="text-sm font-semibold">Outro call-to-action</p>
@@ -735,7 +770,7 @@ export function ReelsMakerCreateFlow(props: ReelsMakerCreateFlowProps) {
                       Voice & logo
                     </p>
                     <p className="mt-1 font-semibold">
-                      {voiceOverEnabled ? 'Voice-over on' : 'No voice-over'}
+                      {voiceOverEnabled ? `Voice-over on (${voiceGender})` : 'No voice-over'}
                       {logoEnabled && logoFile ? ' · Logo on' : ''}
                     </p>
                   </div>

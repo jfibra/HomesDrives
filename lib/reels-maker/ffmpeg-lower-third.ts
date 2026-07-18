@@ -33,18 +33,23 @@ function wrapTitle(text: string, maxLen = 28) {
 export type LowerThirdContent = {
   title: string
   subtitle?: string | null
-  /** PNG/JPEG/WebP logo bytes — rendered into the left blue tab. */
+  /** PNG/JPEG/WebP — rendered in the left blue logo tab (beside the white title holder). */
   logoBuffer?: Buffer | null
-  /** Optional partner mark for the right end-tab of the title ribbon. */
+  /**
+   * Optional partner mark for the left blue logo tab.
+   * When set, takes priority over `logoBuffer` in the tab only
+   * (so watermark/outro can stay on the main `logo`).
+   */
   accentLogoBuffer?: Buffer | null
 }
 
 /**
- * Broadcast-style slanted lower third (parallelogram stack):
- * - Left blue logo tab
+ * Broadcast-style slanted lower third (matches Homes.ph reference):
+ * - Light-blue accent bars on the far left
+ * - Navy logo tab on the left of the white title holder
  * - White main title ribbon
  * - Blue subtitle ribbon
- * - Accent stripe on the right
+ * - Thin decorative accent on the right (no logo)
  */
 export async function renderLowerThirdPng(
   frameWidth: number,
@@ -63,9 +68,9 @@ export async function renderLowerThirdPng(
   const mainH = Math.round(110 * s)
   const subH = Math.round(48 * s)
   const skew = Math.round(48 * s)
-  const left = Math.round(36 * s)
-  const logoW = Math.round(150 * s)
-  const mainW = Math.round(820 * s)
+  const left = Math.round(48 * s)
+  const logoW = Math.round(210 * s)
+  const mainW = Math.round(780 * s)
   const subW = Math.round(520 * s)
   const gap = Math.round(10 * s)
 
@@ -86,7 +91,8 @@ export async function renderLowerThirdPng(
         : Math.round(40 * s)
   const subFontSize = Math.round(20 * s)
 
-  const titleX = left + logoW + Math.round(36 * s)
+  // Title starts just after the left logo tab (white title holder)
+  const titleX = left + logoW + Math.round(28 * s)
   const titleY = barY + Math.round(mainH * 0.42)
   const titleLinesXml = titleLines
     .map((line, i) => {
@@ -95,12 +101,16 @@ export async function renderLowerThirdPng(
     })
     .join('')
 
+  // Left blue tab: accentLogo (partner) wins, else main logo
+  const tabLogoBuffer =
+    content.accentLogoBuffer?.length ? content.accentLogoBuffer : content.logoBuffer
+
   let logoImageXml = ''
-  if (content.logoBuffer?.length) {
+  if (tabLogoBuffer?.length) {
     try {
-      const logoMaxW = Math.round(logoW * 0.72)
-      const logoMaxH = Math.round(mainH * 0.7)
-      const logoPng = await sharp(content.logoBuffer, { failOn: 'none' })
+      const logoMaxW = Math.round(logoW * 0.78)
+      const logoMaxH = Math.round(mainH * 0.62)
+      const logoPng = await sharp(tabLogoBuffer, { failOn: 'none' })
         .ensureAlpha()
         .resize({
           width: logoMaxW,
@@ -114,7 +124,7 @@ export async function renderLowerThirdPng(
       const meta = await sharp(logoPng).metadata()
       const lw = meta.width ?? logoMaxW
       const lh = meta.height ?? logoMaxH
-      const lx = left + Math.round((logoW - lw) / 2) + Math.round(skew * 0.35)
+      const lx = left + Math.round((logoW - lw) / 2) + Math.round(skew * 0.28)
       const ly = barY + Math.round((mainH - lh) / 2)
       logoImageXml = `<image href="data:image/png;base64,${b64}" x="${lx}" y="${ly}" width="${lw}" height="${lh}" />`
     } catch {
@@ -122,73 +132,51 @@ export async function renderLowerThirdPng(
     }
   }
 
-  // Right end-tab: partner accent logo (or solid blue accent if none uploaded)
-  const rightTabW = Math.round(content.accentLogoBuffer?.length ? 120 * s : 28 * s)
-  const rightTabX = frameWidth - Math.round(90 * s) - (content.accentLogoBuffer?.length ? Math.round(70 * s) : 0)
-  const rightTabY = barY + Math.round(mainH * 0.12)
-  const rightTabH = Math.round(mainH * 0.9)
-  let accentLogoXml = ''
-  if (content.accentLogoBuffer?.length) {
-    try {
-      const maxW = Math.round(rightTabW * 0.7)
-      const maxH = Math.round(rightTabH * 0.62)
-      const accentPng = await sharp(content.accentLogoBuffer, { failOn: 'none' })
-        .ensureAlpha()
-        .resize({ width: maxW, height: maxH, fit: 'inside', withoutEnlargement: false })
-        .png()
-        .toBuffer()
-      const b64 = accentPng.toString('base64')
-      const meta = await sharp(accentPng).metadata()
-      const aw = meta.width ?? maxW
-      const ah = meta.height ?? maxH
-      const ax = rightTabX + Math.round((rightTabW - aw) / 2) + Math.round(skew * 0.25)
-      const ay = rightTabY + Math.round((rightTabH - ah) / 2)
-      accentLogoXml = `<image href="data:image/png;base64,${b64}" x="${ax}" y="${ay}" width="${aw}" height="${ah}" />`
-    } catch {
-      accentLogoXml = ''
-    }
-  }
-
   const fallbackLogoText = logoImageXml
     ? ''
-    : `<text x="${left + Math.round(logoW / 2) + Math.round(skew * 0.35)}" y="${barY + Math.round(mainH * 0.58)}"
+    : `<text x="${left + Math.round(logoW / 2) + Math.round(skew * 0.28)}" y="${barY + Math.round(mainH * 0.58)}"
         text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="${Math.round(22 * s)}"
         font-weight="700" fill="#FFFFFF">LOGO</text>`
 
   const subtitleXml = subtitle
     ? `
-      <polygon points="${para(left + Math.round(logoW * 0.55), barY + mainH + gap, subW, subH, skew)}" fill="${blue}" />
-      <polygon points="${para(left + Math.round(logoW * 0.55), barY + mainH + gap, Math.round(18 * s), subH, skew)}" fill="${blueDeep}" opacity="0.55" />
-      <text x="${left + Math.round(logoW * 0.55) + Math.round(28 * s)}" y="${barY + mainH + gap + Math.round(subH * 0.68)}"
+      <polygon points="${para(left + Math.round(logoW * 0.45), barY + mainH + gap, subW, subH, skew)}" fill="${blue}" />
+      <polygon points="${para(left + Math.round(logoW * 0.45), barY + mainH + gap, Math.round(18 * s), subH, skew)}" fill="${blueDeep}" opacity="0.55" />
+      <text x="${left + Math.round(logoW * 0.45) + Math.round(28 * s)}" y="${barY + mainH + gap + Math.round(subH * 0.68)}"
         font-family="Arial, Helvetica, sans-serif" font-size="${subFontSize}" font-weight="600" fill="#FFFFFF">${escapeXml(subtitle)}</text>
-      <rect x="${left + Math.round(logoW * 0.55) + subW + Math.round(8 * s)}" y="${barY + mainH + gap + Math.round(subH * 0.72)}"
+      <rect x="${left + Math.round(logoW * 0.45) + subW + Math.round(8 * s)}" y="${barY + mainH + gap + Math.round(subH * 0.72)}"
         width="${Math.round(160 * s)}" height="${Math.round(3 * s)}" fill="${lightBlue}" opacity="0.9" />
     `
     : `
-      <rect x="${left + Math.round(logoW * 0.55) + Math.round(40 * s)}" y="${barY + mainH + gap + Math.round(18 * s)}"
+      <rect x="${left + Math.round(logoW * 0.45) + Math.round(40 * s)}" y="${barY + mainH + gap + Math.round(18 * s)}"
         width="${Math.round(200 * s)}" height="${Math.round(3 * s)}" fill="${lightBlue}" opacity="0.85" />
     `
 
-  const rightTabXml = `
-  <polygon points="${para(rightTabX, rightTabY, rightTabW, rightTabH, Math.round(skew * 0.7))}" fill="${blue}" />
-  ${accentLogoXml}
-  `
+  // Thin decorative right accent only — never a logo
+  const rightTabW = Math.round(28 * s)
+  const rightTabX = frameWidth - Math.round(90 * s)
+  const rightTabY = barY + Math.round(mainH * 0.12)
+  const rightTabH = Math.round(mainH * 0.9)
+
+  const accentBarH = mainH - Math.round(16 * s)
+  const accentBarY = barY + Math.round(8 * s)
 
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg width="${frameWidth}" height="${frameHeight}" viewBox="0 0 ${frameWidth} ${frameHeight}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
   <polygon points="${para(left + Math.round(24 * s), barY - Math.round(14 * s), mainW + Math.round(40 * s), mainH + Math.round(28 * s), skew)}" fill="${softGrey}" opacity="0.92" />
-  <polygon points="${para(left - Math.round(28 * s), barY + Math.round(8 * s), Math.round(14 * s), mainH - Math.round(16 * s), skew)}" fill="${lightBlue}" />
-  <polygon points="${para(left - Math.round(8 * s), barY + Math.round(8 * s), Math.round(10 * s), mainH - Math.round(16 * s), skew)}" fill="${lightBlue}" opacity="0.75" />
-  <polygon points="${para(left + Math.round(logoW * 0.72), barY, mainW - Math.round(logoW * 0.4), mainH, skew)}" fill="#FFFFFF" />
-  <polygon points="${para(left, barY - Math.round(6 * s), logoW, mainH + Math.round(12 * s), skew)}" fill="${blue}" />
-  <polygon points="${para(left + logoW - Math.round(22 * s), barY - Math.round(6 * s), Math.round(22 * s), mainH + Math.round(12 * s), skew)}" fill="${blueDeep}" opacity="0.45" />
+  <polygon points="${para(left - Math.round(42 * s), accentBarY, Math.round(10 * s), accentBarH, skew)}" fill="${lightBlue}" opacity="0.85" />
+  <polygon points="${para(left - Math.round(26 * s), accentBarY, Math.round(10 * s), accentBarH, skew)}" fill="${lightBlue}" opacity="0.95" />
+  <polygon points="${para(left - Math.round(10 * s), accentBarY, Math.round(10 * s), accentBarH, skew)}" fill="${lightBlue}" />
+  <polygon points="${para(left + Math.round(logoW * 0.55), barY, mainW - Math.round(logoW * 0.25), mainH, skew)}" fill="#FFFFFF" />
+  <polygon points="${para(left, barY - Math.round(6 * s), logoW, mainH + Math.round(12 * s), skew)}" fill="${blueDeep}" />
+  <polygon points="${para(left + logoW - Math.round(22 * s), barY - Math.round(6 * s), Math.round(22 * s), mainH + Math.round(12 * s), skew)}" fill="${blue}" opacity="0.35" />
   ${logoImageXml}
   ${fallbackLogoText}
   <polygon points="${para(left, barY + mainH + Math.round(4 * s), logoW, Math.round(4 * s), skew)}" fill="${gold}" />
   <text x="${titleX}" y="${titleY}"
     font-family="Arial, Helvetica, sans-serif" font-size="${titleFontSize}" font-weight="700" fill="${blueDeep}">${titleLinesXml}</text>
   ${subtitleXml}
-  ${rightTabXml}
+  <polygon points="${para(rightTabX, rightTabY, rightTabW, rightTabH, Math.round(skew * 0.7))}" fill="${blue}" />
 </svg>`
 
   return sharp(Buffer.from(svg))

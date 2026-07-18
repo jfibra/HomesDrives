@@ -16,11 +16,13 @@ import { parseReelResultStorage } from '@/lib/reels-maker/reel-playback'
 import { uploadReelAgentHeadshotFile, uploadReelLogoFile, uploadReelMediaFile, uploadReelMusicFile, uploadReelQrFile, createReelPresignedUpload, registerReelAgentHeadshotFromStorage, registerReelLogoFromStorage, registerReelQrFromStorage, registerReelMediaFromStorage } from '@/lib/reels-maker/storage'
 import { storeMusicUploadChunk } from '@/lib/reels-maker/music-chunk-sessions'
 import { normalizeReelAspectRatio } from '@/lib/reels-maker/aspect-ratio'
+import { normalizeVoiceGender } from '@/lib/reels-maker/voice-over'
 import type {
   CreateReelJobInput,
   ReelLogoPosition,
   ReelOverlayDisplay,
   ReelTemplateId,
+  ReelVoiceGender,
 } from '@/lib/reels-maker/types'
 import { mkdir, writeFile } from 'fs/promises'
 import { join } from 'path'
@@ -143,6 +145,7 @@ export async function handleReelJobsPost(request: Request): Promise<Response> {
       templateId,
       aspectRatio: normalizeReelAspectRatio(body.aspectRatio),
       voiceOverEnabled: Boolean(body.voiceOverEnabled),
+      voiceGender: normalizeVoiceGender(body.voiceGender) as ReelVoiceGender,
       captionsEnabled: resolveCaptionsEnabled(body),
       subtitlesEnabled: body.subtitlesEnabled,
       outroEnabled: body.outroEnabled !== false,
@@ -670,6 +673,7 @@ export async function handleReelJobRender(jobId: string, request: Request): Prom
       caption?: string
       reelBrief?: string
       voiceOverEnabled?: boolean
+      voiceGender?: string
       captionsEnabled?: boolean
       subtitlesEnabled?: boolean
       outroEnabled?: boolean
@@ -685,6 +689,7 @@ export async function handleReelJobRender(jobId: string, request: Request): Prom
       body.caption !== undefined ||
       body.reelBrief !== undefined ||
       body.voiceOverEnabled !== undefined ||
+      body.voiceGender !== undefined ||
       body.captionsEnabled !== undefined ||
       body.subtitlesEnabled !== undefined ||
       body.outroEnabled !== undefined ||
@@ -704,6 +709,10 @@ export async function handleReelJobRender(jobId: string, request: Request): Prom
         caption: body.caption ?? job.caption,
         reelBrief: body.reelBrief ?? job.reelBrief,
         voiceOverEnabled: body.voiceOverEnabled ?? job.voiceOverEnabled,
+        voiceGender:
+          body.voiceGender !== undefined
+            ? (normalizeVoiceGender(body.voiceGender) as ReelVoiceGender)
+            : job.voiceGender || 'woman',
         ...captionsPatch,
         outroEnabled: body.outroEnabled ?? job.outroEnabled ?? true,
         outroLine: body.outroLine ?? job.outroLine ?? '',

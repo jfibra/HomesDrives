@@ -22,7 +22,7 @@ import { uploadReelJobAssets } from '@/lib/reels-maker/reels-upload-client'
 import { getReelAspectRatioLabel } from '@/lib/reels-maker/aspect-ratio'
 import { REEL_TEMPLATES } from '@/lib/reels-maker/templates'
 import { getReelVideoPlaybackUrl } from '@/lib/reels-maker/reel-playback'
-import type { ReelAspectRatio, ReelDraftSummary, ReelJob, ReelLogoPosition, ReelTemplateId } from '@/lib/reels-maker/types'
+import type { ReelAspectRatio, ReelDraftSummary, ReelJob, ReelLogoPosition, ReelTemplateId, ReelVoiceGender } from '@/lib/reels-maker/types'
 import { cn } from '@/lib/utils'
 
 type LocalMedia = {
@@ -169,6 +169,7 @@ export default function ReelsMakerClient() {
   const [templateId, setTemplateId] = useState<ReelTemplateId>('cinematic')
   const [aspectRatio, setAspectRatio] = useState<ReelAspectRatio>('portrait')
   const [voiceOverEnabled, setVoiceOverEnabled] = useState(true)
+  const [voiceGender, setVoiceGender] = useState<ReelVoiceGender>('woman')
   const [outroEnabled, setOutroEnabled] = useState(true)
   const [outroLine, setOutroLine] = useState('Available now. Visit us today.')
   const [reelBrief, setReelBrief] = useState('')
@@ -431,6 +432,7 @@ export default function ReelsMakerClient() {
           templateId,
           aspectRatio,
           voiceOverEnabled,
+          voiceGender,
           outroEnabled,
           outroLine: outroLine.trim(),
           reelBrief: reelBrief.trim() || undefined,
@@ -485,6 +487,7 @@ export default function ReelsMakerClient() {
           reelBrief: reelBrief.trim(),
           caption: caption.trim(),
           voiceOverEnabled,
+          voiceGender,
           outroEnabled,
           outroLine: outroLine.trim(),
           templateId,
@@ -817,6 +820,8 @@ export default function ReelsMakerClient() {
           clearUploadedMusic={clearUploadedMusic}
           voiceOverEnabled={voiceOverEnabled}
           setVoiceOverEnabled={setVoiceOverEnabled}
+          voiceGender={voiceGender}
+          setVoiceGender={setVoiceGender}
           outroEnabled={outroEnabled}
           setOutroEnabled={setOutroEnabled}
           outroLine={outroLine}

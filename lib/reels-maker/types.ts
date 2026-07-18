@@ -41,6 +41,9 @@ export type ReelLogoPosition =
 /** When an overlay (logo / QR) appears on the final video. `outro-only` ≈ last 4 seconds. */
 export type ReelOverlayDisplay = 'always' | 'outro-only'
 
+/** Gemini TTS narrator gender for voice-over. */
+export type ReelVoiceGender = 'man' | 'woman'
+
 export type ReelUploadedMedia = {
   id: string
   kind: ReelMediaKind
@@ -128,6 +131,8 @@ export type ReelJob = {
   templateId: ReelTemplateId
   aspectRatio: ReelAspectRatio
   voiceOverEnabled: boolean
+  /** Narrator gender for TTS — `woman` (default) or `man`. */
+  voiceGender: ReelVoiceGender
   /** When false, skips legacy karaoke caption generation. Bottom scene titles still render. */
   captionsEnabled: boolean
   outroEnabled: boolean
@@ -146,7 +151,7 @@ export type ReelJob = {
   logoPublicUrl: string | null
   logoPosition: ReelLogoPosition
   logoDisplay: ReelOverlayDisplay
-  /** Optional second mark for the lower-third right end-tab. */
+  /** Optional second mark for the left blue logo tab on the lower-third (beside the title). */
   accentLogoEnabled: boolean
   accentLogoBucketName: string | null
   accentLogoStoragePath: string | null
@@ -179,6 +184,8 @@ export type CreateReelJobInput = {
   templateId: ReelTemplateId
   aspectRatio?: ReelAspectRatio
   voiceOverEnabled: boolean
+  /** Default `woman`. Set `man` for a male narrator. Aliases: `male` / `female`. */
+  voiceGender?: ReelVoiceGender | 'male' | 'female'
   /** Default true. Set false to omit burned-in bottom captions. Alias: `subtitlesEnabled`. */
   captionsEnabled?: boolean
   /** Alias for captionsEnabled — either false turns burn-in off. */

@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto'
 import { generateReelStoryPlan } from '@/lib/reels-maker/gemini-story'
 import { buildListingShowcasePlan } from '@/lib/reels-maker/listing-showcase-plan'
 import { formatApiError } from '@/lib/reels-maker/api-errors'
-import { generateVoiceOverAudio, resolveVoiceOutroLine, fitVoiceScriptToScenes, buildVoiceOverDisplayScript } from '@/lib/reels-maker/voice-over'
+import { generateVoiceOverAudio, resolveVoiceOutroLine, fitVoiceScriptToScenes, buildVoiceOverDisplayScript, normalizeVoiceGender } from '@/lib/reels-maker/voice-over'
 import { createReelJob, getReelJob, listReelJobs, setReelJobStatus, updateReelJob } from '@/lib/reels-maker/job-store'
 import { selectBestMedia, uploadRenderedReel } from '@/lib/reels-maker/storage'
 import { normalizeReelAspectRatio } from '@/lib/reels-maker/aspect-ratio'
@@ -13,6 +13,7 @@ import type {
   ReelLogoPosition,
   ReelOverlayDisplay,
   ReelUploadedMedia,
+  ReelVoiceGender,
 } from '@/lib/reels-maker/types'
 
 function resolveCaptionsEnabled(input: {
@@ -35,6 +36,7 @@ export function startReelJob(input: CreateReelJobInput): ReelJob {
     templateId: input.templateId,
     aspectRatio: normalizeReelAspectRatio(input.aspectRatio),
     voiceOverEnabled: input.voiceOverEnabled,
+    voiceGender: normalizeVoiceGender(input.voiceGender) as ReelVoiceGender,
     captionsEnabled: resolveCaptionsEnabled(input),
     outroEnabled: input.outroEnabled !== false,
     outroLine: input.outroLine?.trim() || '',
@@ -243,6 +245,7 @@ async function processReelJob(jobId: string) {
         outroLine: job.outroLine || undefined,
         reelBrief: job.reelBrief,
         includeOutro: job.outroEnabled !== false,
+        voiceGender: job.voiceGender || 'woman',
       })
       if (!voiceOverBuffer?.length) {
         console.warn('[reels-maker/pipeline] Voice-over generation returned no audio — continuing without narration.')

@@ -26,6 +26,26 @@ const TTS_MODELS = [
   'gemini-2.5-pro-preview-tts',
 ].filter((value, index, list): value is string => Boolean(value) && list.indexOf(value) === index)
 
+/** Gemini prebuilt voices — firm female / informative male (good for listing narration). */
+const VOICE_BY_GENDER = {
+  woman: 'Kore',
+  man: 'Charon',
+} as const
+
+export type VoiceGender = 'man' | 'woman'
+
+export function normalizeVoiceGender(value: unknown): VoiceGender {
+  const raw = String(value ?? '')
+    .trim()
+    .toLowerCase()
+  if (raw === 'man' || raw === 'male' || raw === 'm') return 'man'
+  return 'woman'
+}
+
+export function resolveTtsVoiceName(gender: VoiceGender = 'woman') {
+  return VOICE_BY_GENDER[gender] ?? VOICE_BY_GENDER.woman
+}
+
 const OUTRO_CTA_PATTERN =
   /\b(availabl\w*|visit\s+us|inquire|schedule\s+(?:a\s+)?viewing|contact\s+us|homes\.ph|message\s+us)\b/i
 
@@ -270,6 +290,7 @@ async function synthesizeVoiceLineOnce(
   spokenText: string,
   sceneCount: number,
   model: string,
+  voiceName: string,
 ): Promise<Buffer | null> {
   const trimmed = spokenText.trim()
   if (!trimmed) return null
@@ -287,7 +308,7 @@ async function synthesizeVoiceLineOnce(
       responseModalities: ['AUDIO'],
       speechConfig: {
         voiceConfig: {
-          prebuiltVoiceConfig: { voiceName: 'Kore' },
+          prebuiltVoiceConfig: { voiceName },
         },
       },
     },
@@ -315,7 +336,11 @@ async function synthesizeVoiceLineOnce(
   return wav
 }
 
-async function synthesizeVoiceLine(spokenText: string, sceneCount: number): Promise<Buffer | null> {
+async function synthesizeVoiceLine(
+  spokenText: string,
+  sceneCount: number,
+  voiceName: string,
+): Promise<Buffer | null> {
   let lastError: unknown = null
 
   for (const model of TTS_MODELS) {
@@ -325,9 +350,9 @@ async function synthesizeVoiceLine(spokenText: string, sceneCount: number): Prom
       }
 
       try {
-        const wav = await synthesizeVoiceLineOnce(spokenText, sceneCount, model)
+        const wav = await synthesizeVoiceLineOnce(spokenText, sceneCount, model, voiceName)
         if (wav) {
-          console.info(`[reels-maker/voice-over] synthesized with ${model}`)
+          console.info(`[reels-maker/voice-over] synthesized with ${model} voice=${voiceName}`)
           return wav
         }
         lastError = new Error(`${model} returned no usable audio.`)
@@ -349,9 +374,11 @@ export async function generateVoiceOverAudio(
     outroLine?: string
     reelBrief?: string
     includeOutro?: boolean
+    voiceGender?: VoiceGender | 'male' | 'female' | string
   },
 ): Promise<Buffer | null> {
   const includeOutro = options?.includeOutro !== false
+  const voiceName = resolveTtsVoiceName(normalizeVoiceGender(options?.voiceGender))
   const mainScript = fitVoiceScriptToScenes(
     stripOutroSentencesFromScript(script.trim().replace(/\s+/g, ' ')),
     sceneCount,
@@ -368,12 +395,12 @@ export async function generateVoiceOverAudio(
 
   if (!spokenText) return null
 
-  const withOutro = await synthesizeVoiceLine(spokenText, sceneCount)
+  const withOutro = await synthesizeVoiceLine(spokenText, sceneCount, voiceName)
   if (withOutro) return withOutro
 
   if (includeOutro && mainScript.trim()) {
     console.warn('[reels-maker/voice-over] Single-take with outro failed — retrying narration only.')
-    return synthesizeVoiceLine(mainScript, sceneCount)
+    return synthesizeVoiceLine(mainScript, sceneCount, voiceName)
   }
 
   return null
