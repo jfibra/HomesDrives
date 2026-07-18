@@ -714,24 +714,10 @@ export async function renderReelWithFfmpeg(params: {
       qrBuffer = await downloadReelObject(params.qr.bucketName, params.qr.storagePath)
     }
 
-    const { renderLogoIntroScene, renderBrandedOutroScene } = await import(
-      '@/lib/reels-maker/ffmpeg-listing-scenes'
-    )
+    const { renderBrandedOutroScene } = await import('@/lib/reels-maker/ffmpeg-listing-scenes')
 
-    const combined: typeof sceneClips = []
-
-    // Luxury intro for any reel with a logo: branded plate → centered mark → photos
-    if (logoBuffer) {
-      report('Building intro…', 84)
-      const intro = await renderLogoIntroScene({ frame, logoBuffer })
-      const introPath = join(workDir, 'logo-intro.mp4')
-      await writeFile(introPath, intro.buffer)
-      combined.push({ path: introPath, durationSeconds: intro.durationSeconds, transition: 'fade' })
-    }
-
-    sceneClips.forEach((clip, index) => {
-      combined.push(index === 0 && combined.length ? { ...clip, transition: 'cross-dissolve' } : clip)
-    })
+    // Photos first (no logo intro) → branded mascot outro when enabled
+    const combined: typeof sceneClips = [...sceneClips]
 
     const headshotBuffer = params.agentHeadshot
       ? await downloadReelObject(params.agentHeadshot.bucketName, params.agentHeadshot.storagePath)

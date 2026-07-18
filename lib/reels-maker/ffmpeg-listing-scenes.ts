@@ -43,7 +43,6 @@ async function runFilterComplex(args: {
 
 export type RenderedListingScene = { buffer: Buffer; durationSeconds: number }
 
-const INTRO_BG_PATH = join(process.cwd(), 'lib', 'reels-maker', 'assets', 'intro-bg.png')
 const OUTRO_BG_PATH = join(process.cwd(), 'lib', 'reels-maker', 'assets', 'outro-bg.png')
 
 /** Cover-scale a still into the reel frame (centers crop). */
@@ -63,7 +62,7 @@ async function circleCropPng(buffer: Buffer, size: number): Promise<Buffer> {
     .png()
     .toBuffer()
 
-  // Thin white ring so the headshot reads on the busy geometric plate
+  // Thin white ring so the headshot reads on the navy plate
   const ring = Buffer.from(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${round}" height="${round}">
       <circle cx="${round / 2}" cy="${round / 2}" r="${round / 2 - 2}" fill="none" stroke="white" stroke-width="6"/>
@@ -75,25 +74,11 @@ async function circleCropPng(buffer: Buffer, size: number): Promise<Buffer> {
     .toBuffer()
 }
 
-async function renderQrBadgePng(size: number): Promise<Buffer> {
-  const { default: sharp } = await import('sharp')
-  const s = Math.round(size)
-  const svg = Buffer.from(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 64 64">
-      <circle cx="32" cy="32" r="30" fill="#1E6BFF"/>
-      <path d="M18 30 L32 18 L46 30 V46 H38 V36 H26 V46 H18 Z" fill="none" stroke="white" stroke-width="3.2" stroke-linejoin="round"/>
-      <path d="M32 40 V28" stroke="white" stroke-width="3.2" stroke-linecap="round"/>
-      <path d="M27 33 L32 28 L37 33" fill="none" stroke="white" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
-    </svg>`,
-  )
-  return sharp(svg).png().toBuffer()
-}
-
 type OutroAgent = { name?: string; phone?: string; email?: string; agencyName?: string }
 
 /**
- * Branded outro card on the geometric blue plate:
- * logo (top) → circular agent photo → name / phone → QR (+ badge).
+ * Branded outro on the Homes.ph navy mascot plate:
+ * logo (top) → circular agent photo → name / phone → QR (mascot stays in BG bottom-left).
  */
 export async function renderBrandedOutroScene(params: {
   frame: ReelFrameDimensions
@@ -123,13 +108,13 @@ export async function renderBrandedOutroScene(params: {
     const email = agent.email?.trim() || ''
     const agency = agent.agencyName?.trim() || ''
 
-    // Vertical rhythm matches the mockup; tighten when optional blocks are missing.
-    const logoY = 0.055
-    const photoY = hasPhoto ? 0.2 : 0.18
-    const nameY = hasPhoto ? 0.5 : 0.28
+    // Keep stack centered above the waving mascot (bottom-left of the plate).
+    const logoY = 0.05
+    const photoY = hasPhoto ? 0.17 : 0.16
+    const nameY = hasPhoto ? 0.46 : 0.26
     const phoneY = nameY + 0.045
     const emailY = phoneY + 0.035
-    const qrY = hasPhoto ? 0.6 : name || phone || email || agency ? 0.42 : 0.38
+    const qrY = hasPhoto ? 0.55 : name || phone || email || agency ? 0.4 : 0.36
 
     if (params.logoBuffer) {
       const logoPath = join(workDir, 'logo.png')
@@ -145,7 +130,7 @@ export async function renderBrandedOutroScene(params: {
     }
 
     if (params.headshotBuffer) {
-      const size = Math.round(width * 0.36)
+      const size = Math.round(width * 0.34)
       const circled = await circleCropPng(params.headshotBuffer, size)
       const headPath = join(workDir, 'headshot.png')
       await writeFile(headPath, circled)
@@ -163,24 +148,15 @@ export async function renderBrandedOutroScene(params: {
       await writeFile(qrPath, params.qrBuffer)
       inputs.push('-loop', '1', '-framerate', String(FPS), '-i', qrPath)
       const idx = inputIndex++
-      const qrSize = Math.round(width * 0.38)
-      const qrPad = 18
-      const badgeSize = Math.round(qrSize * 0.22)
-      const badge = await renderQrBadgePng(badgeSize)
-      const badgePath = join(workDir, 'qr-badge.png')
-      await writeFile(badgePath, badge)
-      inputs.push('-loop', '1', '-framerate', String(FPS), '-i', badgePath)
-      const badgeIdx = inputIndex++
+      const qrSize = Math.round(width * 0.34)
+      const qrPad = 16
 
       filters.push(
         `[${idx}:v]scale=${qrSize}:${qrSize}[qrs]`,
         `[qrs]pad=iw+${qrPad * 2}:ih+${qrPad * 2}:${qrPad}:${qrPad}:white,format=rgba,fade=t=in:st=0.7:d=0.5:alpha=1[qrbox]`,
         `[${base}][qrbox]overlay=x='(main_w-overlay_w)/2':y='main_h*${qrY}'[withqr]`,
-        `[${badgeIdx}:v]format=rgba,fade=t=in:st=0.95:d=0.4:alpha=1[badge]`,
-        // Sit the house badge on the top edge of the white QR plate
-        `[withqr][badge]overlay=x='(main_w-overlay_w)/2':y='main_h*${qrY}-${Math.round(badgeSize * 0.45)}'[withbadge]`,
       )
-      base = 'withbadge'
+      base = 'withqr'
     }
 
     const brandFont = fontParam('brand')
@@ -205,7 +181,6 @@ export async function renderBrandedOutroScene(params: {
         `drawtext=${bodyFont}:text='${escapeDrawText(email)}':fontcolor=white@0.92:fontsize=26:x=(w-text_w)/2:y='${slideUp(emailY, 12, delay, 0.4)}':alpha='${fadeIn(delay, 0.4)}':shadowcolor=black@0.65:shadowx=2:shadowy=2`,
       )
     } else if (email && phone) {
-      // Keep email subtle under phone when both exist
       const delay = 0.62
       textFilters.push(
         `drawtext=${bodyFont}:text='${escapeDrawText(email)}':fontcolor=white@0.85:fontsize=24:x=(w-text_w)/2:y='${slideUp(emailY, 10, delay, 0.35)}':alpha='${fadeIn(delay, 0.35)}':shadowcolor=black@0.6:shadowx=1:shadowy=1`,
@@ -221,16 +196,16 @@ export async function renderBrandedOutroScene(params: {
     const cta = params.ctaText?.trim()
     if (cta && !hasQr) {
       const delay = 0.85
-      const y = hasPhoto || name || phone ? 0.72 : 0.55
+      const y = hasPhoto || name || phone ? 0.68 : 0.52
       textFilters.push(
         `drawtext=${bodyFont}:text='${escapeDrawText(cta)}':fontcolor=${CAPTION_COLOR}:fontsize=32:x=(w-text_w)/2:y='${slideUp(y, 16, delay, 0.45)}':alpha='${fadeIn(delay, 0.45)}':shadowcolor=black@0.7:shadowx=2:shadowy=2`,
       )
     }
 
-    filters.push(textFilters.length ? `[${base}]${textFilters.join(',')}[vout]` : `[${base}]format=yuv420p[vout]`)
     if (textFilters.length) {
-      // Ensure encoder-friendly pixel format after drawtext
-      filters[filters.length - 1] = `[${base}]${textFilters.join(',')}[texted];[texted]format=yuv420p[vout]`
+      filters.push(`[${base}]${textFilters.join(',')}[texted];[texted]format=yuv420p[vout]`)
+    } else {
+      filters.push(`[${base}]format=yuv420p[vout]`)
     }
 
     const buffer = await runFilterComplex({
@@ -294,68 +269,4 @@ export async function renderAgentCardScene(params: {
     agent: params.agent,
     durationSeconds: params.durationSeconds ?? 4.5,
   })
-}
-
-/**
- * Luxury intro: black/gold corner background holds first, then centered logo
- * fades + scales in, then we dissolve into listing photos.
- */
-export async function renderLogoIntroScene(params: {
-  frame: ReelFrameDimensions
-  logoBuffer: Buffer
-  durationSeconds?: number
-}): Promise<RenderedListingScene> {
-  const durationSeconds = params.durationSeconds ?? 3.2
-  const workDir = await mkdtemp(join(tmpdir(), 'reels-logo-intro-'))
-  const outputPath = join(workDir, 'logo-intro.mp4')
-  const logoPath = join(workDir, 'logo.png')
-
-  try {
-    await writeFile(logoPath, params.logoBuffer)
-
-    const { width, height } = params.frame
-    const logoWidth = Math.round(width * 0.42)
-    /** Beat of the branded plate alone before the mark appears. */
-    const logoDelay = 0.85
-    const growDuration = 0.75
-
-    // t' = max(0, t - logoDelay) so scale/fade only start after the BG beat
-    const tRel = `max(0\\,t-${logoDelay})`
-    const growProg = `min(1\\,${tRel}/${growDuration})`
-
-    const filters: string[] = [
-      coverScaleFilter(width, height, '0:v', 'bg'),
-      // Soft plate settle — tiny push-in over the full intro
-      `[bg]scale=w='iw*(1+0.028*min(1\\,t/${durationSeconds}))':h='ih*(1+0.028*min(1\\,t/${durationSeconds}))':eval=frame,crop=${width}:${height}:(iw-ow)/2:(ih-oh)/2,setsar=1[plate]`,
-      `[1:v]scale=w=${logoWidth}:h=-1,format=rgba,scale=w='iw*(0.82+0.18*${growProg})':h='ih*(0.82+0.18*${growProg})':eval=frame[lg]`,
-      '[lg]split=2[lgsharp][lgblursrc]',
-      `[lgblursrc]gblur=sigma=28,colorchannelmixer=aa=0.55,fade=t=in:st=${logoDelay}:d=${growDuration}:alpha=1[glow]`,
-      `[lgsharp]fade=t=in:st=${logoDelay}:d=${growDuration}:alpha=1[sharp]`,
-      `[plate][glow]overlay=x='(main_w-overlay_w)/2':y='(main_h-overlay_h)/2'[withglow]`,
-      `[withglow][sharp]overlay=x='(main_w-overlay_w)/2':y='(main_h-overlay_h)/2',format=yuv420p[vout]`,
-    ]
-
-    const buffer = await runFilterComplex({
-      inputs: [
-        '-loop',
-        '1',
-        '-framerate',
-        String(FPS),
-        '-i',
-        INTRO_BG_PATH,
-        '-loop',
-        '1',
-        '-framerate',
-        String(FPS),
-        '-i',
-        logoPath,
-      ],
-      filterComplex: filters.join(';'),
-      durationSeconds,
-      outputPath,
-    })
-    return { buffer, durationSeconds }
-  } finally {
-    await safeRemoveDir(workDir)
-  }
 }

@@ -1,6 +1,6 @@
 # Homes.ph Reels API — Partner Integration Guide
 
-Generate professional AI-edited property reels (short-form videos) through the Homes.ph Reels service. The API handles everything: AI story planning, **cinematic camera moves** (dolly / push / float — not a basic slideshow), purposeful transitions, color grading with film grain, slanted lower-thirds, voiceover narration, music mixing, **luxury intro + branded outro cards**, and final MP4 export.
+Generate professional AI-edited property reels (short-form videos) through the Homes.ph Reels service. The API handles everything: AI story planning, **cinematic camera moves** (dolly / push / float — not a basic slideshow), purposeful transitions, color grading with film grain, slanted lower-thirds, voiceover narration, music mixing, **branded mascot outro**, and final MP4 export.
 
 ---
 
@@ -10,30 +10,26 @@ You do **not** need a new client protocol. Use the same 5-step workflow. Copy th
 
 ### Reel structure (automatic)
 
-Every reel with branding now builds as:
-
 ```
-1. Luxury intro   (~3.2s)  — only if you upload logo
-2. Photo tour              — cinematic motion + slanted lower-thirds
-3. Branded outro  (~4.5s)  — if outroEnabled + logo / QR / agent content
+1. Photo tour              — starts immediately (no intro card)
+2. Branded outro  (~4.5s)  — if outroEnabled + logo / QR / agent content
 ```
 
 | Beat | What partners see | How to enable |
 |---|---|---|
-| **Intro** | Black/gold plate first → your **logo fades + scales in at center** → dissolves into photos | Upload `logo` (`logoEnabled=true`) |
-| **Photo tour** | Cinematic moves + slow slanted lower-thirds; optional top-center logo watermark | Photos + optional `logoPosition=top-center` / `logoDisplay=always` |
-| **Outro** | Geometric blue plate → top **logo** → circular **agent photo** → **name / phone** → **QR** (+ house badge) | `outroEnabled: true` + upload `logo` / `qr` / `agentHeadshot` + set `agentName` / `agentPhone` |
+| **Photo tour** | Listing images play first with cinematic moves + slanted lower-thirds; optional top-center logo watermark | Photos + optional `logoPosition=top-center` / `logoDisplay=always` |
+| **Outro** | Navy mascot plate → top **logo** → circular **agent photo** → **name / phone** → **QR** | `outroEnabled: true` + upload `logo` / `qr` / `agentHeadshot` + set `agentName` / `agentPhone` |
 
 ### Control vs automatic
 
 | You control | Automatic (server) |
 |---|---|
-| Photos, music, logo, QR, agent headshot | Luxury intro plate + centered logo reveal |
-| `templateId`, `reelBrief` | Camera moves (dolly, corner push, float, drift…) |
-| `logoPosition` / `logoDisplay` | Non-uniform scene timing (hook → hero → detail → closing) |
-| `qrPosition` / `qrDisplay` | Strongest shot first + cinematic transitions |
-| `captionsEnabled: false` | Film grain + stronger grade |
-| `outroEnabled` + `outroLine` + agent fields | Slanted lower-thirds + **branded geometric outro** |
+| Photos, music, logo, QR, agent headshot | Camera moves (dolly, corner push, float, drift…) |
+| `templateId`, `reelBrief` | Non-uniform scene timing (hook → hero → detail → closing) |
+| `logoPosition` / `logoDisplay` | Strongest shot first + cinematic transitions |
+| `qrPosition` / `qrDisplay` | Film grain + stronger grade |
+| `captionsEnabled: false` | Slanted lower-thirds |
+| `outroEnabled` + `outroLine` + agent fields | **Navy mascot branded outro** |
 | Listing fields (price, beds…) | Price **count-up** + feature chips (`listing-showcase`) |
 
 **Important for client apps:**
@@ -42,10 +38,10 @@ Every reel with branding now builds as:
 2. **Do not append a fake “end card” photo** as the last media file — use `qrDisplay: "outro-only"` plus `outroEnabled` and upload `logo` / `qr` / `agentHeadshot`.
 3. **Do not send motion/transition enums** — the server chooses them. A good `reelBrief` still improves story and VO.
 4. **Recommended branding create body** always includes `"captionsEnabled": false` and `"outroEnabled": true`.
-5. **Use a white / light logo** for best contrast on the dark intro + outro plates (e.g. `whiteLogo.png` style).
+5. **Use a white / light logo** for best contrast on the dark navy outro plate (e.g. `whiteLogo.png` style).
 6. **Prefer a square-ish headshot** — the server circle-crops it for the outro.
 
-See [Luxury intro & branded outro](#luxury-intro--branded-outro), [Cinematic edit quality (Phase 1)](#cinematic-edit-quality-phase-1), and [Homes.ph branding layout](#homesp-branding-layout-recommended).
+See [Branded outro](#branded-outro), [Cinematic edit quality (Phase 1)](#cinematic-edit-quality-phase-1), and [Homes.ph branding layout](#homesp-branding-layout-recommended).
 
 ---
 
@@ -179,18 +175,18 @@ x-api-key: rk_xxx
 | `files` / `files[]` | File | One or more images or videos. JPEG, PNG, HEIC, WEBP, MP4, MOV supported. Max 10 MB/photo, 100 MB/video. |
 | `mediaNotes` | JSON string | `["living room", "pool area"]` — one note per file, same order. Optional; helps storytelling. |
 | `music` | File (MP3) | Optional background music. Max 50 MB. |
-| `logo` | File (PNG/JPG) | Brand mark. Prefer **white / light** for dark intro + outro plates. Also used as photo-tour watermark when `logoDisplay=always`. Always drives the luxury **intro** (if uploaded) and top of the **outro**. |
+| `logo` | File (PNG/JPG) | Brand mark. Prefer **white / light** for the navy outro plate. Also used as photo-tour watermark when `logoDisplay=always`. Appears at the top of the branded **outro**. |
 | `logoEnabled` | string | `"true"` to enable. |
-| `logoPosition` | string | `"top-left"`, `"top-right"`, `"top-center"`, `"bottom-left"`, `"bottom-right"`, `"bottom-center"`. Use **`top-center`** for Homes.ph watermark during the photo tour. Ignored by `listing-showcase` (logo only on intro/outro). |
-| `logoDisplay` | string | `"always"` (default, watermark during photo tour) or `"outro-only"` (skip watermark; logo still appears on intro/outro cards). Ignored by `listing-showcase`. |
-| `qr` | File (PNG/JPG) | Listing QR. Prefer `qrDisplay=outro-only` so it only appears on the branded outro (white pad + house badge). |
+| `logoPosition` | string | `"top-left"`, `"top-right"`, `"top-center"`, `"bottom-left"`, `"bottom-right"`, `"bottom-center"`. Use **`top-center`** for Homes.ph watermark during the photo tour. Ignored by `listing-showcase` (logo only on the outro). |
+| `logoDisplay` | string | `"always"` (default, watermark during photo tour) or `"outro-only"` (skip watermark; logo still appears on the outro). Ignored by `listing-showcase`. |
+| `qr` | File (PNG/JPG) | Listing QR. Prefer `qrDisplay=outro-only` so it only appears on the branded outro (white pad). |
 | `qrEnabled` | string | `"true"` to enable. |
 | `qrPosition` | string | Same values as `logoPosition` — defaults to `"bottom-right"`. Only matters if `qrDisplay=always`. Ignored by `listing-showcase`. |
 | `qrDisplay` | string | `"always"` or **`"outro-only"`** (recommended — QR on branded outro only, not over property shots). Ignored by `listing-showcase`. |
 | `agentHeadshot` | File (PNG/JPG) | Agent photo for the branded outro (circle-cropped + white ring). Works on **any** template when `outroEnabled`. |
 | `agentHeadshotEnabled` | string | `"true"` to enable. |
 
-**Homes.ph branding upload (copy-paste — intro + watermark + full outro):**
+**Homes.ph branding upload (copy-paste — watermark + full outro):**
 
 ```js
 form.append('logo', fs.createReadStream('homes-logo-white.png'), 'homes-logo-white.png')
@@ -396,39 +392,30 @@ Typical time: **60–180 seconds**, depending on the number of photos and server
 
 | Element | Behavior |
 |---|---|
-| **Luxury intro** | If `logo` uploaded: black/gold plate holds → centered logo reveal → dissolve into photos (~3.2s). **All templates.** |
-| **Cinematic photo motion** | Dolly / push / track / float (server-chosen). Not a basic slideshow. |
+| **Cinematic photo motion** | Starts immediately. Dolly / push / track / float (server-chosen). Not a basic slideshow. |
 | **Bottom titles** | Slanted broadcast lower-third (logo tab + white title ribbon + blue subtitle), slides in slowly left → right (~1.15s). |
 | **Karaoke / subtitles** | **Never burned in.** Voiceover is audio-only. |
-| **Logo watermark** | During photo tour only when `logoDisplay=always` (non–`listing-showcase`). Intro/outro always use the uploaded logo when present. |
+| **Logo watermark** | During photo tour when `logoDisplay=always` (non–`listing-showcase`). Also appears on the branded outro when uploaded. |
 | **QR watermark** | Prefer `outro-only` so QR appears on the branded outro only. |
-| **Branded outro** | When `outroEnabled` + branding/agent/QR: geometric blue plate → logo → circular agent photo → name/phone → QR + house badge (~4.5s). **All templates.** |
+| **Branded outro** | When `outroEnabled` + branding/agent/QR: navy mascot plate → logo → circular agent photo → name/phone → QR (~4.5s). **All templates.** |
 | **Listing price** | `listing-showcase` + `listingPrice` → **count-up**, then address + beds/baths/sqft **chips**. |
 | **Social caption** | Job `caption` / hashtags in the API response are for posting copy — not burned into the video. |
 
 ---
 
-## Luxury intro & branded outro
+## Branded outro
 
-### Intro (automatic when `logo` is uploaded)
+There is **no intro card** — the reel opens on listing photos.
 
-1. Luxury **black plate with gold corner accents** holds alone (~0.85s).
-2. Your `logo` **fades + scales** into the center with a soft glow.
-3. Soft dissolve into the first listing photo.
-
-Total ≈ **3.2 seconds**. No extra API flag — uploading `logo` is enough.
-
-### Outro (when `outroEnabled` is true)
-
-Single end card on a **dark geometric blue** plate, top → bottom:
+When `outroEnabled` is true, a single end card uses the **navy Homes.ph plate** (gold corner shapes + waving mascot in the bottom-left), top → bottom:
 
 | Layer | Source |
 |---|---|
-| Top logo | Uploaded `logo` |
+| Top logo | Uploaded `logo` (prefer white / light) |
 | Circular photo | Uploaded `agentHeadshot` (circle-cropped) |
 | Name | `agentName` (create/render body) |
 | Phone | `agentPhone` |
-| QR + blue house badge | Uploaded `qr` |
+| QR | Uploaded `qr` (white pad, centered above the mascot) |
 
 Missing pieces are skipped and spacing tightens automatically (e.g. logo + QR only still works).
 
@@ -579,11 +566,10 @@ Response: `{ "preview": { "title": "...", "duration": 240, "thumbnail": "..." } 
 
 `listing-showcase` builds a fixed structure instead of an AI-improvised story, so price and address are always exact:
 
-1. **Luxury intro** — black/gold plate → centered `logo` (~3.2s) → dissolve into the photo tour.
-2. **Photo tour** — cinematic camera moves. Lower-third shows `listingPrice` as a **count-up**, then address + **beds / baths / sqft chips**.
-3. **Branded outro** — geometric blue plate with top `logo`, circular `agentHeadshot`, `agentName` / `agentPhone`, and `qr` (+ house badge). Same outro used by other templates when branding is provided.
+1. **Photo tour** — starts immediately with cinematic camera moves. Lower-third shows `listingPrice` as a **count-up**, then address + **beds / baths / sqft chips**.
+2. **Branded outro** — navy mascot plate with top `logo`, circular `agentHeadshot`, `agentName` / `agentPhone`, and `qr`. Same outro used by other templates when branding is provided.
 
-Because the logo and QR are embedded into the intro/outro cards, they are **not** also applied as a persistent corner watermark for this template — `logoPosition` / `qrPosition` / `logoDisplay` / `qrDisplay` are ignored (still upload `logo` + `qr` for the cards).
+Because the logo and QR are embedded into the outro card, they are **not** also applied as a persistent corner watermark for this template — `logoPosition` / `qrPosition` / `logoDisplay` / `qrDisplay` are ignored (still upload `logo` + `qr` for the outro).
 
 ---
 
@@ -593,14 +579,14 @@ The server treats every reel as a **luxury motion edit**, not a slideshow:
 
 | Area | Behavior |
 |---|---|
-| **Intro** | Black/gold plate → centered logo (~3.2s) when `logo` is uploaded |
+| **Open** | First listing photo plays immediately (no intro card) |
 | **Camera** | Dolly-in/out, corner push, vertical drift, horizontal track, float — avoids repeating the same move |
 | **Timing** | Every photo holds **~2.35s** so soft ~0.5s blends still feel like a 2s stay |
 | **Story order** | Strongest / highest-quality shot opens (hook first) |
 | **Transitions** | Soft cinematic blends: dissolve, smooth L/R, slide, wipe-up (matched to pan direction) |
 | **Grade** | Stronger template looks + subtle film grain |
 | **Type** | Slanted lower-third (logo tab / white title / blue subtitle), slow left→right reveal |
-| **Outro** | Geometric blue plate → logo → agent photo → name/phone → QR (~4.5s) when `outroEnabled` |
+| **Outro** | Navy mascot plate → logo → agent photo → name/phone → QR (~4.5s) when `outroEnabled` |
 
 **Phase 2 (roadmap, not available yet):** AI depth/parallax, Remotion-grade motion graphics, true BPM beat sync, 60fps GPU encode.
 
@@ -610,7 +596,7 @@ Partners do **not** send motion/transition fields — the server chooses cinemat
 
 ## Homes.ph branding layout (recommended)
 
-Goal: **luxury intro** · Homes.ph logo **top-center** during photos · **agent + QR only on branded outro** · slanted lower-thirds · voiceover **without** karaoke · cinematic motion.
+Goal: photos **start immediately** · Homes.ph logo **top-center** during photos · **agent + QR only on branded mascot outro** · slanted lower-thirds · voiceover **without** karaoke · cinematic motion.
 
 **Create:**
 
@@ -634,7 +620,7 @@ For a **counting price** on every photo, use `templateId: "listing-showcase"` an
 
 | Field | Value |
 |---|---|
-| `logo` | Homes.ph **white / light** mark (best on dark intro/outro plates) |
+| `logo` | Homes.ph **white / light** mark (best on the navy outro plate) |
 | `logoEnabled` | `"true"` |
 | `logoPosition` | `"top-center"` |
 | `logoDisplay` | `"always"` |
@@ -647,9 +633,8 @@ For a **counting price** on every photo, use `templateId: "listing-showcase"` an
 
 **Resulting timeline:**
 
-1. Intro (~3.2s) — black/gold plate → centered logo  
-2. Photos — cinematic motion + lower-thirds + top-center logo watermark  
-3. Outro (~4.5s) — blue geometric plate → logo → agent → QR  
+1. Photos — cinematic motion + lower-thirds + top-center logo watermark  
+2. Outro (~4.5s) — navy mascot plate → logo → agent → QR  
 
 No need to append a fake end-card photo as the last media file.
 
@@ -657,9 +642,9 @@ No need to append a fake end-card photo as the last media file.
 
 | Capability | How |
 |---|---|
-| Luxury intro | Upload `logo` |
+| Start on listing photos | Automatic (no intro card) |
 | Logo top-center during photos | `logoPosition=top-center` + `logoDisplay=always` |
-| Logo only on intro/outro (no watermark) | `logoDisplay=outro-only` (still upload `logo`) |
+| Logo only on outro (no watermark) | `logoDisplay=outro-only` (still upload `logo`) |
 | QR / agent only at end | `qrDisplay=outro-only` + `agentHeadshot` + `agentName` / `agentPhone` |
 | Full branded outro | `outroEnabled: true` + logo + QR + headshot + agent fields |
 | No karaoke subtitles | `captionsEnabled: false` (karaoke never burned in either way) |

@@ -10,13 +10,12 @@ If you are a **third-party developer or partner agency** wanting to generate ree
 
 👉 **[REELS_API_PARTNER.md](../../REELS_API_PARTNER.md)**
 
-It covers authentication (API keys), all endpoints, the **luxury intro + branded geometric outro**, request/response shapes, a full Node.js integration example, and how to get your API key issued.
+It covers authentication (API keys), all endpoints, the **branded mascot outro**, request/response shapes, a full Node.js integration example, and how to get your API key issued.
 
 **Latest partner-facing video structure:**
 
-1. Luxury intro (black/gold plate → centered logo) when `logo` is uploaded  
-2. Cinematic photo tour + slanted lower-thirds  
-3. Branded outro (blue geometric plate → logo → agent photo → name/phone → QR) when `outroEnabled`
+1. Cinematic photo tour starts immediately (no intro card)  
+2. Branded outro (navy mascot plate → logo → agent photo → name/phone → QR) when `outroEnabled`
 
 ---
 
