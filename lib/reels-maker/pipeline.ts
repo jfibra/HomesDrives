@@ -276,7 +276,10 @@ async function processReelJob(jobId: string) {
         : null
 
     const agent =
-      job.templateId === 'listing-showcase'
+      job.agentName?.trim() ||
+      job.agentPhone?.trim() ||
+      job.agentEmail?.trim() ||
+      job.agentAgencyName?.trim()
         ? {
             name: job.agentName,
             phone: job.agentPhone,

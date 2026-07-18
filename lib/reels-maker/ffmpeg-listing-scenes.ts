@@ -74,6 +74,43 @@ async function circleCropPng(buffer: Buffer, size: number): Promise<Buffer> {
     .toBuffer()
 }
 
+function escapeXml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+}
+
+/** Rasterize name / phone as PNG — more reliable than FFmpeg drawtext on EC2. */
+async function renderOutroContactPng(
+  frameWidth: number,
+  lines: Array<{ text: string; fontSize: number; opacity?: number }>,
+): Promise<{ buffer: Buffer; height: number }> {
+  const { default: sharp } = await import('sharp')
+  const width = frameWidth
+  const lineGap = Math.round(14 * (frameWidth / 1080))
+  const paddingY = Math.round(8 * (frameWidth / 1080))
+  let y = paddingY
+  const tspans: string[] = []
+  for (const line of lines) {
+    const size = line.fontSize
+    y += size
+    const fill = `rgba(255,255,255,${line.opacity ?? 1})`
+    tspans.push(
+      `<text x="50%" y="${y}" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="${size}" font-weight="700" fill="${fill}">${escapeXml(line.text)}</text>`,
+    )
+    y += lineGap
+  }
+  const height = Math.max(y + paddingY, 40)
+  const svg = Buffer.from(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">${tspans.join('')}</svg>`,
+  )
+  const buffer = await sharp(svg).png().toBuffer()
+  return { buffer, height }
+}
+
 type OutroAgent = { name?: string; phone?: string; email?: string; agencyName?: string }
 
 /**
@@ -109,11 +146,14 @@ export async function renderBrandedOutroScene(params: {
     const agency = agent.agencyName?.trim() || ''
 
     // Keep stack centered above the waving mascot (bottom-left of the plate).
+    const s = width / 1080
     const logoY = 0.05
     const photoY = hasPhoto ? 0.17 : 0.16
-    const nameY = hasPhoto ? 0.46 : 0.26
-    const phoneY = nameY + 0.045
-    const emailY = phoneY + 0.035
+    const photoSize = Math.round(width * 0.34)
+    // Contact block sits just under the circular headshot (or under the logo when no photo).
+    const contactY = hasPhoto
+      ? Math.round(height * photoY + photoSize + 28 * s)
+      : Math.round(height * 0.26)
     const qrY = hasPhoto ? 0.55 : name || phone || email || agency ? 0.4 : 0.36
 
     if (params.logoBuffer) {
@@ -130,8 +170,7 @@ export async function renderBrandedOutroScene(params: {
     }
 
     if (params.headshotBuffer) {
-      const size = Math.round(width * 0.34)
-      const circled = await circleCropPng(params.headshotBuffer, size)
+      const circled = await circleCropPng(params.headshotBuffer, photoSize)
       const headPath = join(workDir, 'headshot.png')
       await writeFile(headPath, circled)
       inputs.push('-loop', '1', '-framerate', String(FPS), '-i', headPath)
@@ -159,51 +198,33 @@ export async function renderBrandedOutroScene(params: {
       base = 'withqr'
     }
 
-    const brandFont = fontParam('brand')
+    const contactLines: Array<{ text: string; fontSize: number; opacity?: number }> = []
+    if (name) contactLines.push({ text: name.toUpperCase(), fontSize: Math.round(40 * s) })
+    else if (agency) contactLines.push({ text: agency.toUpperCase(), fontSize: Math.round(34 * s) })
+    if (phone) contactLines.push({ text: phone, fontSize: Math.round(30 * s) })
+    if (email) contactLines.push({ text: email, fontSize: Math.round((phone ? 24 : 26) * s), opacity: phone ? 0.9 : 0.95 })
+
+    if (contactLines.length) {
+      const contact = await renderOutroContactPng(width, contactLines)
+      const contactPath = join(workDir, 'contact.png')
+      await writeFile(contactPath, contact.buffer)
+      inputs.push('-loop', '1', '-framerate', String(FPS), '-i', contactPath)
+      const idx = inputIndex++
+      filters.push(
+        `[${idx}:v]format=rgba,fade=t=in:st=0.35:d=0.45:alpha=1[contact]`,
+        `[${base}][contact]overlay=x='(main_w-overlay_w)/2':y=${contactY}[withcontact]`,
+      )
+      base = 'withcontact'
+    }
+
     const bodyFont = fontParam('body')
-    const textFilters: string[] = []
-
-    if (name) {
-      const delay = 0.4
-      textFilters.push(
-        `drawtext=${brandFont}:text='${escapeDrawText(name.toUpperCase())}':fontcolor=white:fontsize=40:x=(w-text_w)/2:y='${slideUp(nameY, 18, delay, 0.45)}':alpha='${fadeIn(delay, 0.45)}':shadowcolor=black@0.65:shadowx=2:shadowy=2`,
-      )
-    }
-    if (phone) {
-      const delay = 0.52
-      textFilters.push(
-        `drawtext=${bodyFont}:text='${escapeDrawText(phone)}':fontcolor=white:fontsize=30:x=(w-text_w)/2:y='${slideUp(phoneY, 14, delay, 0.4)}':alpha='${fadeIn(delay, 0.4)}':shadowcolor=black@0.65:shadowx=2:shadowy=2`,
-      )
-    }
-    if (email && !phone) {
-      const delay = 0.58
-      textFilters.push(
-        `drawtext=${bodyFont}:text='${escapeDrawText(email)}':fontcolor=white@0.92:fontsize=26:x=(w-text_w)/2:y='${slideUp(emailY, 12, delay, 0.4)}':alpha='${fadeIn(delay, 0.4)}':shadowcolor=black@0.65:shadowx=2:shadowy=2`,
-      )
-    } else if (email && phone) {
-      const delay = 0.62
-      textFilters.push(
-        `drawtext=${bodyFont}:text='${escapeDrawText(email)}':fontcolor=white@0.85:fontsize=24:x=(w-text_w)/2:y='${slideUp(emailY, 10, delay, 0.35)}':alpha='${fadeIn(delay, 0.35)}':shadowcolor=black@0.6:shadowx=1:shadowy=1`,
-      )
-    }
-    if (agency && !name) {
-      const delay = 0.45
-      textFilters.push(
-        `drawtext=${brandFont}:text='${escapeDrawText(agency.toUpperCase())}':fontcolor=white:fontsize=34:x=(w-text_w)/2:y='${slideUp(nameY, 16, delay, 0.4)}':alpha='${fadeIn(delay, 0.4)}':shadowcolor=black@0.65:shadowx=2:shadowy=2`,
-      )
-    }
-
     const cta = params.ctaText?.trim()
     if (cta && !hasQr) {
       const delay = 0.85
       const y = hasPhoto || name || phone ? 0.68 : 0.52
-      textFilters.push(
-        `drawtext=${bodyFont}:text='${escapeDrawText(cta)}':fontcolor=${CAPTION_COLOR}:fontsize=32:x=(w-text_w)/2:y='${slideUp(y, 16, delay, 0.45)}':alpha='${fadeIn(delay, 0.45)}':shadowcolor=black@0.7:shadowx=2:shadowy=2`,
+      filters.push(
+        `[${base}]drawtext=${bodyFont}:text='${escapeDrawText(cta)}':fontcolor=${CAPTION_COLOR}:fontsize=32:x=(w-text_w)/2:y='${slideUp(y, 16, delay, 0.45)}':alpha='${fadeIn(delay, 0.45)}':shadowcolor=black@0.7:shadowx=2:shadowy=2[texted];[texted]format=yuv420p[vout]`,
       )
-    }
-
-    if (textFilters.length) {
-      filters.push(`[${base}]${textFilters.join(',')}[texted];[texted]format=yuv420p[vout]`)
     } else {
       filters.push(`[${base}]format=yuv420p[vout]`)
     }

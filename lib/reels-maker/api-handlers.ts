@@ -641,6 +641,10 @@ export async function handleReelJobRender(jobId: string, request: Request): Prom
       outroLine?: string
       templateId?: string
       aspectRatio?: string
+      agentName?: string
+      agentPhone?: string
+      agentEmail?: string
+      agentAgencyName?: string
     }
     if (
       body.caption !== undefined ||
@@ -651,7 +655,11 @@ export async function handleReelJobRender(jobId: string, request: Request): Prom
       body.outroEnabled !== undefined ||
       body.outroLine !== undefined ||
       body.templateId ||
-      body.aspectRatio
+      body.aspectRatio ||
+      body.agentName !== undefined ||
+      body.agentPhone !== undefined ||
+      body.agentEmail !== undefined ||
+      body.agentAgencyName !== undefined
     ) {
       const captionsPatch =
         body.captionsEnabled !== undefined || body.subtitlesEnabled !== undefined
@@ -666,6 +674,11 @@ export async function handleReelJobRender(jobId: string, request: Request): Prom
         outroLine: body.outroLine ?? job.outroLine ?? '',
         templateId: (body.templateId as typeof job.templateId) ?? job.templateId,
         aspectRatio: body.aspectRatio ? normalizeReelAspectRatio(body.aspectRatio) : job.aspectRatio,
+        agentName: body.agentName !== undefined ? String(body.agentName).trim() : job.agentName,
+        agentPhone: body.agentPhone !== undefined ? String(body.agentPhone).trim() : job.agentPhone,
+        agentEmail: body.agentEmail !== undefined ? String(body.agentEmail).trim() : job.agentEmail,
+        agentAgencyName:
+          body.agentAgencyName !== undefined ? String(body.agentAgencyName).trim() : job.agentAgencyName,
         status: 'queued',
         error: null,
         progress: Math.max(job.progress, 38),

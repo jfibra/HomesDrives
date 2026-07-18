@@ -365,15 +365,17 @@ Optional body to override settings before rendering:
   "captionsEnabled": false,
   "outroEnabled": true,
   "outroLine": "Scan for listing details",
-  "templateId": "social-trend"
+  "templateId": "social-trend",
+  "agentName": "Maria Santos",
+  "agentPhone": "+63 917 000 0000"
 }
 ```
 
 | Field | Notes |
 |---|---|
 | `captionsEnabled` / `subtitlesEnabled` | Prefer `false`. Voiceover still plays; short bottom **titles** still appear. Karaoke subtitles are never burned into the MP4. |
-| `outroEnabled` / `outroLine` | Spoken CTA + whether the branded geometric outro is built. |
-| `agentName` / `agentPhone` / `agentEmail` / `agentAgencyName` | Text on the branded outro. |
+| `outroEnabled` / `outroLine` | Spoken CTA + whether the branded mascot outro is built. |
+| `agentName` / `agentPhone` / `agentEmail` / `agentAgencyName` | **Required for name/phone on the outro.** Works on **any** template (`social-trend`, `luxury`, `listing-showcase`, …). Send on **create and/or render**. |
 
 **Response `200`:** `{ "jobId": "...", "started": true }`
 
@@ -413,8 +415,8 @@ When `outroEnabled` is true, a single end card uses the **navy Homes.ph plate** 
 |---|---|
 | Top logo | Uploaded `logo` (prefer white / light) |
 | Circular photo | Uploaded `agentHeadshot` (circle-cropped) |
-| Name | `agentName` (create/render body) |
-| Phone | `agentPhone` |
+| Name | `agentName` — send on **create and/or render** (any template) |
+| Phone | `agentPhone` — send on **create and/or render** (any template) |
 | QR | Uploaded `qr` (white pad, centered above the mascot) |
 
 Missing pieces are skipped and spacing tightens automatically (e.g. logo + QR only still works).
@@ -732,7 +734,11 @@ console.log('Media uploaded')
 await fetch(`${BASE_URL}/api/reels-maker/jobs/${jobId}/render`, {
   method: 'POST',
   headers: { ...headers, 'Content-Type': 'application/json' },
-  body: JSON.stringify({ captionsEnabled: false }),
+  body: JSON.stringify({
+    captionsEnabled: false,
+    agentName: 'Maria Santos',
+    agentPhone: '+63 917 000 0000',
+  }),
 })
 console.log('Rendering started')
 
@@ -822,7 +828,8 @@ await fetch(`${BASE_URL}/api/reels-maker/jobs/${jobId}/render`, {
 - **Output spec:** H.264 MP4, 1080×1920 @ 30fps (portrait) or 1920×1080 (landscape), CRF 17.
 - **Job storage:** Jobs persist indefinitely. Clean up unused jobs with `DELETE /jobs/:id`.
 - **API keys** are per-partner and can be revoked without affecting other integrations.
-- **Workarounds to stop using:** fake last-frame end cards; compositing agent+logo into one full-reel watermark; relying on `reelBrief` alone to kill bottom karaoke (use `captionsEnabled: false`).
+- **Agent name / phone on outro:** Always send `agentName` + `agentPhone` on create (and again on render if you want). Works for every `templateId` — not only `listing-showcase`. Do **not** burn contact text into the headshot image; the API draws them on the outro.
+- **Workarounds to stop using:** fake last-frame end cards; compositing agent+logo into one full-reel watermark; burning name/phone into the headshot PNG; relying on `reelBrief` alone to kill bottom karaoke (use `captionsEnabled: false`).
 
 ---
 
