@@ -61,7 +61,7 @@ const LOGO_POSITIONS: ReelLogoPosition[] = [
   'bottom-center',
 ]
 
-const OVERLAY_DISPLAYS: ReelOverlayDisplay[] = ['always', 'outro-only']
+const OVERLAY_DISPLAYS: ReelOverlayDisplay[] = ['always', 'photos-only', 'outro-only']
 
 function isTemplateId(value: string): value is ReelTemplateId {
   return TEMPLATE_IDS.includes(value as ReelTemplateId)
@@ -76,9 +76,34 @@ function parseQrPosition(value: string): ReelLogoPosition {
 }
 
 function parseOverlayDisplay(value: string, fallback: ReelOverlayDisplay = 'always'): ReelOverlayDisplay {
-  return OVERLAY_DISPLAYS.includes(value as ReelOverlayDisplay)
-    ? (value as ReelOverlayDisplay)
+  const raw = value.trim().toLowerCase()
+  // Aliases partners already send
+  if (raw === 'photos' || raw === 'photo-only' || raw === 'tour-only') return 'photos-only'
+  return OVERLAY_DISPLAYS.includes(raw as ReelOverlayDisplay)
+    ? (raw as ReelOverlayDisplay)
     : fallback
+}
+
+function parseBoolish(value: FormDataEntryValue | null | undefined): boolean | null {
+  if (value == null) return null
+  const raw = String(value).trim().toLowerCase()
+  if (!raw) return null
+  if (['1', 'true', 'yes', 'on'].includes(raw)) return true
+  if (['0', 'false', 'no', 'off'].includes(raw)) return false
+  return null
+}
+
+/** Prefer photos-only when partners ask to skip watermark on the branded outro. */
+function resolveLogoDisplay(params: {
+  logoDisplay: ReelOverlayDisplay
+  skipOutroWatermark?: boolean | null
+  logoApplyToOutro?: boolean | null
+}): ReelOverlayDisplay {
+  if (params.skipOutroWatermark === true || params.logoApplyToOutro === false) {
+    if (params.logoDisplay === 'outro-only') return 'outro-only'
+    return 'photos-only'
+  }
+  return params.logoDisplay
 }
 
 /** captionsEnabled / subtitlesEnabled — either false turns burn-in off; default on. */
@@ -211,7 +236,11 @@ export async function handleReelJobUpload(jobId: string, request: Request): Prom
     const logoUpload = await readUploadedBlob(formData.get('logo'), 'logo.png', 'image/png')
     const logoEnabled = String(formData.get('logoEnabled') ?? 'false') === 'true'
     const logoPosition = parseLogoPosition(String(formData.get('logoPosition') ?? 'top-right'))
-    const logoDisplay = parseOverlayDisplay(String(formData.get('logoDisplay') ?? 'always'))
+    const logoDisplay = resolveLogoDisplay({
+      logoDisplay: parseOverlayDisplay(String(formData.get('logoDisplay') ?? 'always')),
+      skipOutroWatermark: parseBoolish(formData.get('skipOutroWatermark')),
+      logoApplyToOutro: parseBoolish(formData.get('logoApplyToOutro')),
+    })
     const accentLogoUpload = await readUploadedBlob(formData.get('accentLogo'), 'accent-logo.png', 'image/png')
     const accentLogoEnabled = String(formData.get('accentLogoEnabled') ?? (accentLogoUpload ? 'true' : 'false')) === 'true'
     const qrUpload = await readUploadedBlob(formData.get('qr'), 'qr.png', 'image/png')
@@ -449,6 +478,8 @@ export async function handleReelJobUploadFinalize(jobId: string, request: Reques
       logoEnabled?: boolean
       logoPosition?: string
       logoDisplay?: string
+      skipOutroWatermark?: boolean | string
+      logoApplyToOutro?: boolean | string
       accentLogoEnabled?: boolean
       qrEnabled?: boolean
       qrPosition?: string
@@ -458,7 +489,17 @@ export async function handleReelJobUploadFinalize(jobId: string, request: Reques
 
     const logoEnabled = body.logoEnabled === true
     const logoPosition = parseLogoPosition(String(body.logoPosition ?? 'top-right'))
-    const logoDisplay = parseOverlayDisplay(String(body.logoDisplay ?? 'always'))
+    const logoDisplay = resolveLogoDisplay({
+      logoDisplay: parseOverlayDisplay(String(body.logoDisplay ?? 'always')),
+      skipOutroWatermark:
+        typeof body.skipOutroWatermark === 'boolean'
+          ? body.skipOutroWatermark
+          : parseBoolish(body.skipOutroWatermark ?? null),
+      logoApplyToOutro:
+        typeof body.logoApplyToOutro === 'boolean'
+          ? body.logoApplyToOutro
+          : parseBoolish(body.logoApplyToOutro ?? null),
+    })
     const accentLogoEnabled = body.accentLogoEnabled !== false
     const qrEnabled = body.qrEnabled === true
     const qrPosition = parseQrPosition(String(body.qrPosition ?? 'bottom-right'))

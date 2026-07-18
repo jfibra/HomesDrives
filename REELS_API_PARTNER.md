@@ -181,7 +181,7 @@ x-api-key: rk_xxx
 | `logo` | File (PNG/JPG) | Brand mark. Prefer **white / light**. Used as the **large top watermark** during photos (same scale as outro, with a soft **full-width** black bar behind it) and on the left tab of the lower-third + top of the branded **outro**. |
 | `logoEnabled` | string | `"true"` to enable. |
 | `logoPosition` | string | `"top-left"`, `"top-right"`, `"top-center"`, `"bottom-left"`, `"bottom-right"`, `"bottom-center"`. Use **`top-center`** for Homes.ph watermark during the photo tour. Ignored by `listing-showcase` (logo only on the outro). |
-| `logoDisplay` | string | `"always"` (default, watermark during photo tour) or `"outro-only"` (skip watermark; logo still appears on the outro). Ignored by `listing-showcase`. |
+| `logoDisplay` | string | `"always"` (default), `"photos-only"`, or `"outro-only"`. See [Logo watermark vs outro](#logo-watermark-vs-outro). Also honors `skipOutroWatermark=true` / `logoApplyToOutro=false` as aliases for photos-only. Ignored by `listing-showcase`. |
 | `accentLogo` | File (PNG/JPG) | Optional mark for the **left blue logo tab** on the lower-third (beside the white title). When set, it replaces `logo` in that tab only — top watermark / outro still use `logo`. |
 | `accentLogoEnabled` | string | `"true"` to enable (defaults to true when `accentLogo` is uploaded). |
 | `qr` | File (PNG/JPG) | Listing QR. Prefer `qrDisplay=outro-only` so it only appears on the branded outro (white pad). |
@@ -198,6 +198,9 @@ form.append('logo', fs.createReadStream('homes-logo-white.png'), 'homes-logo-whi
 form.append('logoEnabled', 'true')
 form.append('logoPosition', 'top-center')
 form.append('logoDisplay', 'always')
+// Optional aliases (same effect as photos-only when a branded outro is built):
+// form.append('skipOutroWatermark', 'true')
+// form.append('logoApplyToOutro', 'false')
 form.append('accentLogo', fs.createReadStream('agency-mark.png'), 'agency-mark.png')
 form.append('accentLogoEnabled', 'true')
 form.append('qr', fs.createReadStream('listing-qr.png'), 'listing-qr.png')
@@ -223,6 +226,9 @@ form.append('logo', fs.createReadStream('homes-logo-white.png'), 'homes-logo-whi
 form.append('logoEnabled', 'true')
 form.append('logoPosition', 'top-center')
 form.append('logoDisplay', 'always')
+// Optional aliases (same effect as photos-only when a branded outro is built):
+// form.append('skipOutroWatermark', 'true')
+// form.append('logoApplyToOutro', 'false')
 form.append('accentLogo', fs.createReadStream('agency-mark.png'), 'agency-mark.png')
 form.append('accentLogoEnabled', 'true')
 form.append('qr', fs.createReadStream('listing-qr.png'), 'listing-qr.png')
@@ -397,7 +403,7 @@ queued → analyzing → generating_story → writing_captions
        → creating_voiceover → rendering → uploading_result → completed
 ```
 
-Typical time: **60–180 seconds**, depending on the number of photos and server load.
+Typical time: **~1–3 minutes** after these speed defaults (was often 5–10 on small servers). More photos / voiceover / logo watermark still adds time.
 
 ---
 
@@ -408,10 +414,10 @@ Typical time: **60–180 seconds**, depending on the number of photos and server
 | **Cinematic photo motion** | Starts immediately. Dolly / push / track / float (server-chosen). Not a basic slideshow. |
 | **Bottom titles** | Slanted broadcast lower-third (logo tab + white title ribbon + blue subtitle), slides in slowly left → right (~1.15s). |
 | **Karaoke / subtitles** | **Never burned in.** Voiceover is audio-only. Choose narrator with `voiceGender`: `"woman"` (default) or `"man"`. |
-| **Logo watermark** | During photo tour when `logoDisplay=always` (non–`listing-showcase`): **~50% frame width** logo, centered on a **full-width soft black bar** (~12% opacity). Also appears on the branded outro when uploaded. |
-| **Lower-third logos** | Left navy tab (beside the white title) = `accentLogo` if uploaded, otherwise `logo`. No logo on the right. |
+| **Logo watermark** | Photo tour when `logoDisplay` is `always` or `photos-only`: **~50% frame width** logo on a **full-width soft black bar** (~12% opacity), fixed after camera moves. **Never stacks on the branded outro** — outro plate keeps a single top wordmark from uploaded `logo`. |
+| **Lower-third logos** | Left navy tab = `accentLogo` if uploaded, otherwise `logo`. **`accentLogo` is lower-third only** (not on the outro). |
 | **QR watermark** | Prefer `outro-only` so QR appears on the branded outro only. |
-| **Branded outro** | When `outroEnabled` + branding/agent/QR: navy mascot plate → logo → circular agent photo → name/phone → QR (~4.5s). **All templates.** |
+| **Branded outro** | When `outroEnabled` + branding/agent/QR: navy mascot plate → logo → circular agent photo → name/phone → QR (~4.5s). Static plate (no Ken Burns). **Official end card** — do not append a fake last photo as an end card. |
 | **Listing price** | `listing-showcase` + `listingPrice` → **count-up**, then address + beds/baths/sqft **chips**. |
 | **Social caption** | Job `caption` / hashtags in the API response are for posting copy — not burned into the video. |
 
@@ -432,6 +438,18 @@ When `outroEnabled` is true, a single end card uses the **navy Homes.ph plate** 
 | QR | Uploaded `qr` (white pad, centered above the mascot) |
 
 Missing pieces are skipped and spacing tightens automatically (e.g. logo + QR only still works).
+
+### Logo watermark vs outro
+
+| `logoDisplay` | Photo tour watermark | Branded outro plate logo |
+|---|---|---|
+| `always` (default) | Yes (fixed, top-center) | Once from uploaded `logo` — **tour watermark is masked off outro frames** (no stacking) |
+| `photos-only` | Yes (same as above) | Once from uploaded `logo` — watermark never on outro |
+| `outro-only` | No | Once from uploaded `logo` |
+
+Aliases on upload (multipart or finalize JSON): `skipOutroWatermark=true` or `logoApplyToOutro=false` → treat as `photos-only` (unless you already set `outro-only`).
+
+**Recommended Homes.ph recipe:** `logoPosition=top-center` + `logoDisplay=always` (or `photos-only`) + `qrDisplay=outro-only` + branded outro fields. Do **not** burn the logo into stills or fake an end-card photo.
 
 **Copy-paste create body for a full outro:**
 
@@ -661,9 +679,10 @@ No need to append a fake end-card photo as the last media file.
 | Capability | How |
 |---|---|
 | Start on listing photos | Automatic (no intro card) |
-| Logo top-center during photos | `logoPosition=top-center` + `logoDisplay=always` (large watermark + full-width soft black bar) |
-| Custom logo in left lower-third tab | Upload `accentLogo` (+ `accentLogoEnabled=true`), or use `logo` |
+| Logo top-center during photos | `logoPosition=top-center` + `logoDisplay=always` or `photos-only` (watermark masked off branded outro — no double logo) |
+| Custom logo in left lower-third tab | Upload `accentLogo` (+ `accentLogoEnabled=true`) — lower-third only, not on outro |
 | Logo only on outro (no watermark) | `logoDisplay=outro-only` (still upload `logo`) |
+| Skip watermark on outro (alias) | `skipOutroWatermark=true` or `logoApplyToOutro=false` |
 | QR / agent only at end | `qrDisplay=outro-only` + `agentHeadshot` + `agentName` / `agentPhone` |
 | Full branded outro | `outroEnabled: true` + logo + QR + headshot + agent fields |
 | No karaoke subtitles | `captionsEnabled: false` (karaoke never burned in either way) |
@@ -843,12 +862,12 @@ await fetch(`${BASE_URL}/api/reels-maker/jobs/${jobId}/render`, {
 - **Supported formats:** JPEG, PNG, HEIC, WEBP, AVIF (photos); MP4, MOV, M4V (videos).
 - **Minimum media:** At least 1 image or video required. **5–10 stills** give the best cinematic results.
 - **Intro / outro assets:** Use a **white or light logo** for dark plates. Upload a clear agent headshot (any crop; server circle-crops). QR should be high-contrast PNG/JPG.
-- **Render time:** 60–180 seconds depending on scene count and server load.
+- **Render time:** ~1–3 minutes typical (scene count, voiceover, and server CPU still matter).
 - **Output spec:** H.264 MP4, 1080×1920 @ 30fps (portrait) or 1920×1080 (landscape), CRF 17.
 - **Job storage:** Jobs persist indefinitely. Clean up unused jobs with `DELETE /jobs/:id`.
 - **API keys** are per-partner and can be revoked without affecting other integrations.
 - **Agent name / phone on outro:** Always send `agentName` + `agentPhone` on create (and again on render if you want). Works for every `templateId` — not only `listing-showcase`. Do **not** burn contact text into the headshot image; the API draws them on the outro.
-- **Workarounds to stop using:** fake last-frame end cards; compositing agent+logo into one full-reel watermark; burning name/phone into the headshot PNG; relying on `reelBrief` alone to kill bottom karaoke (use `captionsEnabled: false`).
+- **Workarounds to stop using:** fake last-frame end cards; burning logo into stills; compositing agent+logo into one full-reel watermark; burning name/phone into the headshot PNG; relying on `reelBrief` alone to kill bottom karaoke (use `captionsEnabled: false`).
 
 ---
 

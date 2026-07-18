@@ -202,30 +202,38 @@ function normalizePlan(
 }
 
 async function buildVisionParts(media: ReelUploadedMedia[]) {
+  const imageItems = media.slice(0, 8).filter((item) => item.kind === 'image')
+
+  const downloaded = await Promise.all(
+    imageItems.map(async (item) => {
+      try {
+        const buffer = await downloadReelObject(item.bucketName, item.storagePath)
+        return { item, buffer }
+      } catch (error) {
+        console.warn('[reels-maker/gemini-story] vision skip', item.id, error)
+        return null
+      }
+    }),
+  )
+
   const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = []
-
-  for (const item of media.slice(0, 8)) {
-    if (item.kind !== 'image') continue
-
-    try {
-      const buffer = await downloadReelObject(item.bucketName, item.storagePath)
-      const mimeType = item.mimeType?.startsWith('image/') ? item.mimeType : 'image/jpeg'
-      parts.push({
-        inlineData: {
-          mimeType,
-          data: buffer.toString('base64'),
-        },
-      })
-      parts.push({
-        text: [
-          `Photo id: ${item.id}`,
-          `fileName: ${item.fileName}`,
-          item.userNote ? `user description: ${item.userNote}` : 'user description: (none)',
-        ].join('\n'),
-      })
-    } catch (error) {
-      console.warn('[reels-maker/gemini-story] vision skip', item.id, error)
-    }
+  for (const entry of downloaded) {
+    if (!entry) continue
+    const { item, buffer } = entry
+    const mimeType = item.mimeType?.startsWith('image/') ? item.mimeType : 'image/jpeg'
+    parts.push({
+      inlineData: {
+        mimeType,
+        data: buffer.toString('base64'),
+      },
+    })
+    parts.push({
+      text: [
+        `Photo id: ${item.id}`,
+        `fileName: ${item.fileName}`,
+        item.userNote ? `user description: ${item.userNote}` : 'user description: (none)',
+      ].join('\n'),
+    })
   }
 
   return parts

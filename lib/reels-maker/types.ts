@@ -38,8 +38,14 @@ export type ReelLogoPosition =
   | 'bottom-right'
   | 'bottom-center'
 
-/** When an overlay (logo / QR) appears on the final video. `outro-only` ≈ last 4 seconds. */
-export type ReelOverlayDisplay = 'always' | 'outro-only'
+/** When an overlay (logo / QR) appears on the final video.
+ * - `always` — photo-tour watermark; if a branded mascot outro is built, watermark is
+ *   auto-masked off outro frames (no stacking on the plate logo). Same visual as `photos-only`
+ *   whenever the branded outro is present.
+ * - `photos-only` — watermark on photo tour only; outro plate still uses uploaded `logo` once.
+ * - `outro-only` — no photo watermark; logo/QR only on the outro window / plate.
+ */
+export type ReelOverlayDisplay = 'always' | 'photos-only' | 'outro-only'
 
 /** Gemini TTS narrator gender for voice-over. */
 export type ReelVoiceGender = 'man' | 'woman'

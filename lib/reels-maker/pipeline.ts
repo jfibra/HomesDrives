@@ -235,21 +235,25 @@ async function processReelJob(jobId: string) {
       },
     )
 
-    let voiceOverBuffer: Buffer | null = null
+    let voiceOverPromise: Promise<Buffer | null> | null = null
 
     if (job.voiceOverEnabled && (mainScript.trim() || job.outroEnabled !== false)) {
       setReelJobStatus(jobId, 'creating_voiceover', 'Creating voice-over…', 72, {
         voiceOverScript: voiceScript,
       })
-      voiceOverBuffer = await generateVoiceOverAudio(mainScript, sceneCount, {
+      // Start TTS while render prep downloads media — do not await here.
+      voiceOverPromise = generateVoiceOverAudio(mainScript, sceneCount, {
         outroLine: job.outroLine || undefined,
         reelBrief: job.reelBrief,
         includeOutro: job.outroEnabled !== false,
         voiceGender: job.voiceGender || 'woman',
+      }).then((buffer) => {
+        if (!buffer?.length) {
+          console.warn('[reels-maker/pipeline] Voice-over generation returned no audio — continuing without narration.')
+          return null
+        }
+        return buffer
       })
-      if (!voiceOverBuffer?.length) {
-        console.warn('[reels-maker/pipeline] Voice-over generation returned no audio — continuing without narration.')
-      }
     }
 
     setReelJobStatus(jobId, 'rendering', 'Rendering video…', 78)
@@ -327,7 +331,7 @@ async function processReelJob(jobId: string) {
       agent,
       outroCtaText: job.outroLine || undefined,
       outroEnabled: job.outroEnabled !== false,
-      voiceOver: voiceOverBuffer,
+      voiceOverPromise,
       onProgress: (message, progress) => {
         setReelJobStatus(jobId, 'rendering', message, progress)
       },

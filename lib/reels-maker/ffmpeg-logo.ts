@@ -40,6 +40,8 @@ function overlayCoords(position: ReelLogoPosition) {
 export type OverlayTimingOptions = {
   /** If set, overlay is visible only from this timestamp to the end of the video. */
   enableFromSeconds?: number | null
+  /** If set, overlay is visible only while t is strictly before this timestamp. */
+  enableUntilSeconds?: number | null
 }
 
 /** Resize logo and composite onto a low-opacity full-width black bar. */
@@ -100,10 +102,17 @@ export async function applyLogoOverlayToVideo(
   const ffmpeg = await resolveFfmpegBinary()
   const coords = overlayCoords(position)
   const enableFrom = timing?.enableFromSeconds
-  const enableExpr =
-    typeof enableFrom === 'number' && Number.isFinite(enableFrom) && enableFrom > 0
-      ? `:enable='gte(t\\,${enableFrom.toFixed(3)})'`
-      : ''
+  const enableUntil = timing?.enableUntilSeconds
+  const hasFrom = typeof enableFrom === 'number' && Number.isFinite(enableFrom) && enableFrom > 0
+  const hasUntil = typeof enableUntil === 'number' && Number.isFinite(enableUntil) && enableUntil > 0
+  let enableExpr = ''
+  if (hasFrom && hasUntil) {
+    enableExpr = `:enable='gte(t\\,${enableFrom!.toFixed(3)})*lt(t\\,${enableUntil!.toFixed(3)})'`
+  } else if (hasFrom) {
+    enableExpr = `:enable='gte(t\\,${enableFrom!.toFixed(3)})'`
+  } else if (hasUntil) {
+    enableExpr = `:enable='lt(t\\,${enableUntil!.toFixed(3)})'`
+  }
   // Plate + logo already sized — overlay as-is
   const filter = `[1:v]format=rgba[lg];[0:v][lg]overlay=${coords}${enableExpr}`
 

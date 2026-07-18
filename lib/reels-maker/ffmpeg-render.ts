@@ -58,8 +58,17 @@ const execFileAsync = promisify(execFile)
 
 const FPS = 30
 const CPU_COUNT = cpus().length
-/** Cap concurrency — concurrent zoompan+x264 on small EC2 instances often thrash/hang. */
-const SCENE_RENDER_CONCURRENCY = Math.max(1, Math.min(2, CPU_COUNT - 1))
+/**
+ * Concurrent scene encodes. Default up to 3 on multi-core hosts.
+ * Override with REEL_SCENE_CONCURRENCY (1–8). Keep ≤2 on tiny EC2 if jobs hang.
+ */
+const SCENE_RENDER_CONCURRENCY = (() => {
+  const fromEnv = Number(process.env.REEL_SCENE_CONCURRENCY)
+  if (Number.isFinite(fromEnv) && fromEnv >= 1) {
+    return Math.max(1, Math.min(8, Math.floor(fromEnv)))
+  }
+  return Math.max(1, Math.min(3, Math.max(1, CPU_COUNT - 1)))
+})()
 const FFMPEG_THREADS_PER_SCENE = Math.max(1, Math.floor(CPU_COUNT / Math.max(1, SCENE_RENDER_CONCURRENCY)))
 const ENCODE_ARGS = [...buildReelVideoEncodeArgs(FPS)]
 
@@ -635,21 +644,14 @@ export async function renderReelWithFfmpeg(params: {
   const mediaById = new Map(params.media.map((item) => [item.id, item]))
 
   try {
-    const voiceOver =
+    // Kick off VO (if still pending) in parallel with media downloads.
+    // Scene durations need VO length, but downloads do not.
+    const voicePromise: Promise<Buffer | null> =
       params.voiceOverPromise != null
-        ? await params.voiceOverPromise
-        : (params.voiceOver ?? null)
+        ? params.voiceOverPromise
+        : Promise.resolve(params.voiceOver ?? null)
 
-    let renderPlan = params.plan
-    if (voiceOver?.length) {
-      const voiceDuration = await measureVoiceOverDuration(voiceOver)
-      if (voiceDuration > 0) {
-        renderPlan = scalePlanForVoiceDuration(params.plan, voiceDuration)
-      }
-    }
-    renderPlan = enforceMinSceneDurations(renderPlan)
-
-    const scenes = renderPlan.scenes
+    const planScenes = params.plan.scenes
       .map((scene, index) => ({
         scene,
         index,
@@ -659,12 +661,9 @@ export async function renderReelWithFfmpeg(params: {
         Boolean(entry.mediaItem),
       )
 
-    const uniqueMedia = [...new Map(scenes.map((entry) => [entry.mediaItem.id, entry.mediaItem])).values()]
-
-    const totalScenes = scenes.length
+    const uniqueMedia = [...new Map(planScenes.map((entry) => [entry.mediaItem.id, entry.mediaItem])).values()]
 
     report('Downloading media…', 79)
-    const voicePromise = Promise.resolve(voiceOver)
     const logoDownload =
       params.logo != null
         ? downloadReelObject(params.logo.bucketName, params.logo.storagePath).catch(() => null)
@@ -683,6 +682,27 @@ export async function renderReelWithFfmpeg(params: {
         logoDownload,
         accentLogoDownload,
       ])
+
+    let renderPlan = params.plan
+    if (resolvedVoiceOver?.length) {
+      const voiceDuration = await measureVoiceOverDuration(resolvedVoiceOver)
+      if (voiceDuration > 0) {
+        renderPlan = scalePlanForVoiceDuration(params.plan, voiceDuration)
+      }
+    }
+    renderPlan = enforceMinSceneDurations(renderPlan)
+
+    const scenes = renderPlan.scenes
+      .map((scene, index) => ({
+        scene,
+        index,
+        mediaItem: mediaById.get(scene.mediaId),
+      }))
+      .filter((entry): entry is { scene: ReelScenePlan; index: number; mediaItem: ReelUploadedMedia } =>
+        Boolean(entry.mediaItem),
+      )
+
+    const totalScenes = scenes.length
 
     report(`Rendering ${totalScenes} scenes…`, 82)
     const scenePaths = await mapPool(scenes, SCENE_RENDER_CONCURRENCY, async ({ scene, index, mediaItem }) => {
@@ -728,6 +748,7 @@ export async function renderReelWithFfmpeg(params: {
 
     // Photos first (no logo intro) → branded mascot outro when enabled
     const combined: typeof sceneClips = [...sceneClips]
+    let brandedOutroDuration = 0
 
     const headshotBuffer = params.agentHeadshot
       ? await downloadReelObject(params.agentHeadshot.bucketName, params.agentHeadshot.storagePath)
@@ -758,6 +779,7 @@ export async function renderReelWithFfmpeg(params: {
       })
       const outroPath = join(workDir, 'branded-outro.mp4')
       await writeFile(outroPath, outro.buffer)
+      brandedOutroDuration = outro.durationSeconds
       combined.push({ path: outroPath, durationSeconds: outro.durationSeconds, transition: 'fade' })
     }
 
@@ -768,35 +790,58 @@ export async function renderReelWithFfmpeg(params: {
 
     let outputBuffer = await mergeScenesWithTransitions(bookendedClips, workDir)
 
-    // Skip full-video watermark if branding already lives on the end card for outro-only
+    const logoDisplay = params.logo?.display ?? 'always'
+    const didBuildBrandedOutro = brandedOutroDuration > 0
+
+    // Skip full-video watermark when logo is outro-only (plate already has the mark)
     const skipLogoOverlay =
       isListingShowcase ||
-      (outroEnabled && params.logo?.display === 'outro-only' && Boolean(logoBuffer))
+      (outroEnabled && logoDisplay === 'outro-only' && Boolean(logoBuffer))
     const skipQrOverlay =
       isListingShowcase ||
       (outroEnabled && params.qr?.display === 'outro-only' && Boolean(qrBuffer))
 
-    const needsOutroTiming =
-      (!skipLogoOverlay && params.logo?.display === 'outro-only') ||
+    // Photos-only watermark: tour frames only — never stack on the branded outro plate.
+    // Option A: `always` + branded outro behaves the same (preferred partner fix).
+    const maskWatermarkOffOutro =
+      !skipLogoOverlay &&
+      didBuildBrandedOutro &&
+      (logoDisplay === 'photos-only' || logoDisplay === 'always')
+
+    const needsTimelineProbe =
+      maskWatermarkOffOutro ||
+      (!skipLogoOverlay && logoDisplay === 'outro-only') ||
       (!skipQrOverlay && params.qr?.display === 'outro-only')
 
     let outroEnableFrom: number | null = null
-    if (needsOutroTiming) {
+    let watermarkEnableUntil: number | null = null
+    if (needsTimelineProbe) {
       const probePath = join(workDir, 'merged-probe.mp4')
       await writeFile(probePath, outputBuffer)
       const duration = await probeMediaDuration(probePath)
       if (duration > 0) {
-        outroEnableFrom = Math.max(0, duration - OUTRO_OVERLAY_DURATION_SEC)
+        if (logoDisplay === 'outro-only' || params.qr?.display === 'outro-only') {
+          const windowSec = didBuildBrandedOutro
+            ? brandedOutroDuration + BLACK_TAIL_SEC
+            : OUTRO_OVERLAY_DURATION_SEC
+          outroEnableFrom = Math.max(0, duration - windowSec)
+        }
+        if (maskWatermarkOffOutro) {
+          // Cut slightly before the plate so the tour watermark never stacks on the outro logo.
+          watermarkEnableUntil = Math.max(0.05, duration - brandedOutroDuration - BLACK_TAIL_SEC * 0.5)
+        }
       }
     }
 
     if (params.logo && !skipLogoOverlay) {
       const logoBytes = logoBuffer ?? (await downloadReelObject(params.logo.bucketName, params.logo.storagePath))
       const logoName = params.logo.storagePath.split('/').pop() ?? 'logo.png'
-      const logoTiming =
-        params.logo.display === 'outro-only' && outroEnableFrom != null
-          ? { enableFromSeconds: outroEnableFrom }
-          : undefined
+      let logoTiming: { enableFromSeconds?: number; enableUntilSeconds?: number } | undefined
+      if (logoDisplay === 'outro-only' && outroEnableFrom != null) {
+        logoTiming = { enableFromSeconds: outroEnableFrom }
+      } else if (maskWatermarkOffOutro && watermarkEnableUntil != null) {
+        logoTiming = { enableUntilSeconds: watermarkEnableUntil }
+      }
       outputBuffer = Buffer.from(await applyLogoOverlayToVideo(
         outputBuffer,
         logoBytes,
