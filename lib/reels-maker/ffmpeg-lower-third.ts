@@ -91,12 +91,20 @@ export async function renderLowerThirdPng(
         : Math.round(40 * s)
   const subFontSize = Math.round(20 * s)
 
-  // Title starts just after the left logo tab (white title holder)
-  const titleX = left + logoW + Math.round(28 * s)
-  const titleY = barY + Math.round(mainH * 0.42)
+  // Center title in the white title holder (area to the right of the logo tab)
+  const whiteStart = left + Math.round(logoW * 0.55)
+  const whiteW = mainW - Math.round(logoW * 0.25)
+  const textAreaLeft = left + logoW
+  const textAreaRight = whiteStart + whiteW - Math.round(skew * 0.35)
+  const titleX = Math.round((textAreaLeft + textAreaRight) / 2)
+  const lineGap = Math.round(titleFontSize * 1.15)
+  const titleBlockH =
+    titleLines.length <= 1 ? titleFontSize : titleFontSize + lineGap
+  const titleY =
+    barY + Math.round((mainH - titleBlockH) / 2) + Math.round(titleFontSize * 0.82)
   const titleLinesXml = titleLines
     .map((line, i) => {
-      const dy = i === 0 ? 0 : Math.round(titleFontSize * 1.15)
+      const dy = i === 0 ? 0 : lineGap
       return `<tspan x="${titleX}" dy="${dy}">${escapeXml(line)}</tspan>`
     })
     .join('')
@@ -173,7 +181,7 @@ export async function renderLowerThirdPng(
   ${logoImageXml}
   ${fallbackLogoText}
   <polygon points="${para(left, barY + mainH + Math.round(4 * s), logoW, Math.round(4 * s), skew)}" fill="${gold}" />
-  <text x="${titleX}" y="${titleY}"
+  <text x="${titleX}" y="${titleY}" text-anchor="middle"
     font-family="Arial, Helvetica, sans-serif" font-size="${titleFontSize}" font-weight="700" fill="${blueDeep}">${titleLinesXml}</text>
   ${subtitleXml}
   <polygon points="${para(rightTabX, rightTabY, rightTabW, rightTabH, Math.round(skew * 0.7))}" fill="${blue}" />
