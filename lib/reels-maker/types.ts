@@ -146,6 +146,11 @@ export type ReelJob = {
   logoPublicUrl: string | null
   logoPosition: ReelLogoPosition
   logoDisplay: ReelOverlayDisplay
+  /** Optional second mark for the lower-third right end-tab. */
+  accentLogoEnabled: boolean
+  accentLogoBucketName: string | null
+  accentLogoStoragePath: string | null
+  accentLogoPublicUrl: string | null
   qrEnabled: boolean
   qrBucketName: string | null
   qrStoragePath: string | null

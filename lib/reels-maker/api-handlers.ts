@@ -4,6 +4,7 @@ import { Readable } from 'stream'
 import { deleteReelJob, getReelJob, listReelDraftSummaries, setReelJobStatus, updateReelJob } from '@/lib/reels-maker/job-store'
 import {
   attachReelJobAgentHeadshot,
+  attachReelJobAccentLogo,
   attachReelJobLogo,
   attachReelJobMedia,
   attachReelJobMusic,
@@ -208,6 +209,8 @@ export async function handleReelJobUpload(jobId: string, request: Request): Prom
     const logoEnabled = String(formData.get('logoEnabled') ?? 'false') === 'true'
     const logoPosition = parseLogoPosition(String(formData.get('logoPosition') ?? 'top-right'))
     const logoDisplay = parseOverlayDisplay(String(formData.get('logoDisplay') ?? 'always'))
+    const accentLogoUpload = await readUploadedBlob(formData.get('accentLogo'), 'accent-logo.png', 'image/png')
+    const accentLogoEnabled = String(formData.get('accentLogoEnabled') ?? (accentLogoUpload ? 'true' : 'false')) === 'true'
     const qrUpload = await readUploadedBlob(formData.get('qr'), 'qr.png', 'image/png')
     const qrEnabled = String(formData.get('qrEnabled') ?? 'false') === 'true'
     const qrPosition = parseQrPosition(String(formData.get('qrPosition') ?? 'bottom-right'))
@@ -301,6 +304,21 @@ export async function handleReelJobUpload(jobId: string, request: Request): Prom
       if (updated) jobAfterUpload = updated
     }
 
+    if (accentLogoUpload) {
+      if (!accentLogoUpload.mimeType.startsWith('image/')) {
+        return Response.json({ error: 'Accent logo must be a PNG, JPG, or WEBP image.' }, { status: 400 })
+      }
+      const accent = await uploadReelLogoFile({
+        fileName: accentLogoUpload.fileName,
+        mimeType: accentLogoUpload.mimeType,
+        buffer: accentLogoUpload.buffer,
+      })
+      const updated = attachReelJobAccentLogo(jobId, accent, {
+        enabled: accentLogoEnabled,
+      })
+      if (updated) jobAfterUpload = updated
+    }
+
     if (qrUpload) {
       if (!qrUpload.mimeType.startsWith('image/')) {
         return Response.json({ error: 'QR code must be a PNG, JPG, or WEBP image.' }, { status: 400 })
@@ -362,7 +380,7 @@ export async function handleReelJobUploadPresign(jobId: string, request: Request
         fileName?: string
         contentType?: string
         size?: number
-        role?: 'media' | 'music' | 'logo' | 'qr' | 'agentHeadshot'
+        role?: 'media' | 'music' | 'logo' | 'accentLogo' | 'qr' | 'agentHeadshot'
       }>
     }
 
@@ -418,7 +436,7 @@ export async function handleReelJobUploadFinalize(jobId: string, request: Reques
   try {
     const body = (await request.json()) as {
       uploads?: Array<{
-        role?: 'media' | 'music' | 'logo' | 'qr' | 'agentHeadshot'
+        role?: 'media' | 'music' | 'logo' | 'accentLogo' | 'qr' | 'agentHeadshot'
         fileName?: string
         mimeType?: string
         bucketName?: string
@@ -428,6 +446,7 @@ export async function handleReelJobUploadFinalize(jobId: string, request: Reques
       logoEnabled?: boolean
       logoPosition?: string
       logoDisplay?: string
+      accentLogoEnabled?: boolean
       qrEnabled?: boolean
       qrPosition?: string
       qrDisplay?: string
@@ -437,6 +456,7 @@ export async function handleReelJobUploadFinalize(jobId: string, request: Reques
     const logoEnabled = body.logoEnabled === true
     const logoPosition = parseLogoPosition(String(body.logoPosition ?? 'top-right'))
     const logoDisplay = parseOverlayDisplay(String(body.logoDisplay ?? 'always'))
+    const accentLogoEnabled = body.accentLogoEnabled !== false
     const qrEnabled = body.qrEnabled === true
     const qrPosition = parseQrPosition(String(body.qrPosition ?? 'bottom-right'))
     const qrDisplay = parseOverlayDisplay(String(body.qrDisplay ?? 'always'))
@@ -490,6 +510,21 @@ export async function handleReelJobUploadFinalize(jobId: string, request: Reques
           position: logoPosition,
           display: logoDisplay,
         })
+        if (updated) jobAfterUpload = updated
+        continue
+      }
+
+      if (role === 'accentLogo') {
+        if (!mimeType.startsWith('image/')) {
+          return Response.json({ error: 'Accent logo must be a PNG, JPG, or WEBP image.' }, { status: 400 })
+        }
+        const accent = await registerReelLogoFromStorage({
+          fileName,
+          mimeType,
+          bucketName,
+          storagePath,
+        })
+        const updated = attachReelJobAccentLogo(jobId, accent, { enabled: accentLogoEnabled })
         if (updated) jobAfterUpload = updated
         continue
       }

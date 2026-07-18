@@ -175,10 +175,12 @@ x-api-key: rk_xxx
 | `files` / `files[]` | File | One or more images or videos. JPEG, PNG, HEIC, WEBP, MP4, MOV supported. Max 10 MB/photo, 100 MB/video. |
 | `mediaNotes` | JSON string | `["living room", "pool area"]` — one note per file, same order. Optional; helps storytelling. |
 | `music` | File (MP3) | Optional background music. Max 50 MB. |
-| `logo` | File (PNG/JPG) | Brand mark. Prefer **white / light** for the navy outro plate. Also used as photo-tour watermark when `logoDisplay=always`. Appears at the top of the branded **outro**. |
+| `logo` | File (PNG/JPG) | Brand mark. Prefer **white / light**. Used as the **large top watermark** during photos (same scale as outro, with a soft black plate behind it) and on the left tab of the lower-third + top of the branded **outro**. |
 | `logoEnabled` | string | `"true"` to enable. |
 | `logoPosition` | string | `"top-left"`, `"top-right"`, `"top-center"`, `"bottom-left"`, `"bottom-right"`, `"bottom-center"`. Use **`top-center`** for Homes.ph watermark during the photo tour. Ignored by `listing-showcase` (logo only on the outro). |
 | `logoDisplay` | string | `"always"` (default, watermark during photo tour) or `"outro-only"` (skip watermark; logo still appears on the outro). Ignored by `listing-showcase`. |
+| `accentLogo` | File (PNG/JPG) | Optional second mark for the **right end-tab** of the slanted lower-third title ribbon. Partners can upload a different logo here (agency mark, developer logo, etc.). |
+| `accentLogoEnabled` | string | `"true"` to enable (defaults to true when `accentLogo` is uploaded). |
 | `qr` | File (PNG/JPG) | Listing QR. Prefer `qrDisplay=outro-only` so it only appears on the branded outro (white pad). |
 | `qrEnabled` | string | `"true"` to enable. |
 | `qrPosition` | string | Same values as `logoPosition` — defaults to `"bottom-right"`. Only matters if `qrDisplay=always`. Ignored by `listing-showcase`. |
@@ -193,6 +195,8 @@ form.append('logo', fs.createReadStream('homes-logo-white.png'), 'homes-logo-whi
 form.append('logoEnabled', 'true')
 form.append('logoPosition', 'top-center')
 form.append('logoDisplay', 'always')
+form.append('accentLogo', fs.createReadStream('agency-mark.png'), 'agency-mark.png')
+form.append('accentLogoEnabled', 'true')
 form.append('qr', fs.createReadStream('listing-qr.png'), 'listing-qr.png')
 form.append('qrEnabled', 'true')
 form.append('qrPosition', 'bottom-center')
@@ -216,6 +220,8 @@ form.append('logo', fs.createReadStream('homes-logo-white.png'), 'homes-logo-whi
 form.append('logoEnabled', 'true')
 form.append('logoPosition', 'top-center')
 form.append('logoDisplay', 'always')
+form.append('accentLogo', fs.createReadStream('agency-mark.png'), 'agency-mark.png')
+form.append('accentLogoEnabled', 'true')
 form.append('qr', fs.createReadStream('listing-qr.png'), 'listing-qr.png')
 form.append('qrEnabled', 'true')
 form.append('qrPosition', 'bottom-center')
@@ -397,7 +403,8 @@ Typical time: **60–180 seconds**, depending on the number of photos and server
 | **Cinematic photo motion** | Starts immediately. Dolly / push / track / float (server-chosen). Not a basic slideshow. |
 | **Bottom titles** | Slanted broadcast lower-third (logo tab + white title ribbon + blue subtitle), slides in slowly left → right (~1.15s). |
 | **Karaoke / subtitles** | **Never burned in.** Voiceover is audio-only. |
-| **Logo watermark** | During photo tour when `logoDisplay=always` (non–`listing-showcase`). Also appears on the branded outro when uploaded. |
+| **Logo watermark** | During photo tour when `logoDisplay=always` (non–`listing-showcase`): **~50% frame width** (same scale as outro), with a **soft black plate** (~28% opacity) behind it for contrast. Also appears on the branded outro when uploaded. |
+| **Lower-third logos** | Left blue tab = `logo`. Right end-tab = optional `accentLogo` (partner-customizable). |
 | **QR watermark** | Prefer `outro-only` so QR appears on the branded outro only. |
 | **Branded outro** | When `outroEnabled` + branding/agent/QR: navy mascot plate → logo → circular agent photo → name/phone → QR (~4.5s). **All templates.** |
 | **Listing price** | `listing-showcase` + `listingPrice` → **count-up**, then address + beds/baths/sqft **chips**. |
@@ -622,10 +629,12 @@ For a **counting price** on every photo, use `templateId: "listing-showcase"` an
 
 | Field | Value |
 |---|---|
-| `logo` | Homes.ph **white / light** mark (best on the navy outro plate) |
+| `logo` | Homes.ph **white / light** mark — large top watermark + left lower-third tab + outro |
 | `logoEnabled` | `"true"` |
 | `logoPosition` | `"top-center"` |
 | `logoDisplay` | `"always"` |
+| `accentLogo` | Optional second mark for the **right** lower-third tab (agency / developer logo) |
+| `accentLogoEnabled` | `"true"` |
 | `qr` | Listing QR image |
 | `qrEnabled` | `"true"` |
 | `qrPosition` | `"bottom-center"` (ignored when `outro-only`) |
@@ -645,7 +654,8 @@ No need to append a fake end-card photo as the last media file.
 | Capability | How |
 |---|---|
 | Start on listing photos | Automatic (no intro card) |
-| Logo top-center during photos | `logoPosition=top-center` + `logoDisplay=always` |
+| Logo top-center during photos | `logoPosition=top-center` + `logoDisplay=always` (large watermark + soft black plate) |
+| Custom logo on lower-third right tab | Upload `accentLogo` (+ `accentLogoEnabled=true`) |
 | Logo only on outro (no watermark) | `logoDisplay=outro-only` (still upload `logo`) |
 | QR / agent only at end | `qrDisplay=outro-only` + `agentHeadshot` + `agentName` / `agentPhone` |
 | Full branded outro | `outroEnabled: true` + logo + QR + headshot + agent fields |

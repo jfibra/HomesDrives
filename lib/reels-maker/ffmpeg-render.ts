@@ -136,6 +136,7 @@ type SceneRenderContext = {
   isFirst: boolean
   isLast: boolean
   logoBuffer?: Buffer | null
+  accentLogoBuffer?: Buffer | null
 }
 
 async function renderImageScene(
@@ -206,6 +207,7 @@ async function renderImageScene(
     title,
     subtitle,
     logoBuffer: context.logoBuffer,
+    accentLogoBuffer: context.accentLogoBuffer,
   })
 
   const revealDelay = context.isFirst ? 0.28 : 0.15
@@ -306,6 +308,7 @@ async function renderVideoScene(
     title,
     subtitle,
     logoBuffer: context.logoBuffer,
+    accentLogoBuffer: context.accentLogoBuffer,
   })
   const revealDelay = context.isFirst ? 0.28 : 0.15
   const lowerThirdReveal = buildLowerThirdRevealFilterComplex({
@@ -603,6 +606,7 @@ export async function renderReelWithFfmpeg(params: {
     position: ReelLogoPosition
     display?: ReelOverlayDisplay
   } | null
+  accentLogo?: { bucketName: string; storagePath: string } | null
   qr?: {
     bucketName: string
     storagePath: string
@@ -665,14 +669,19 @@ export async function renderReelWithFfmpeg(params: {
       params.logo != null
         ? downloadReelObject(params.logo.bucketName, params.logo.storagePath).catch(() => null)
         : Promise.resolve(null)
+    const accentLogoDownload =
+      params.accentLogo != null
+        ? downloadReelObject(params.accentLogo.bucketName, params.accentLogo.storagePath).catch(() => null)
+        : Promise.resolve(null)
 
-    const [resolvedVoiceOver, mediaPaths, blackLeaderPath, blackTailPath, earlyLogoBuffer] =
+    const [resolvedVoiceOver, mediaPaths, blackLeaderPath, blackTailPath, earlyLogoBuffer, earlyAccentLogoBuffer] =
       await Promise.all([
         voicePromise,
         downloadMediaToWorkDir(uniqueMedia, workDir, frame),
         renderBlackClip(workDir, 'black-leader', BLACK_LEADER_SEC, frame),
         renderBlackClip(workDir, 'black-tail', BLACK_TAIL_SEC, frame),
         logoDownload,
+        accentLogoDownload,
       ])
 
     report(`Rendering ${totalScenes} scenes…`, 82)
@@ -685,6 +694,7 @@ export async function renderReelWithFfmpeg(params: {
         isFirst: index === 0,
         isLast: index === totalScenes - 1,
         logoBuffer: earlyLogoBuffer,
+        accentLogoBuffer: earlyAccentLogoBuffer,
       }
 
       return mediaItem.kind === 'video'

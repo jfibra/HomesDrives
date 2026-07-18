@@ -52,6 +52,10 @@ export function startReelJob(input: CreateReelJobInput): ReelJob {
     logoPublicUrl: null,
     logoPosition: 'top-right',
     logoDisplay: 'always',
+    accentLogoEnabled: false,
+    accentLogoBucketName: null,
+    accentLogoStoragePath: null,
+    accentLogoPublicUrl: null,
     qrEnabled: false,
     qrBucketName: null,
     qrStoragePath: null,
@@ -105,6 +109,19 @@ export function attachReelJobLogo(
     logoPublicUrl: logo.publicUrl,
     logoPosition: options.position,
     logoDisplay: options.display ?? 'always',
+  })
+}
+
+export function attachReelJobAccentLogo(
+  jobId: string,
+  logo: { bucketName: string; storagePath: string; publicUrl: string },
+  options: { enabled: boolean },
+) {
+  return updateReelJob(jobId, {
+    accentLogoEnabled: options.enabled,
+    accentLogoBucketName: logo.bucketName,
+    accentLogoStoragePath: logo.storagePath,
+    accentLogoPublicUrl: logo.publicUrl,
   })
 }
 
@@ -248,6 +265,11 @@ async function processReelJob(jobId: string) {
           }
         : null
 
+    const accentLogo =
+      job.accentLogoEnabled && job.accentLogoBucketName && job.accentLogoStoragePath
+        ? { bucketName: job.accentLogoBucketName, storagePath: job.accentLogoStoragePath }
+        : null
+
     const qr =
       job.qrEnabled && job.qrBucketName && job.qrStoragePath
         ? {
@@ -295,6 +317,7 @@ async function processReelJob(jobId: string) {
       aspectRatio: normalizeReelAspectRatio(job.aspectRatio),
       music,
       logo,
+      accentLogo,
       qr,
       agentHeadshot,
       listing,

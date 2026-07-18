@@ -35,6 +35,8 @@ export type LowerThirdContent = {
   subtitle?: string | null
   /** PNG/JPEG/WebP logo bytes — rendered into the left blue tab. */
   logoBuffer?: Buffer | null
+  /** Optional partner mark for the right end-tab of the title ribbon. */
+  accentLogoBuffer?: Buffer | null
 }
 
 /**
@@ -96,8 +98,8 @@ export async function renderLowerThirdPng(
   let logoImageXml = ''
   if (content.logoBuffer?.length) {
     try {
-      const logoMaxW = Math.round(logoW * 0.62)
-      const logoMaxH = Math.round(mainH * 0.62)
+      const logoMaxW = Math.round(logoW * 0.72)
+      const logoMaxH = Math.round(mainH * 0.7)
       const logoPng = await sharp(content.logoBuffer, { failOn: 'none' })
         .ensureAlpha()
         .resize({
@@ -117,6 +119,33 @@ export async function renderLowerThirdPng(
       logoImageXml = `<image href="data:image/png;base64,${b64}" x="${lx}" y="${ly}" width="${lw}" height="${lh}" />`
     } catch {
       logoImageXml = ''
+    }
+  }
+
+  // Right end-tab: partner accent logo (or solid blue accent if none uploaded)
+  const rightTabW = Math.round(content.accentLogoBuffer?.length ? 120 * s : 28 * s)
+  const rightTabX = frameWidth - Math.round(90 * s) - (content.accentLogoBuffer?.length ? Math.round(70 * s) : 0)
+  const rightTabY = barY + Math.round(mainH * 0.12)
+  const rightTabH = Math.round(mainH * 0.9)
+  let accentLogoXml = ''
+  if (content.accentLogoBuffer?.length) {
+    try {
+      const maxW = Math.round(rightTabW * 0.7)
+      const maxH = Math.round(rightTabH * 0.62)
+      const accentPng = await sharp(content.accentLogoBuffer, { failOn: 'none' })
+        .ensureAlpha()
+        .resize({ width: maxW, height: maxH, fit: 'inside', withoutEnlargement: false })
+        .png()
+        .toBuffer()
+      const b64 = accentPng.toString('base64')
+      const meta = await sharp(accentPng).metadata()
+      const aw = meta.width ?? maxW
+      const ah = meta.height ?? maxH
+      const ax = rightTabX + Math.round((rightTabW - aw) / 2) + Math.round(skew * 0.25)
+      const ay = rightTabY + Math.round((rightTabH - ah) / 2)
+      accentLogoXml = `<image href="data:image/png;base64,${b64}" x="${ax}" y="${ay}" width="${aw}" height="${ah}" />`
+    } catch {
+      accentLogoXml = ''
     }
   }
 
@@ -140,6 +169,11 @@ export async function renderLowerThirdPng(
         width="${Math.round(200 * s)}" height="${Math.round(3 * s)}" fill="${lightBlue}" opacity="0.85" />
     `
 
+  const rightTabXml = `
+  <polygon points="${para(rightTabX, rightTabY, rightTabW, rightTabH, Math.round(skew * 0.7))}" fill="${blue}" />
+  ${accentLogoXml}
+  `
+
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg width="${frameWidth}" height="${frameHeight}" viewBox="0 0 ${frameWidth} ${frameHeight}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
   <polygon points="${para(left + Math.round(24 * s), barY - Math.round(14 * s), mainW + Math.round(40 * s), mainH + Math.round(28 * s), skew)}" fill="${softGrey}" opacity="0.92" />
@@ -154,7 +188,7 @@ export async function renderLowerThirdPng(
   <text x="${titleX}" y="${titleY}"
     font-family="Arial, Helvetica, sans-serif" font-size="${titleFontSize}" font-weight="700" fill="${blueDeep}">${titleLinesXml}</text>
   ${subtitleXml}
-  <polygon points="${para(frameWidth - Math.round(90 * s), barY + Math.round(mainH * 0.55), Math.round(28 * s), Math.round(70 * s), Math.round(skew * 0.7))}" fill="${blue}" />
+  ${rightTabXml}
 </svg>`
 
   return sharp(Buffer.from(svg))

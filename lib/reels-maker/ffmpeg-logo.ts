@@ -1,6 +1,5 @@
 import { execFile } from 'child_process'
 import { mkdtemp, readFile, writeFile } from 'fs/promises'
-import { extname } from 'path'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { promisify } from 'util'
@@ -12,8 +11,13 @@ import type { ReelLogoPosition } from '@/lib/reels-maker/types'
 
 const execFileAsync = promisify(execFile)
 
-const LOGO_WIDTH_RATIO = 0.28
-const LOGO_MARGIN = 32
+/** Match outro logo scale (~50% of frame width). */
+const LOGO_WIDTH_RATIO = 0.5
+const LOGO_MARGIN = 36
+/** Soft black plate behind the watermark so it reads on bright photos. */
+const PLATE_OPACITY = 0.28
+const PLATE_PAD_X_RATIO = 0.14
+const PLATE_PAD_Y_RATIO = 0.22
 
 function logoMaxWidth(frameWidth: number) {
   return Math.round(frameWidth * LOGO_WIDTH_RATIO)
@@ -42,6 +46,48 @@ export type OverlayTimingOptions = {
   enableFromSeconds?: number | null
 }
 
+/** Resize logo and composite onto a low-opacity black rounded plate. */
+async function prepareWatermarkLogoPng(logoBuffer: Buffer, frameWidth: number): Promise<Buffer> {
+  const { default: sharp } = await import('sharp')
+  const maxW = logoMaxWidth(frameWidth)
+  const logoPng = await sharp(logoBuffer, { failOn: 'none' })
+    .ensureAlpha()
+    .resize({ width: maxW, fit: 'inside', withoutEnlargement: false })
+    .png()
+    .toBuffer()
+
+  const meta = await sharp(logoPng).metadata()
+  const lw = meta.width ?? maxW
+  const lh = meta.height ?? Math.round(maxW * 0.35)
+  const padX = Math.round(lw * PLATE_PAD_X_RATIO)
+  const padY = Math.round(lh * PLATE_PAD_Y_RATIO)
+  const plateW = lw + padX * 2
+  const plateH = lh + padY * 2
+  const radius = Math.round(Math.min(plateW, plateH) * 0.18)
+
+  const plateSvg = Buffer.from(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${plateW}" height="${plateH}">
+      <rect x="0" y="0" width="${plateW}" height="${plateH}" rx="${radius}" ry="${radius}"
+        fill="black" fill-opacity="${PLATE_OPACITY}"/>
+    </svg>`,
+  )
+
+  return sharp({
+    create: {
+      width: plateW,
+      height: plateH,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    },
+  })
+    .composite([
+      { input: await sharp(plateSvg).png().toBuffer(), left: 0, top: 0 },
+      { input: logoPng, left: padX, top: padY },
+    ])
+    .png()
+    .toBuffer()
+}
+
 export async function applyLogoOverlayToVideo(
   videoBuffer: Buffer,
   logoBuffer: Buffer,
@@ -52,8 +98,7 @@ export async function applyLogoOverlayToVideo(
 ): Promise<Buffer> {
   const workDir = await mkdtemp(join(tmpdir(), 'reels-logo-'))
   const videoPath = join(workDir, 'input.mp4')
-  const ext = extname(logoFileName).toLowerCase() || '.png'
-  const logoPath = join(workDir, `logo${ext}`)
+  const logoPath = join(workDir, 'logo-watermark.png')
   const outputPath = join(workDir, 'branded.mp4')
   const ffmpeg = await resolveFfmpegBinary()
   const coords = overlayCoords(position)
@@ -62,11 +107,14 @@ export async function applyLogoOverlayToVideo(
     typeof enableFrom === 'number' && Number.isFinite(enableFrom) && enableFrom > 0
       ? `:enable='gte(t\\,${enableFrom.toFixed(3)})'`
       : ''
-  const filter = `[1:v]scale='min(${logoMaxWidth(frameWidth)}\\,iw)':-1[lg];[0:v][lg]overlay=${coords}${enableExpr}`
+  // Plate + logo already sized — overlay as-is
+  const filter = `[1:v]format=rgba[lg];[0:v][lg]overlay=${coords}${enableExpr}`
 
   try {
     await writeFile(videoPath, videoBuffer)
-    await writeFile(logoPath, logoBuffer)
+    void logoFileName
+    const prepared = await prepareWatermarkLogoPng(logoBuffer, frameWidth)
+    await writeFile(logoPath, prepared)
 
     await execFileAsync(
       ffmpeg,
