@@ -18,18 +18,23 @@ const ROLE_DURATION: Record<ReelSceneRole, { min: number; max: number }> = {
 
 void ROLE_DURATION
 
-/** Alternating horizontal wipe — right, left, right, left… */
-export function pickDirectionalSlideTransition(
-  index: number,
-  previous?: ReelSceneTransition | null,
-): ReelSceneTransition {
-  // index 1 = first photo→photo cut; start sliding in from the right
-  let pick: ReelSceneTransition = index % 2 === 1 ? 'slide-right' : 'slide-left'
-  if (previous && pick === previous) {
-    pick = pick === 'slide-right' ? 'slide-left' : 'slide-right'
-  }
-  return pick
-}
+const ALL_TRANSITIONS: ReelSceneTransition[] = [
+  'cross-dissolve',
+  'smooth-left',
+  'radial',
+  'flash-white',
+  'smooth-right',
+  'diag-wipe',
+  'circle-open',
+  'zoom-cut',
+  'fade-white',
+  'squeeze-h',
+  'wind',
+  'slide-left',
+  'slide-right',
+  'wipe-up',
+  'fade',
+]
 
 function roleForIndex(index: number, total: number): ReelSceneRole {
   if (total <= 1) return 'hero'
@@ -47,30 +52,73 @@ function durationForRole(_role: ReelSceneRole, _index: number): number {
   return 2.35
 }
 
-/** Photo-to-photo transition — horizontal slides, alternating direction. */
+/** Continuity-aware transition — soft cinematic blends matched to pan direction. */
 export function chooseTransition(params: {
   index: number
   previousMotion?: ReelSceneMotion | null
   nextRole: ReelSceneRole
   previousTransition?: ReelSceneTransition | null
 }): ReelSceneTransition {
-  const { index, previousMotion, previousTransition } = params
+  const { index, previousMotion, nextRole, previousTransition } = params
   const prev = previousMotion ? normalizeMotion(previousMotion) : null
 
-  // Match incoming pan direction when it is clearly horizontal
+  const softCycle: ReelSceneTransition[] = [
+    'cross-dissolve',
+    'smooth-left',
+    'fade',
+    'smooth-right',
+    'slide-left',
+    'wipe-up',
+    'slide-right',
+    'smooth-zoom',
+  ]
+
   let preferred: ReelSceneTransition
-  if (prev === 'gentle-pan-left' || prev === 'horizontal-track') {
-    preferred = 'slide-left'
-  } else if (prev === 'gentle-pan-right') {
-    preferred = 'slide-right'
-  } else {
-    preferred = pickDirectionalSlideTransition(index, previousTransition ?? null)
-  }
+  if (nextRole === 'closing') preferred = 'cross-dissolve'
+  else if (prev === 'gentle-pan-left' || prev === 'horizontal-track') preferred = 'smooth-left'
+  else if (prev === 'gentle-pan-right') preferred = 'smooth-right'
+  else if (prev === 'reveal-from-top') preferred = 'wipe-up'
+  else if (prev === 'vertical-drift') preferred = 'smooth-zoom'
+  else preferred = softCycle[index % softCycle.length]
+
+  // Never hard-cut between photos — always blend
+  if (preferred === 'cut') preferred = 'cross-dissolve'
 
   if (previousTransition && preferred === previousTransition) {
-    preferred = preferred === 'slide-right' ? 'slide-left' : 'slide-right'
+    preferred = softCycle[(index + 3) % softCycle.length]
   }
   return preferred
+}
+
+/** YouTube landscape: alternate horizontal wipes between photos (right → left → right …). */
+export function chooseYoutubeTransition(index: number, previous?: ReelSceneTransition | null): ReelSceneTransition {
+  // index = scene index receiving the transition (1 = first photo-to-photo cut)
+  const next: ReelSceneTransition = index % 2 === 1 ? 'slide-right' : 'slide-left'
+  if (previous && previous === next) {
+    return next === 'slide-left' ? 'slide-right' : 'slide-left'
+  }
+  return next
+}
+
+/** Force left/right slide transitions on every photo cut (keeps scene 0 entrance unchanged). */
+export function applyYoutubeSlideTransitions(plan: ReelStoryPlan): ReelStoryPlan {
+  if (plan.scenes.length < 2) return plan
+
+  let previous: ReelSceneTransition | null = null
+  const scenes = plan.scenes.map((scene, index) => {
+    if (index === 0) return scene
+    const transition = chooseYoutubeTransition(index, previous)
+    previous = transition
+    return { ...scene, transition }
+  })
+
+  return {
+    ...plan,
+    scenes,
+    pacingNotes:
+      plan.pacingNotes ||
+      'Horizontal slide transitions between listing photos (alternating left ↔ right).',
+  }
 }
 
 /** Strongest quality score first for hook; keep variety for the rest. */
@@ -159,7 +207,7 @@ export function polishCinematicPlan(
     scenes,
     pacingNotes:
       plan.pacingNotes ||
-      'Directional pans with alternating left/right slide transitions between photos.',
+      'Directional pans with soft dissolve / smooth slide transitions between photos.',
   }
 }
 
@@ -171,5 +219,5 @@ function clampSceneDurations(scenes: ReelScenePlan[]): ReelScenePlan[] {
 }
 
 export function pickLuxuryTransition(index: number): ReelSceneTransition {
-  return pickDirectionalSlideTransition(index)
+  return ALL_TRANSITIONS[index % ALL_TRANSITIONS.length]
 }

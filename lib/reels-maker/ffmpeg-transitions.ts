@@ -23,8 +23,8 @@ const TRANSITION_SPECS: Record<ReelSceneTransition, TransitionSpec> = {
   /** Near-hard cut — reserved for rare punch moments. */
   cut: { xfade: 'fade', duration: 0.08 },
   'zoom-cut': { xfade: 'smoothdown', duration: 0.5 },
-  'slide-left': { xfade: 'slideleft', duration: 0.42 },
-  'slide-right': { xfade: 'slideright', duration: 0.42 },
+  'slide-left': { xfade: 'slideleft', duration: 0.58 },
+  'slide-right': { xfade: 'slideright', duration: 0.58 },
   'wipe-up': { xfade: 'wipeup', duration: 0.48 },
   'smooth-zoom': { xfade: 'smoothdown', duration: 0.52 },
   'fade-white': { xfade: 'fadewhite', duration: 0.42 },
@@ -32,8 +32,8 @@ const TRANSITION_SPECS: Record<ReelSceneTransition, TransitionSpec> = {
   radial: { xfade: 'smoothleft', duration: 0.5 },
   'circle-open': { xfade: 'circleopen', duration: 0.5 },
   'diag-wipe': { xfade: 'diagtl', duration: 0.48 },
-  'smooth-left': { xfade: 'smoothleft', duration: 0.45 },
-  'smooth-right': { xfade: 'smoothright', duration: 0.45 },
+  'smooth-left': { xfade: 'smoothleft', duration: 0.55 },
+  'smooth-right': { xfade: 'smoothright', duration: 0.55 },
   'squeeze-h': { xfade: 'smoothright', duration: 0.48 },
   wind: { xfade: 'hlwind', duration: 0.5 },
 }

@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto'
 
 import { generateReelStoryPlan } from '@/lib/reels-maker/gemini-story'
 import { buildListingShowcasePlan } from '@/lib/reels-maker/listing-showcase-plan'
+import { applyYoutubeSlideTransitions } from '@/lib/reels-maker/cinematic-plan'
 import { formatApiError } from '@/lib/reels-maker/api-errors'
 import { generateVoiceOverAudio, resolveVoiceOutroLine, fitVoiceScriptToScenes, buildVoiceOverDisplayScript, normalizeVoiceGender } from '@/lib/reels-maker/voice-over'
 import { createReelJob, getReelJob, listReelJobs, setReelJobStatus, updateReelJob } from '@/lib/reels-maker/job-store'
@@ -261,6 +262,13 @@ async function processReelJob(jobId: string) {
             captionLine: null,
           })),
         },
+      }
+    }
+
+    if (job.outputFormat === 'youtube') {
+      story = {
+        ...story,
+        plan: applyYoutubeSlideTransitions(story.plan),
       }
     }
 

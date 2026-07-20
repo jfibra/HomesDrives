@@ -468,6 +468,7 @@ Partners who need **landscape YouTube** videos use the same API with a different
 | Outro plate | Portrait navy mascot (logo → agent → QR) | **Clean navy + mascot BG** composited with logo / title / QR |
 | Outro layout | Top logo · circular agent · name/phone · QR | **Logo top-left** · **listing title + details mid-left** · **large QR right** · mascot bottom-left (baked into plate) |
 | Camera | `cinematic` pans (default) | **`subtle`** by default (or `"off"` for static **full-bleed** cover) |
+| Photo transitions | Soft dissolves / smooth slides (varied) | **Horizontal slides** — alternates **slide-right** ↔ **slide-left** between photos |
 | Admin UI | `/reels-maker` | `/youtube-maker` |
 
 #### YouTube outro layout (what gets composited)
@@ -541,7 +542,7 @@ Upload **native** property photos (portrait or landscape). Do **not** pre-pad wi
 
 **Timeline for YouTube jobs:**
 
-1. Photo tour (16:9) — subtle/off camera + lower-thirds + optional top watermark  
+1. Photo tour (16:9) — subtle/off camera + **left/right slide transitions** + lower-thirds + optional top watermark  
 2. YouTube outro (~5s) — clean navy+mascot plate → logo top-left → title/details → QR right  
 
 **Copy-paste create body for a full portrait (Reels) outro:**
