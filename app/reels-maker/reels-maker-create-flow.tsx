@@ -67,6 +67,7 @@ const LOGO_POSITION_OPTIONS: Array<{ value: ReelLogoPosition; label: string }> =
 ]
 
 type ReelsMakerCreateFlowProps = {
+  mode?: 'reels' | 'youtube'
   activeStep: number
   setActiveStep: (step: number) => void
   currentStepDef: StepDefinition
@@ -75,6 +76,10 @@ type ReelsMakerCreateFlowProps = {
   goToPreviousStep: () => void
   reelBrief: string
   setReelBrief: (value: string) => void
+  listingTitle: string
+  setListingTitle: (value: string) => void
+  listingDetails: string
+  setListingDetails: (value: string) => void
   templateId: ReelTemplateId
   setTemplateId: (value: ReelTemplateId) => void
   aspectRatio: ReelAspectRatio
@@ -236,6 +241,7 @@ function ReelsHorizontalStepper({
 
 export function ReelsMakerCreateFlow(props: ReelsMakerCreateFlowProps) {
   const {
+    mode = 'reels',
     activeStep,
     setActiveStep,
     currentStepDef,
@@ -244,6 +250,10 @@ export function ReelsMakerCreateFlow(props: ReelsMakerCreateFlowProps) {
     goToPreviousStep,
     reelBrief,
     setReelBrief,
+    listingTitle,
+    setListingTitle,
+    listingDetails,
+    setListingDetails,
     templateId,
     setTemplateId,
     aspectRatio,
@@ -332,10 +342,13 @@ export function ReelsMakerCreateFlow(props: ReelsMakerCreateFlowProps) {
                   <div className="flex items-start gap-2">
                     <Sparkles className="mt-1 h-4 w-4 shrink-0" style={{ color: 'var(--ds-primary)' }} />
                     <div className="space-y-1">
-                      <p className="font-semibold">Describe your Reel</p>
+                      <p className="font-semibold">
+                        {mode === 'youtube' ? 'Describe your YouTube listing video' : 'Describe your Reel'}
+                      </p>
                       <p className="text-xs" style={{ color: 'var(--ds-on-surface-variant)' }}>
-                        Tell the AI what this reel is about. It will read your photos, enhance your notes, and build
-                        captions, voice-over, and story flow.
+                        {mode === 'youtube'
+                          ? 'Tell the AI about the property. Output is 16:9 with the Homes.ph YouTube outro (title, details, large QR).'
+                          : 'Tell the AI what this reel is about. It will read your photos, enhance your notes, and build captions, voice-over, and story flow.'}
                       </p>
                     </div>
                   </div>
@@ -348,10 +361,56 @@ export function ReelsMakerCreateFlow(props: ReelsMakerCreateFlowProps) {
                   />
                 </div>
 
+                {mode === 'youtube' ? (
+                  <div
+                    className="space-y-4 rounded-xl border bg-slate-50 p-4"
+                    style={{ borderColor: 'var(--ds-outline-variant)' }}
+                  >
+                    <p className="text-sm font-semibold">YouTube outro copy</p>
+                    <div className="space-y-2">
+                      <label className="text-xs font-semibold" htmlFor="listing-title">
+                        Listing title
+                      </label>
+                      <Input
+                        id="listing-title"
+                        onChange={(event) => setListingTitle(event.target.value)}
+                        placeholder="e.g. BGC Corner Condo"
+                        value={listingTitle}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-semibold" htmlFor="listing-details">
+                        Listing details
+                      </label>
+                      <Input
+                        id="listing-details"
+                        onChange={(event) => setListingDetails(event.target.value)}
+                        placeholder="e.g. 3BR · 2BA · ₱18M · Taguig"
+                        value={listingDetails}
+                      />
+                    </div>
+                    <p className="text-xs" style={{ color: 'var(--ds-on-surface-variant)' }}>
+                      Shown on the landscape YouTube outro (left of the large QR). Upload a QR on the branding step.
+                    </p>
+                  </div>
+                ) : null}
+
                 <div className="space-y-3">
                   <p className="text-sm font-semibold uppercase tracking-wide" style={{ color: 'var(--ds-on-surface-variant)' }}>
                     Video format
                   </p>
+                  {mode === 'youtube' ? (
+                    <div
+                      className="rounded-xl border px-4 py-3 text-sm font-semibold"
+                      style={{
+                        borderColor: 'var(--ds-primary)',
+                        background: 'color-mix(in srgb, var(--ds-primary) 10%, white)',
+                        color: 'var(--ds-primary)',
+                      }}
+                    >
+                      Landscape 16:9 — YouTube posting (locked)
+                    </div>
+                  ) : (
                   <div className="grid gap-3 sm:grid-cols-2">
                     {REEL_ASPECT_RATIO_OPTIONS.map((option) => {
                       const Icon = option.id === 'portrait' ? RectangleVertical : RectangleHorizontal
@@ -399,6 +458,7 @@ export function ReelsMakerCreateFlow(props: ReelsMakerCreateFlowProps) {
                       )
                     })}
                   </div>
+                  )}
                 </div>
 
                 <div className="space-y-3">

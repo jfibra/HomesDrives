@@ -161,17 +161,22 @@ async function postJobUpload(jobId: string, formData: FormData) {
   throw lastError ?? new Error('Upload failed.')
 }
 
-export default function ReelsMakerClient() {
+export default function ReelsMakerClient({ mode = 'reels' }: { mode?: 'reels' | 'youtube' }) {
+  const isYoutube = mode === 'youtube'
   const [pageTab, setPageTab] = useState<'create' | 'drafts'>('create')
   const [activeStep, setActiveStep] = useState(1)
   const [drafts, setDrafts] = useState<ReelDraftSummary[]>([])
   const [isLoadingDrafts, setIsLoadingDrafts] = useState(false)
-  const [templateId, setTemplateId] = useState<ReelTemplateId>('cinematic')
-  const [aspectRatio, setAspectRatio] = useState<ReelAspectRatio>('portrait')
+  const [templateId, setTemplateId] = useState<ReelTemplateId>('social-trend')
+  const [aspectRatio, setAspectRatio] = useState<ReelAspectRatio>(isYoutube ? 'landscape' : 'portrait')
   const [voiceOverEnabled, setVoiceOverEnabled] = useState(true)
   const [voiceGender, setVoiceGender] = useState<ReelVoiceGender>('woman')
   const [outroEnabled, setOutroEnabled] = useState(true)
-  const [outroLine, setOutroLine] = useState('Available now. Visit us today.')
+  const [outroLine, setOutroLine] = useState(
+    isYoutube ? 'Scan for listing details' : 'Available now. Visit us today.',
+  )
+  const [listingTitle, setListingTitle] = useState('')
+  const [listingDetails, setListingDetails] = useState('')
   const [reelBrief, setReelBrief] = useState('')
   const [caption, setCaption] = useState('')
   const [media, setMedia] = useState<LocalMedia[]>([])
@@ -179,7 +184,7 @@ export default function ReelsMakerClient() {
   const [logoFile, setLogoFile] = useState<File | null>(null)
   const [logoPreviewUrl, setLogoPreviewUrl] = useState<string | null>(null)
   const [logoEnabled, setLogoEnabled] = useState(false)
-  const [logoPosition, setLogoPosition] = useState<ReelLogoPosition>('top-right')
+  const [logoPosition, setLogoPosition] = useState<ReelLogoPosition>(isYoutube ? 'top-left' : 'top-right')
   const [job, setJob] = useState<ReelJob | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
   const [isWorking, setIsWorking] = useState(false)
@@ -430,11 +435,14 @@ export default function ReelsMakerClient() {
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({
           templateId,
-          aspectRatio,
+          aspectRatio: isYoutube ? 'landscape' : aspectRatio,
+          outputFormat: isYoutube ? 'youtube' : 'reels',
           voiceOverEnabled,
           voiceGender,
           outroEnabled,
           outroLine: outroLine.trim(),
+          listingTitle: listingTitle.trim() || undefined,
+          listingDetails: listingDetails.trim() || undefined,
           reelBrief: reelBrief.trim() || undefined,
           customCaption: caption.trim() || undefined,
         }),
@@ -490,8 +498,11 @@ export default function ReelsMakerClient() {
           voiceGender,
           outroEnabled,
           outroLine: outroLine.trim(),
+          listingTitle: listingTitle.trim() || undefined,
+          listingDetails: listingDetails.trim() || undefined,
           templateId,
-          aspectRatio,
+          aspectRatio: isYoutube ? 'landscape' : aspectRatio,
+          outputFormat: isYoutube ? 'youtube' : 'reels',
         }),
         cache: 'no-store',
       })
@@ -553,10 +564,12 @@ export default function ReelsMakerClient() {
               className="text-2xl font-bold sm:text-3xl"
               style={{ fontFamily: 'var(--font-noto-serif)', color: 'var(--ds-on-surface)' }}
             >
-              AI Reels Maker
+              {isYoutube ? 'YouTube Listing Videos' : 'AI Reels Maker'}
             </h1>
             <p className="text-sm" style={{ color: 'var(--ds-on-surface-variant)' }}>
-              Follow the 5 guided steps to build and export a cinematic 9:16 Reel.
+              {isYoutube
+                ? 'Build landscape (16:9) listing videos with the Homes.ph YouTube outro for partners.'
+                : 'Follow the 5 guided steps to build and export a cinematic 9:16 Reel.'}
             </p>
           </div>
         </div>
@@ -792,6 +805,7 @@ export default function ReelsMakerClient() {
         </section>
       ) : (
         <ReelsMakerCreateFlow
+          mode={mode}
           activeStep={activeStep}
           setActiveStep={setActiveStep}
           currentStepDef={currentStepDef}
@@ -800,6 +814,10 @@ export default function ReelsMakerClient() {
           goToPreviousStep={goToPreviousStep}
           reelBrief={reelBrief}
           setReelBrief={setReelBrief}
+          listingTitle={listingTitle}
+          setListingTitle={setListingTitle}
+          listingDetails={listingDetails}
+          setListingDetails={setListingDetails}
           templateId={templateId}
           setTemplateId={setTemplateId}
           aspectRatio={aspectRatio}

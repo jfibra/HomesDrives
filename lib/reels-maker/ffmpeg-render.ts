@@ -625,8 +625,11 @@ export async function renderReelWithFfmpeg(params: {
   agentHeadshot?: { bucketName: string; storagePath: string } | null
   listing?: { price?: string; address?: string; beds?: string; baths?: string; sqft?: string; listingUrl?: string } | null
   agent?: { name?: string; phone?: string; email?: string; agencyName?: string } | null
+  listingTitle?: string | null
+  listingDetails?: string | null
   outroCtaText?: string | null
   outroEnabled?: boolean
+  outputFormat?: 'reels' | 'youtube'
   voiceOver?: Buffer | null
   voiceOverPromise?: Promise<Buffer | null> | null
   onProgress?: (message: string, progress: number) => void
@@ -744,11 +747,14 @@ export async function renderReelWithFfmpeg(params: {
       qrBuffer = await downloadReelObject(params.qr.bucketName, params.qr.storagePath)
     }
 
-    const { renderBrandedOutroScene } = await import('@/lib/reels-maker/ffmpeg-listing-scenes')
+    const { renderBrandedOutroScene, renderYoutubeOutroScene } = await import(
+      '@/lib/reels-maker/ffmpeg-listing-scenes'
+    )
 
-    // Photos first (no logo intro) → branded mascot outro when enabled
+    // Photos first (no logo intro) → branded outro when enabled
     const combined: typeof sceneClips = [...sceneClips]
     let brandedOutroDuration = 0
+    const isYoutube = params.outputFormat === 'youtube'
 
     const headshotBuffer = params.agentHeadshot
       ? await downloadReelObject(params.agentHeadshot.bucketName, params.agentHeadshot.storagePath)
@@ -762,21 +768,34 @@ export async function renderReelWithFfmpeg(params: {
         agent.phone ||
         agent.email ||
         agent.agencyName ||
-        params.outroCtaText?.trim(),
+        params.outroCtaText?.trim() ||
+        params.listingTitle?.trim() ||
+        params.listingDetails?.trim(),
     )
 
     if (outroEnabled && hasOutroContent) {
       report('Building outro…', 85)
-      const outro = await renderBrandedOutroScene({
-        frame,
-        logoBuffer,
-        headshotBuffer,
-        qrBuffer,
-        agent,
-        ctaText:
-          params.outroCtaText ||
-          (qrBuffer ? null : isListingShowcase ? 'Scan to view listing' : 'Discover more on Homes.ph'),
-      })
+      const outro = isYoutube
+        ? await renderYoutubeOutroScene({
+            frame,
+            logoBuffer,
+            qrBuffer,
+            listingTitle: params.listingTitle || params.listing?.address || renderPlan.title,
+            listingDetails:
+              params.listingDetails ||
+              [params.listing?.price, params.listing?.address].filter(Boolean).join('  ·  ') ||
+              params.outroCtaText,
+          })
+        : await renderBrandedOutroScene({
+            frame,
+            logoBuffer,
+            headshotBuffer,
+            qrBuffer,
+            agent,
+            ctaText:
+              params.outroCtaText ||
+              (qrBuffer ? null : isListingShowcase ? 'Scan to view listing' : 'Discover more on Homes.ph'),
+          })
       const outroPath = join(workDir, 'branded-outro.mp4')
       await writeFile(outroPath, outro.buffer)
       brandedOutroDuration = outro.durationSeconds

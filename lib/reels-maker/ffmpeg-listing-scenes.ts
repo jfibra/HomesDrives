@@ -44,6 +44,8 @@ async function runFilterComplex(args: {
 export type RenderedListingScene = { buffer: Buffer; durationSeconds: number }
 
 const OUTRO_BG_PATH = join(process.cwd(), 'lib', 'reels-maker', 'assets', 'outro-bg.png')
+const YOUTUBE_OUTRO_PLATE_PATH = join(process.cwd(), 'lib', 'reels-maker', 'assets', 'youtube-outro-plate.png')
+const YOUTUBE_OUTRO_FALLBACK_PATH = join(process.cwd(), 'lib', 'reels-maker', 'assets', 'youtube-outro-bg.png')
 
 /** Cover-scale a still into the reel frame (centers crop). */
 function coverScaleFilter(width: number, height: number, labelIn: string, labelOut: string) {
@@ -254,6 +256,144 @@ export async function renderLogoOutroScene(params: {
     ctaText: params.ctaText,
     durationSeconds: params.durationSeconds ?? 3.2,
   })
+}
+
+/**
+ * Landscape YouTube outro (16:9 Homes.ph plate):
+ * logo top-left (baked or uploaded) · listing title + details left-center · large QR right · mascot bottom-left.
+ */
+export async function renderYoutubeOutroScene(params: {
+  frame: ReelFrameDimensions
+  logoBuffer?: Buffer | null
+  qrBuffer?: Buffer | null
+  listingTitle?: string | null
+  listingDetails?: string | null
+  durationSeconds?: number
+}): Promise<RenderedListingScene> {
+  const { existsSync } = await import('fs')
+  const duration = params.durationSeconds ?? 5
+  const workDir = await mkdtemp(join(tmpdir(), 'reels-youtube-outro-'))
+  const outputPath = join(workDir, 'outro.mp4')
+  const { width, height } = params.frame
+  const platePath = existsSync(YOUTUBE_OUTRO_PLATE_PATH)
+    ? YOUTUBE_OUTRO_PLATE_PATH
+    : YOUTUBE_OUTRO_FALLBACK_PATH
+
+  try {
+    const { default: sharp } = await import('sharp')
+    const title =
+      params.listingTitle?.trim() ||
+      'Homes.ph Listing'
+    const details = params.listingDetails?.trim() || ''
+
+    // Title + details card on the left (covers placeholder zone)
+    const titleFont = Math.round(Math.min(72, Math.max(42, width * 0.038)))
+    const detailFont = Math.round(Math.min(36, Math.max(22, width * 0.02)))
+    const cardW = Math.round(width * 0.52)
+    const cardH = Math.round(height * 0.28)
+    const cardX = Math.round(width * 0.045)
+    const cardY = Math.round(height * 0.36)
+
+    const titleLines = wrapYoutubeTitle(title, 28)
+    const detailLine = details.slice(0, 72)
+    const titleTspans = titleLines
+      .map((line, i) => {
+        const dy = i === 0 ? 0 : Math.round(titleFont * 1.15)
+        if (i === 0) return `<tspan x="0" dy="0">${escapeXml(line)}</tspan>`
+        return `<tspan x="0" dy="${dy}">${escapeXml(line)}</tspan>`
+      })
+      .join('')
+
+    const textSvg = Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${cardW}" height="${cardH}">
+  <text x="0" y="${Math.round(cardH * 0.42)}" font-family="Georgia, 'Times New Roman', serif" font-size="${titleFont}"
+    font-weight="700" fill="#FFFFFF">${titleTspans}</text>
+  ${
+    detailLine
+      ? `<text x="0" y="${Math.round(cardH * 0.78)}" font-family="Arial, Helvetica, sans-serif" font-size="${detailFont}"
+    font-weight="500" fill="#E8EEF5">${escapeXml(detailLine)}</text>`
+      : ''
+  }
+</svg>`)
+    const textPng = await sharp(textSvg).png().toBuffer()
+    const textPath = join(workDir, 'yt-title.png')
+    await writeFile(textPath, textPng)
+
+    const inputs: string[] = ['-loop', '1', '-framerate', String(FPS), '-i', platePath]
+    let inputIndex = 1
+    const filters: string[] = [coverScaleFilter(width, height, '0:v', 'plate')]
+    let base = 'plate'
+
+    // Optional partner logo over baked mark (top-left)
+    if (params.logoBuffer?.length) {
+      const logoPath = join(workDir, 'logo.png')
+      await writeFile(logoPath, params.logoBuffer)
+      inputs.push('-loop', '1', '-framerate', String(FPS), '-i', logoPath)
+      const idx = inputIndex++
+      const logoW = Math.round(width * 0.22)
+      filters.push(
+        `[${idx}:v]scale=w=${logoW}:h=-1,format=rgba,fade=t=in:st=0.05:d=0.35:alpha=1[ytlogo]`,
+        `[${base}][ytlogo]overlay=x='${Math.round(width * 0.035)}':y='${Math.round(height * 0.05)}'[withlogo]`,
+      )
+      base = 'withlogo'
+    }
+
+    inputs.push('-loop', '1', '-framerate', String(FPS), '-i', textPath)
+    {
+      const idx = inputIndex++
+      filters.push(
+        `[${idx}:v]format=rgba,fade=t=in:st=0.2:d=0.45:alpha=1[yttitle]`,
+        `[${base}][yttitle]overlay=x=${cardX}:y=${cardY}[withtitle]`,
+      )
+      base = 'withtitle'
+    }
+
+    if (params.qrBuffer?.length) {
+      const qrPath = join(workDir, 'qr.png')
+      await writeFile(qrPath, params.qrBuffer)
+      inputs.push('-loop', '1', '-framerate', String(FPS), '-i', qrPath)
+      const idx = inputIndex++
+      const qrSize = Math.round(Math.min(height * 0.78, width * 0.34))
+      const qrX = Math.round(width * 0.62 + (width * 0.34 - qrSize) / 2)
+      const qrY = Math.round((height - qrSize) / 2)
+      const pad = 18
+      filters.push(
+        `[${idx}:v]scale=${qrSize}:${qrSize}[ytqrs]`,
+        `[ytqrs]pad=iw+${pad * 2}:ih+${pad * 2}:${pad}:${pad}:white,format=rgba,fade=t=in:st=0.35:d=0.5:alpha=1[ytqr]`,
+        `[${base}][ytqr]overlay=x=${qrX - pad}:y=${qrY - pad}[withqr]`,
+      )
+      base = 'withqr'
+    }
+
+    filters.push(`[${base}]format=yuv420p[vout]`)
+
+    const buffer = await runFilterComplex({
+      inputs,
+      filterComplex: filters.join(';'),
+      durationSeconds: duration,
+      outputPath,
+    })
+    return { buffer, durationSeconds: duration }
+  } finally {
+    await safeRemoveDir(workDir)
+  }
+}
+
+function wrapYoutubeTitle(text: string, maxLen: number) {
+  const words = text.trim().split(/\s+/).filter(Boolean)
+  const lines: string[] = []
+  let current = ''
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word
+    if (next.length > maxLen && current) {
+      lines.push(current)
+      current = word
+    } else {
+      current = next
+    }
+  }
+  if (current) lines.push(current)
+  return lines.slice(0, 2)
 }
 
 /** Universal branded end card — geometric plate + logo / QR / CTA. */

@@ -18,6 +18,7 @@ import {
   Shield,
   Users,
   Wand2,
+  Youtube,
 } from 'lucide-react'
 
 type AdminContext = {
@@ -221,6 +222,13 @@ function AdminShellInner({ children }: { children: React.ReactNode }) {
       href: '/reels-maker',
       icon: <Film className="h-4 w-4" />,
       isActive: pathname === '/reels-maker',
+      section: 'questionnaires',
+    },
+    {
+      label: 'YouTube Listing Videos',
+      href: '/youtube-maker',
+      icon: <Youtube className="h-4 w-4" />,
+      isActive: pathname === '/youtube-maker',
       section: 'questionnaires',
     },
   ]

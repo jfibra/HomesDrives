@@ -117,7 +117,10 @@ x-api-key: rk_xxx
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `templateId` | string | ✅ | Visual style — see [Templates](#templates). Prefer `social-trend`, `luxury`, or `listing-showcase`. |
-| `aspectRatio` | `"portrait"` \| `"landscape"` | No | `portrait` = 9:16 for Reels/TikTok (default). `landscape` = 16:9 for YouTube/Facebook. |
+| `aspectRatio` | `"portrait"` \| `"landscape"` | No | `portrait` = 9:16 for Reels/TikTok (default). `landscape` = 16:9 for YouTube/Facebook. Forced to `landscape` when `outputFormat` is `"youtube"`. |
+| `outputFormat` | `"reels"` \| `"youtube"` | No | Default `"reels"` (portrait mascot outro). Use **`"youtube"`** for 16:9 videos with the **YouTube landscape outro** (title + details + large QR). |
+| `listingTitle` | string | No | YouTube outro primary line (e.g. property name). Falls back to `listingAddress` / story title. |
+| `listingDetails` | string | No | YouTube outro secondary line (e.g. `3BR · ₱18M · BGC`). |
 | `voiceOverEnabled` | boolean | No | Generate AI voiceover narration (**audio only** — no karaoke burn-in) |
 | `voiceGender` | `"woman"` \| `"man"` | No | Narrator voice. Default `"woman"`. Also accepts `"female"` / `"male"`. |
 | `captionsEnabled` | boolean | No | Prefer `false`. Karaoke subtitles are **never** burned into the video; bottom scene **titles** still appear. |
@@ -451,6 +454,36 @@ Aliases on upload (multipart or finalize JSON): `skipOutroWatermark=true` or `lo
 
 **Recommended Homes.ph recipe:** `logoPosition=top-center` + `logoDisplay=always` (or `photos-only`) + `qrDisplay=outro-only` + branded outro fields. Do **not** burn the logo into stills or fake an end-card photo.
 
+### YouTube posting (`outputFormat: "youtube"`)
+
+Partners who need **landscape YouTube** videos use the same API with a different outro:
+
+| | Reels (`outputFormat: "reels"`) | YouTube (`outputFormat: "youtube"`) |
+|---|---|---|
+| Frame | 9:16 portrait | **16:9 landscape** (forced) |
+| Outro | Portrait navy mascot plate (logo → agent → QR) | **YouTube plate**: logo top-left · listing title/details left · **large QR right** · mascot bottom-left |
+| Admin UI | `/reels-maker` | `/youtube-maker` |
+
+**Create body:**
+
+```json
+{
+  "templateId": "social-trend",
+  "outputFormat": "youtube",
+  "voiceOverEnabled": true,
+  "voiceGender": "woman",
+  "captionsEnabled": false,
+  "outroEnabled": true,
+  "listingTitle": "BGC Corner Condo",
+  "listingDetails": "3BR · 2BA · ₱18M · Taguig",
+  "reelBrief": "3-bedroom luxury condo in BGC with pool and city views",
+  "agentName": "Maria Santos",
+  "agentPhone": "+63 917 000 0000"
+}
+```
+
+Upload `logo` + `qr` (`qrDisplay=outro-only`) the same way as reels. The YouTube outro uses the listing title/details + QR — not the portrait agent stack.
+
 **Copy-paste create body for a full outro:**
 
 ```json
@@ -679,6 +712,7 @@ No need to append a fake end-card photo as the last media file.
 | Capability | How |
 |---|---|
 | Start on listing photos | Automatic (no intro card) |
+| YouTube 16:9 + landscape outro | `outputFormat: "youtube"` + `listingTitle` / `listingDetails` + `qr` |
 | Logo top-center during photos | `logoPosition=top-center` + `logoDisplay=always` or `photos-only` (watermark masked off branded outro — no double logo) |
 | Custom logo in left lower-third tab | Upload `accentLogo` (+ `accentLogoEnabled=true`) — lower-third only, not on outro |
 | Logo only on outro (no watermark) | `logoDisplay=outro-only` (still upload `logo`) |

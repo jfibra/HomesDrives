@@ -11,6 +11,7 @@ import type {
   CreateReelJobInput,
   ReelJob,
   ReelLogoPosition,
+  ReelOutputFormat,
   ReelOverlayDisplay,
   ReelUploadedMedia,
   ReelVoiceGender,
@@ -24,8 +25,21 @@ function resolveCaptionsEnabled(input: {
   return true
 }
 
+function normalizeOutputFormat(value: unknown): ReelOutputFormat {
+  const raw = String(value ?? '')
+    .trim()
+    .toLowerCase()
+  if (raw === 'youtube' || raw === 'yt' || raw === 'landscape-youtube') return 'youtube'
+  return 'reels'
+}
+
 export function startReelJob(input: CreateReelJobInput): ReelJob {
   const now = new Date().toISOString()
+  const outputFormat = normalizeOutputFormat(input.outputFormat)
+  const aspectRatio =
+    outputFormat === 'youtube'
+      ? normalizeReelAspectRatio('landscape')
+      : normalizeReelAspectRatio(input.aspectRatio)
   const job: ReelJob = {
     id: randomUUID(),
     status: 'queued',
@@ -34,13 +48,16 @@ export function startReelJob(input: CreateReelJobInput): ReelJob {
     createdAt: now,
     updatedAt: now,
     templateId: input.templateId,
-    aspectRatio: normalizeReelAspectRatio(input.aspectRatio),
+    aspectRatio,
+    outputFormat,
     voiceOverEnabled: input.voiceOverEnabled,
     voiceGender: normalizeVoiceGender(input.voiceGender) as ReelVoiceGender,
     captionsEnabled: resolveCaptionsEnabled(input),
     outroEnabled: input.outroEnabled !== false,
     outroLine: input.outroLine?.trim() || '',
     reelBrief: input.reelBrief?.trim() || '',
+    listingTitle: input.listingTitle?.trim() || '',
+    listingDetails: input.listingDetails?.trim() || '',
     caption: input.customCaption?.trim() || '',
     hashtags: [],
     voiceOverScript: '',
@@ -52,7 +69,7 @@ export function startReelJob(input: CreateReelJobInput): ReelJob {
     logoBucketName: null,
     logoStoragePath: null,
     logoPublicUrl: null,
-    logoPosition: 'top-right',
+    logoPosition: outputFormat === 'youtube' ? 'top-left' : 'top-right',
     logoDisplay: 'always',
     accentLogoEnabled: false,
     accentLogoBucketName: null,
@@ -63,7 +80,7 @@ export function startReelJob(input: CreateReelJobInput): ReelJob {
     qrStoragePath: null,
     qrPublicUrl: null,
     qrPosition: 'bottom-right',
-    qrDisplay: 'always',
+    qrDisplay: outputFormat === 'youtube' ? 'outro-only' : 'always',
     agentHeadshotEnabled: false,
     agentHeadshotBucketName: null,
     agentHeadshotStoragePath: null,
@@ -322,6 +339,7 @@ async function processReelJob(jobId: string) {
       plan: story.plan,
       media: selectedMedia,
       aspectRatio: normalizeReelAspectRatio(job.aspectRatio),
+      outputFormat: job.outputFormat || 'reels',
       music,
       logo,
       accentLogo,
@@ -329,6 +347,13 @@ async function processReelJob(jobId: string) {
       agentHeadshot,
       listing,
       agent,
+      listingTitle: job.listingTitle || job.listingAddress || story.plan.title || undefined,
+      listingDetails:
+        job.listingDetails ||
+        [job.listingPrice, [job.listingBeds, job.listingBaths].filter(Boolean).join(' · '), job.listingAddress]
+          .filter((part) => Boolean(part?.trim()))
+          .join('  ·  ') ||
+        undefined,
       outroCtaText: job.outroLine || undefined,
       outroEnabled: job.outroEnabled !== false,
       voiceOverPromise,

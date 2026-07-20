@@ -50,6 +50,13 @@ export type ReelOverlayDisplay = 'always' | 'photos-only' | 'outro-only'
 /** Gemini TTS narrator gender for voice-over. */
 export type ReelVoiceGender = 'man' | 'woman'
 
+/**
+ * Delivery format:
+ * - `reels` — portrait (9:16) short-form + portrait mascot outro
+ * - `youtube` — landscape (16:9) + YouTube landscape mascot/QR outro
+ */
+export type ReelOutputFormat = 'reels' | 'youtube'
+
 export type ReelUploadedMedia = {
   id: string
   kind: ReelMediaKind
@@ -136,6 +143,8 @@ export type ReelJob = {
   updatedAt: string
   templateId: ReelTemplateId
   aspectRatio: ReelAspectRatio
+  /** `reels` (default) or `youtube` (landscape + YouTube outro plate). */
+  outputFormat: ReelOutputFormat
   voiceOverEnabled: boolean
   /** Narrator gender for TTS — `woman` (default) or `man`. */
   voiceGender: ReelVoiceGender
@@ -144,6 +153,10 @@ export type ReelJob = {
   outroEnabled: boolean
   outroLine: string
   reelBrief: string
+  /** YouTube outro primary line (falls back to listingAddress / plan title). */
+  listingTitle: string
+  /** YouTube outro secondary line (falls back to price · beds/baths · address bits). */
+  listingDetails: string
   caption: string
   hashtags: string[]
   voiceOverScript: string
@@ -189,6 +202,8 @@ export type ReelJob = {
 export type CreateReelJobInput = {
   templateId: ReelTemplateId
   aspectRatio?: ReelAspectRatio
+  /** Default `reels`. Use `youtube` for 16:9 + YouTube outro. */
+  outputFormat?: ReelOutputFormat
   voiceOverEnabled: boolean
   /** Default `woman`. Set `man` for a male narrator. Aliases: `male` / `female`. */
   voiceGender?: ReelVoiceGender | 'male' | 'female'
@@ -200,6 +215,8 @@ export type CreateReelJobInput = {
   outroLine?: string
   reelBrief?: string
   customCaption?: string
+  listingTitle?: string
+  listingDetails?: string
   listingPrice?: string
   listingAddress?: string
   listingBeds?: string

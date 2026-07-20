@@ -169,6 +169,7 @@ export async function handleReelJobsPost(request: Request): Promise<Response> {
     const job = startReelJob({
       templateId,
       aspectRatio: normalizeReelAspectRatio(body.aspectRatio),
+      outputFormat: body.outputFormat,
       voiceOverEnabled: Boolean(body.voiceOverEnabled),
       voiceGender: normalizeVoiceGender(body.voiceGender) as ReelVoiceGender,
       captionsEnabled: resolveCaptionsEnabled(body),
@@ -177,6 +178,8 @@ export async function handleReelJobsPost(request: Request): Promise<Response> {
       outroLine: body.outroLine,
       reelBrief: body.reelBrief,
       customCaption: body.customCaption,
+      listingTitle: body.listingTitle,
+      listingDetails: body.listingDetails,
       listingPrice: body.listingPrice,
       listingAddress: body.listingAddress,
       listingBeds: body.listingBeds,
@@ -721,6 +724,9 @@ export async function handleReelJobRender(jobId: string, request: Request): Prom
       outroLine?: string
       templateId?: string
       aspectRatio?: string
+      outputFormat?: string
+      listingTitle?: string
+      listingDetails?: string
       agentName?: string
       agentPhone?: string
       agentEmail?: string
@@ -737,6 +743,9 @@ export async function handleReelJobRender(jobId: string, request: Request): Prom
       body.outroLine !== undefined ||
       body.templateId ||
       body.aspectRatio ||
+      body.outputFormat ||
+      body.listingTitle !== undefined ||
+      body.listingDetails !== undefined ||
       body.agentName !== undefined ||
       body.agentPhone !== undefined ||
       body.agentEmail !== undefined ||
@@ -746,6 +755,12 @@ export async function handleReelJobRender(jobId: string, request: Request): Prom
         body.captionsEnabled !== undefined || body.subtitlesEnabled !== undefined
           ? { captionsEnabled: resolveCaptionsEnabled(body) }
           : {}
+      const outputFormat =
+        body.outputFormat != null
+          ? String(body.outputFormat).toLowerCase() === 'youtube'
+            ? ('youtube' as const)
+            : ('reels' as const)
+          : job.outputFormat || 'reels'
       updateReelJob(jobId, {
         caption: body.caption ?? job.caption,
         reelBrief: body.reelBrief ?? job.reelBrief,
@@ -758,7 +773,19 @@ export async function handleReelJobRender(jobId: string, request: Request): Prom
         outroEnabled: body.outroEnabled ?? job.outroEnabled ?? true,
         outroLine: body.outroLine ?? job.outroLine ?? '',
         templateId: (body.templateId as typeof job.templateId) ?? job.templateId,
-        aspectRatio: body.aspectRatio ? normalizeReelAspectRatio(body.aspectRatio) : job.aspectRatio,
+        aspectRatio:
+          outputFormat === 'youtube'
+            ? normalizeReelAspectRatio('landscape')
+            : body.aspectRatio
+              ? normalizeReelAspectRatio(body.aspectRatio)
+              : job.aspectRatio,
+        outputFormat,
+        listingTitle:
+          body.listingTitle !== undefined ? String(body.listingTitle).trim() : job.listingTitle || '',
+        listingDetails:
+          body.listingDetails !== undefined
+            ? String(body.listingDetails).trim()
+            : job.listingDetails || '',
         agentName: body.agentName !== undefined ? String(body.agentName).trim() : job.agentName,
         agentPhone: body.agentPhone !== undefined ? String(body.agentPhone).trim() : job.agentPhone,
         agentEmail: body.agentEmail !== undefined ? String(body.agentEmail).trim() : job.agentEmail,
