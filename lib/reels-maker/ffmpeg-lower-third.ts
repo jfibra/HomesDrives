@@ -233,23 +233,28 @@ export function resolveSceneLowerThirdCopy(params: {
 }
 
 /**
- * Left→right entrance for the lower-third PNG (input [1:v] onto [base]).
- * Uses overlay x animation (works on FFmpeg 4.4) — crop=w='…t…' does not.
+ * Lower-third entrance animation (overlay onto [base] from input [1:v]).
+ * - `left` — slides in from the left (portrait reels default)
+ * - `bottom` — slides up from below (YouTube / landscape)
  */
 export function buildLowerThirdRevealFilterComplex(options?: {
   delaySeconds?: number
   durationSeconds?: number
+  /** Entrance direction. Default `left`. Use `bottom` for landscape YouTube. */
+  from?: 'left' | 'bottom'
 }) {
   const delay = options?.delaySeconds ?? 0.15
   const anim = options?.durationSeconds ?? 1.15
+  const from = options?.from ?? 'left'
   const d = delay.toFixed(3)
   const a = anim.toFixed(3)
   const progress = `min(1\\,max(0\\,(t-${d})/${a}))`
   const eased = `pow(${progress}\\,0.65)`
-  const xExpr = `-w+w*(${eased})`
   const fadeDur = Math.min(0.45, anim * 0.35).toFixed(3)
+  const xExpr = from === 'bottom' ? '0' : `-w+w*(${eased})`
+  const yExpr = from === 'bottom' ? `h-h*(${eased})` : '0'
   return (
     `[1:v]format=rgba,fade=t=in:st=${d}:d=${fadeDur}:alpha=1[lt];` +
-    `[base][lt]overlay=x='${xExpr}':y=0:format=auto,format=yuv420p[vout]`
+    `[base][lt]overlay=x='${xExpr}':y='${yExpr}':format=auto,format=yuv420p[vout]`
   )
 }

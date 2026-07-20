@@ -165,6 +165,11 @@ export type ReelJob = {
   reelBrief: string
   /** YouTube outro primary line (falls back to listingAddress / plan title). */
   listingTitle: string
+  /**
+   * YouTube outro title color (hex, e.g. `#F4AA1D`). Applies to the title block only;
+   * `listingDetails` stays white/light. Default white.
+   */
+  listingTitleColor: string
   /** YouTube outro secondary line (falls back to price · beds/baths · address bits). */
   listingDetails: string
   caption: string
@@ -206,6 +211,11 @@ export type ReelJob = {
   agentEmail: string
   agentAgencyName: string
   resultUrl: string | null
+  /**
+   * YouTube jobs: still of the landscape outro plate (PNG) for use as the YouTube upload thumbnail.
+   * Null for reels / when outro thumbnail was not produced.
+   */
+  thumbnailUrl: string | null
   error: string | null
 }
 
@@ -228,6 +238,8 @@ export type CreateReelJobInput = {
   reelBrief?: string
   customCaption?: string
   listingTitle?: string
+  /** YouTube outro title hex color (e.g. `#F4AA1D`). Details stay white. */
+  listingTitleColor?: string
   listingDetails?: string
   listingPrice?: string
   listingAddress?: string

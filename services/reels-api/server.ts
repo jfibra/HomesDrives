@@ -13,6 +13,7 @@ import {
   handleReelJobUploadPresign,
   handleReelJobMusicChunkUpload,
   handleReelJobVideo,
+  handleReelJobThumbnail,
   handleReelJobsGet,
   handleReelJobsPost,
   handleYouTubeCookiesUpload,
@@ -151,6 +152,9 @@ app.post('/api/reels-maker/jobs/:jobId/render', (c) =>
 
 app.get('/api/reels-maker/jobs/:jobId/video', (c) =>
   handleReelJobVideo(c.req.param('jobId'), c.req.raw),
+)
+app.get('/api/reels-maker/jobs/:jobId/thumbnail', (c) =>
+  handleReelJobThumbnail(c.req.param('jobId'), c.req.raw),
 )
 
 app.post('/api/reels-maker/youtube/preview', (c) => handleYouTubePreview(c.req.raw))

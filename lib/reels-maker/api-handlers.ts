@@ -9,6 +9,7 @@ import {
   attachReelJobMedia,
   attachReelJobMusic,
   attachReelJobQr,
+  normalizeListingTitleColor,
   runReelJobPipeline,
   startReelJob,
 } from '@/lib/reels-maker/pipeline'
@@ -180,6 +181,7 @@ export async function handleReelJobsPost(request: Request): Promise<Response> {
       reelBrief: body.reelBrief,
       customCaption: body.customCaption,
       listingTitle: body.listingTitle,
+      listingTitleColor: body.listingTitleColor,
       listingDetails: body.listingDetails,
       listingPrice: body.listingPrice,
       listingAddress: body.listingAddress,
@@ -728,6 +730,7 @@ export async function handleReelJobRender(jobId: string, request: Request): Prom
       outputFormat?: string
       cameraMotion?: string
       listingTitle?: string
+      listingTitleColor?: string
       listingDetails?: string
       agentName?: string
       agentPhone?: string
@@ -748,6 +751,7 @@ export async function handleReelJobRender(jobId: string, request: Request): Prom
       body.outputFormat ||
       body.cameraMotion ||
       body.listingTitle !== undefined ||
+      body.listingTitleColor !== undefined ||
       body.listingDetails !== undefined ||
       body.agentName !== undefined ||
       body.agentPhone !== undefined ||
@@ -799,6 +803,10 @@ export async function handleReelJobRender(jobId: string, request: Request): Prom
         cameraMotion,
         listingTitle:
           body.listingTitle !== undefined ? String(body.listingTitle).trim() : job.listingTitle || '',
+        listingTitleColor:
+          body.listingTitleColor !== undefined
+            ? normalizeListingTitleColor(body.listingTitleColor)
+            : job.listingTitleColor || '',
         listingDetails:
           body.listingDetails !== undefined
             ? String(body.listingDetails).trim()
@@ -869,6 +877,49 @@ export async function handleReelJobVideo(jobId: string, request: Request): Promi
   } catch (error) {
     console.error('[reels-maker/jobs/video]', error)
     return Response.json({ error: 'Unable to stream reel video.' }, { status: 502 })
+  }
+}
+
+/** YouTube outro still — download for use as the YouTube custom thumbnail. */
+export async function handleReelJobThumbnail(jobId: string, _request: Request): Promise<Response> {
+  const job = getReelJob(jobId)
+  if (!job?.thumbnailUrl) {
+    return Response.json({ error: 'Thumbnail not found. Available on completed YouTube jobs.' }, { status: 404 })
+  }
+
+  const location = parseReelResultStorage(job.thumbnailUrl)
+  if (!location) {
+    return Response.json({ error: 'Unable to resolve thumbnail storage location.' }, { status: 500 })
+  }
+
+  try {
+    const storageClient = createStorageClient()
+    const object = await storageClient.send(
+      new GetObjectCommand({
+        Bucket: location.bucketName,
+        Key: location.storagePath,
+      }),
+    )
+
+    if (!object.Body) {
+      return Response.json({ error: 'Empty thumbnail object.' }, { status: 502 })
+    }
+
+    const contentType = object.ContentType || 'image/png'
+    const ext = contentType.includes('jpeg') ? 'jpg' : 'png'
+    const headers = new Headers({
+      'Content-Type': contentType,
+      'Cache-Control': 'private, max-age=3600',
+      'Content-Disposition': `attachment; filename="youtube-thumbnail-${jobId.slice(0, 8)}.${ext}"`,
+    })
+    if (object.ContentLength != null) {
+      headers.set('Content-Length', String(object.ContentLength))
+    }
+
+    return new Response(toWebStream(object.Body), { status: 200, headers })
+  } catch (error) {
+    console.error('[reels-maker/jobs/thumbnail]', error)
+    return Response.json({ error: 'Unable to download thumbnail.' }, { status: 502 })
   }
 }
 

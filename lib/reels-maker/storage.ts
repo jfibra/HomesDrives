@@ -346,6 +346,28 @@ export async function uploadRenderedReel(buffer: Buffer) {
   return buildPublicImageUrl(bucketName, storagePath)
 }
 
+/** YouTube outro still — partners download this as the YouTube custom thumbnail. */
+export async function uploadRenderedThumbnail(buffer: Buffer, fileName = 'youtube-thumbnail.png') {
+  const bucketName = getBucketName()
+  const storagePath = buildReelsStoragePath(fileName)
+  const storageClient = createStorageClient()
+  const contentType = fileName.toLowerCase().endsWith('.jpg') || fileName.toLowerCase().endsWith('.jpeg')
+    ? 'image/jpeg'
+    : 'image/png'
+
+  await storageClient.send(
+    new PutObjectCommand({
+      Bucket: bucketName,
+      Key: storagePath,
+      Body: buffer,
+      ContentType: contentType,
+      CacheControl: 'public, max-age=31536000, immutable',
+    }),
+  )
+
+  return buildPublicImageUrl(bucketName, storagePath)
+}
+
 export async function downloadReelObject(bucketName: string, storagePath: string) {
   const storageClient = createStorageClient()
   const response = await storageClient.send(

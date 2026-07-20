@@ -83,7 +83,7 @@ export function toReelDraftSummary(job: ReelJob): ReelDraftSummary {
     caption: job.caption,
     templateId: job.templateId,
     resultUrl: job.resultUrl,
-    thumbnailUrl: job.media[0]?.publicUrl ?? null,
+    thumbnailUrl: job.thumbnailUrl ?? job.media[0]?.publicUrl ?? null,
     mediaCount: job.media.length,
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,

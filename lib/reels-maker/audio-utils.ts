@@ -89,6 +89,35 @@ export async function runFfmpegAudio(args: string[]) {
   })
 }
 
+/** Grab a still PNG from a video (used for YouTube outro → upload thumbnail). */
+export async function extractVideoFramePng(
+  videoPath: string,
+  outputPath: string,
+  seekSeconds = 0.8,
+): Promise<Buffer> {
+  const binary = await resolveFfmpegBinary()
+  if (!binary) {
+    throw new Error('FFmpeg binary not found.')
+  }
+  await execFileAsync(
+    binary,
+    [
+      '-y',
+      '-ss',
+      String(Math.max(0, seekSeconds)),
+      '-i',
+      videoPath,
+      '-frames:v',
+      '1',
+      '-update',
+      '1',
+      outputPath,
+    ],
+    { maxBuffer: 1024 * 1024 * 32, timeout: 60_000, killSignal: 'SIGKILL' },
+  )
+  return readFile(outputPath)
+}
+
 export async function measureVoiceOverDuration(voiceBuffer: Buffer) {
   const raw = probeWavDurationFromBuffer(voiceBuffer)
   return raw > 0 ? raw : 0

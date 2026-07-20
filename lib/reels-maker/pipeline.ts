@@ -5,7 +5,7 @@ import { buildListingShowcasePlan } from '@/lib/reels-maker/listing-showcase-pla
 import { formatApiError } from '@/lib/reels-maker/api-errors'
 import { generateVoiceOverAudio, resolveVoiceOutroLine, fitVoiceScriptToScenes, buildVoiceOverDisplayScript, normalizeVoiceGender } from '@/lib/reels-maker/voice-over'
 import { createReelJob, getReelJob, listReelJobs, setReelJobStatus, updateReelJob } from '@/lib/reels-maker/job-store'
-import { selectBestMedia, uploadRenderedReel } from '@/lib/reels-maker/storage'
+import { selectBestMedia } from '@/lib/reels-maker/storage'
 import { normalizeReelAspectRatio } from '@/lib/reels-maker/aspect-ratio'
 import type {
   CreateReelJobInput,
@@ -31,6 +31,22 @@ function normalizeOutputFormat(value: unknown): ReelOutputFormat {
     .toLowerCase()
   if (raw === 'youtube' || raw === 'yt' || raw === 'landscape-youtube') return 'youtube'
   return 'reels'
+}
+
+/** Accept `#F4AA1D`, `F4AA1D`, or `0xF4AA1D` → `#F4AA1D`. Empty → `''` (renderer default). */
+export function normalizeListingTitleColor(value: unknown): string {
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+  const hex = raw.replace(/^0x/i, '').replace(/^#/, '')
+  if (!/^[0-9a-fA-F]{6}$/.test(hex) && !/^[0-9a-fA-F]{3}$/.test(hex)) return ''
+  const full =
+    hex.length === 3
+      ? hex
+          .split('')
+          .map((c) => c + c)
+          .join('')
+      : hex
+  return `#${full.toUpperCase()}`
 }
 
 function normalizeCameraMotion(
@@ -72,6 +88,7 @@ export function startReelJob(input: CreateReelJobInput): ReelJob {
     outroLine: input.outroLine?.trim() || '',
     reelBrief: input.reelBrief?.trim() || '',
     listingTitle: input.listingTitle?.trim() || '',
+    listingTitleColor: normalizeListingTitleColor(input.listingTitleColor),
     listingDetails: input.listingDetails?.trim() || '',
     caption: input.customCaption?.trim() || '',
     hashtags: [],
@@ -111,6 +128,7 @@ export function startReelJob(input: CreateReelJobInput): ReelJob {
     agentEmail: input.agentEmail?.trim() || '',
     agentAgencyName: input.agentAgencyName?.trim() || '',
     resultUrl: null,
+    thumbnailUrl: null,
     error: null,
   }
   return createReelJob(job)
@@ -364,6 +382,7 @@ async function processReelJob(jobId: string) {
       listing,
       agent,
       listingTitle: job.listingTitle || job.listingAddress || story.plan.title || undefined,
+      listingTitleColor: job.listingTitleColor || undefined,
       listingDetails:
         job.listingDetails ||
         [job.listingPrice, [job.listingBeds, job.listingBaths].filter(Boolean).join(' · '), job.listingAddress]
@@ -379,10 +398,20 @@ async function processReelJob(jobId: string) {
     })
 
     setReelJobStatus(jobId, 'uploading_result', 'Uploading final Reel…', 90)
-    const resultUrl = await uploadRenderedReel(rendered)
+    const { uploadRenderedReel, uploadRenderedThumbnail } = await import('@/lib/reels-maker/storage')
+    const resultUrl = await uploadRenderedReel(rendered.video)
+    let thumbnailUrl: string | null = null
+    if (rendered.thumbnail?.length) {
+      try {
+        thumbnailUrl = await uploadRenderedThumbnail(rendered.thumbnail)
+      } catch (thumbUploadError) {
+        console.warn('[reels-maker/pipeline] Thumbnail upload failed', thumbUploadError)
+      }
+    }
 
     setReelJobStatus(jobId, 'completed', 'Completed', 100, {
       resultUrl,
+      thumbnailUrl,
       error: null,
     })
   } catch (error) {

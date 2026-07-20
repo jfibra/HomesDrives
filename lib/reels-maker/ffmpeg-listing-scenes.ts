@@ -268,6 +268,8 @@ export async function renderYoutubeOutroScene(params: {
   logoBuffer?: Buffer | null
   qrBuffer?: Buffer | null
   listingTitle?: string | null
+  /** Hex color for the title block only (default `#FFFFFF`). Details stay light. */
+  listingTitleColor?: string | null
   listingDetails?: string | null
   durationSeconds?: number
 }): Promise<RenderedListingScene> {
@@ -289,6 +291,7 @@ export async function renderYoutubeOutroScene(params: {
     const { default: sharp } = await import('sharp')
     const title = params.listingTitle?.trim() || 'Homes.ph Listing'
     const details = params.listingDetails?.trim() || ''
+    const titleColor = normalizeHexColor(params.listingTitleColor) || '#FFFFFF'
 
     // Full-frame text SVG so we can pin title/details in the safe band above the mascot.
     // Mascot occupies roughly bottom-left (~y > 52% and x < 28%).
@@ -333,7 +336,7 @@ export async function renderYoutubeOutroScene(params: {
     const textSvg = Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
   <text x="${textX}" y="${adjTitleY}" font-family="Georgia, 'Times New Roman', serif" font-size="${titleFont}"
-    font-weight="700" fill="#FFFFFF">${titleTspans}</text>
+    font-weight="700" fill="${titleColor}">${titleTspans}</text>
   ${
     detailLines.length
       ? `<text x="${textX}" y="${adjDetailsY}" font-family="Arial, Helvetica, sans-serif" font-size="${detailFont}"
@@ -406,21 +409,45 @@ export async function renderYoutubeOutroScene(params: {
   }
 }
 
+function normalizeHexColor(value: string | null | undefined): string {
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+  const hex = raw.replace(/^0x/i, '').replace(/^#/, '')
+  if (!/^[0-9a-fA-F]{6}$/.test(hex) && !/^[0-9a-fA-F]{3}$/.test(hex)) return ''
+  const full =
+    hex.length === 3
+      ? hex
+          .split('')
+          .map((c) => c + c)
+          .join('')
+      : hex
+  return `#${full.toUpperCase()}`
+}
+
+/** Honor explicit newlines (e.g. name\\nprice), then soft-wrap long lines. Max 3 lines. */
 function wrapYoutubeTitle(text: string, maxLen: number) {
-  const words = text.trim().split(/\s+/).filter(Boolean)
+  const paragraphs = text
+    .replace(/\\n/g, '\n')
+    .split(/\n+/)
+    .map((p) => p.trim())
+    .filter(Boolean)
   const lines: string[] = []
-  let current = ''
-  for (const word of words) {
-    const next = current ? `${current} ${word}` : word
-    if (next.length > maxLen && current) {
-      lines.push(current)
-      current = word
-    } else {
-      current = next
+  for (const paragraph of paragraphs.length ? paragraphs : [text.trim()]) {
+    const words = paragraph.split(/\s+/).filter(Boolean)
+    let current = ''
+    for (const word of words) {
+      const next = current ? `${current} ${word}` : word
+      if (next.length > maxLen && current) {
+        lines.push(current)
+        current = word
+      } else {
+        current = next
+      }
     }
+    if (current) lines.push(current)
+    if (lines.length >= 3) break
   }
-  if (current) lines.push(current)
-  return lines.slice(0, 2)
+  return lines.slice(0, 3)
 }
 
 /** Universal branded end card — geometric plate + logo / QR / CTA. */

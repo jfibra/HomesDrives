@@ -21,7 +21,7 @@ import { formatApiError } from '@/lib/reels-maker/api-errors'
 import { uploadReelJobAssets } from '@/lib/reels-maker/reels-upload-client'
 import { getReelAspectRatioLabel } from '@/lib/reels-maker/aspect-ratio'
 import { REEL_TEMPLATES } from '@/lib/reels-maker/templates'
-import { getReelVideoPlaybackUrl } from '@/lib/reels-maker/reel-playback'
+import { getReelThumbnailDownloadUrl, getReelVideoPlaybackUrl } from '@/lib/reels-maker/reel-playback'
 import type { ReelAspectRatio, ReelDraftSummary, ReelJob, ReelLogoPosition, ReelTemplateId, ReelVoiceGender } from '@/lib/reels-maker/types'
 import { cn } from '@/lib/utils'
 
@@ -644,16 +644,30 @@ export default function ReelsMakerClient({ mode = 'reels' }: { mode?: 'reels' | 
         </div>
 
         {viewingDraft?.resultUrl ? (
-          <div className="relative z-10 p-4">
+          <div className="relative z-10 flex flex-col gap-2 p-4">
             <Button asChild className="w-full" type="button" variant="secondary">
               <a
                 download
                 href={getReelVideoPlaybackUrl(viewingDraft.id, viewingDraft.resultUrl) ?? viewingDraft.resultUrl}
               >
                 <Download className="mr-2 h-4 w-4" />
-                Download
+                Download video
               </a>
             </Button>
+            {isYoutube && viewingDraft.thumbnailUrl ? (
+              <Button asChild className="w-full" type="button" variant="outline">
+                <a
+                  download
+                  href={
+                    getReelThumbnailDownloadUrl(viewingDraft.id, viewingDraft.thumbnailUrl) ??
+                    viewingDraft.thumbnailUrl
+                  }
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  Download YouTube thumbnail
+                </a>
+              </Button>
+            ) : null}
           </div>
         ) : null}
       </div>

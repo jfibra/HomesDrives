@@ -20,3 +20,9 @@ export function getReelVideoPlaybackUrl(jobId: string, resultUrl?: string | null
   if (!jobId || !resultUrl) return null
   return reelsMakerApiPath(`/api/reels-maker/jobs/${jobId}/video`)
 }
+
+/** Download URL for the YouTube outro thumbnail (custom upload thumbnail). */
+export function getReelThumbnailDownloadUrl(jobId: string, thumbnailUrl?: string | null) {
+  if (!jobId || !thumbnailUrl) return null
+  return reelsMakerApiPath(`/api/reels-maker/jobs/${jobId}/thumbnail`)
+}

@@ -11,6 +11,7 @@ import {
   processMusicTrackForMix,
   processVoiceTrackForMix,
   runFfmpegAudio,
+  extractVideoFramePng,
 } from '@/lib/reels-maker/audio-utils'
 import { measureVoiceOverDuration } from '@/lib/reels-maker/audio-utils'
 import { buildSceneBookendFilters, resolveSceneMotion, BLACK_LEADER_SEC, BLACK_TAIL_SEC } from '@/lib/reels-maker/ffmpeg-bookends'
@@ -223,6 +224,7 @@ async function renderImageScene(
   const lowerThirdReveal = buildLowerThirdRevealFilterComplex({
     delaySeconds: revealDelay,
     durationSeconds: 1.15,
+    from: frame.width > frame.height ? 'bottom' : 'left',
   })
 
   await runFfmpeg(
@@ -328,6 +330,7 @@ async function renderVideoScene(
   const lowerThirdReveal = buildLowerThirdRevealFilterComplex({
     delaySeconds: revealDelay,
     durationSeconds: 1.15,
+    from: frame.width > frame.height ? 'bottom' : 'left',
   })
 
   await runFfmpeg(
@@ -602,6 +605,12 @@ async function muxAudio(
   return videoBuffer
 }
 
+export type RenderedReelOutput = {
+  video: Buffer
+  /** YouTube outro still (PNG) for use as the YouTube custom thumbnail. */
+  thumbnail: Buffer | null
+}
+
 export async function renderReelWithFfmpeg(params: {
   plan: ReelStoryPlan
   media: ReelUploadedMedia[]
@@ -624,6 +633,7 @@ export async function renderReelWithFfmpeg(params: {
   listing?: { price?: string; address?: string; beds?: string; baths?: string; sqft?: string; listingUrl?: string } | null
   agent?: { name?: string; phone?: string; email?: string; agencyName?: string } | null
   listingTitle?: string | null
+  listingTitleColor?: string | null
   listingDetails?: string | null
   outroCtaText?: string | null
   outroEnabled?: boolean
@@ -632,7 +642,7 @@ export async function renderReelWithFfmpeg(params: {
   voiceOver?: Buffer | null
   voiceOverPromise?: Promise<Buffer | null> | null
   onProgress?: (message: string, progress: number) => void
-}) {
+}): Promise<RenderedReelOutput> {
   const report = (message: string, progress: number) => {
     try {
       params.onProgress?.(message, progress)
@@ -761,6 +771,7 @@ export async function renderReelWithFfmpeg(params: {
     // Photos first → branded / YouTube outro when enabled
     const combined: typeof sceneClips = [...sceneClips]
     let brandedOutroDuration = 0
+    let youtubeThumbnail: Buffer | null = null
 
     const headshotBuffer = params.agentHeadshot
       ? await downloadReelObject(params.agentHeadshot.bucketName, params.agentHeadshot.storagePath)
@@ -797,6 +808,7 @@ export async function renderReelWithFfmpeg(params: {
                 params.listing?.address ||
                 renderPlan.title ||
                 'Homes.ph Listing',
+              listingTitleColor: params.listingTitleColor || undefined,
               listingDetails:
                 params.listingDetails ||
                 [params.listing?.price, params.listing?.address].filter(Boolean).join('  ·  ') ||
@@ -817,6 +829,17 @@ export async function renderReelWithFfmpeg(params: {
         await writeFile(outroPath, outro.buffer)
         brandedOutroDuration = outro.durationSeconds
         combined.push({ path: outroPath, durationSeconds: outro.durationSeconds, transition: 'fade' })
+        if (isYoutube) {
+          try {
+            const thumbPath = join(workDir, 'youtube-thumbnail.png')
+            youtubeThumbnail = await extractVideoFramePng(outroPath, thumbPath, 0.9)
+            console.info(
+              `[reels-maker/render] YouTube thumbnail extracted (${youtubeThumbnail.length} bytes)`,
+            )
+          } catch (thumbError) {
+            console.warn('[reels-maker/render] YouTube thumbnail extract failed', thumbError)
+          }
+        }
         console.info(
           `[reels-maker/render] Outro appended (${isYoutube ? 'youtube' : 'reels'}) duration=${outro.durationSeconds}s qr=${Boolean(qrBuffer)} logo=${Boolean(logoBuffer)}`,
         )
@@ -947,7 +970,7 @@ export async function renderReelWithFfmpeg(params: {
       }))
     }
 
-    return outputBuffer
+    return { video: outputBuffer, thumbnail: youtubeThumbnail }
   } finally {
     await new Promise((resolve) => setTimeout(resolve, 150))
     await safeRemoveDir(workDir)

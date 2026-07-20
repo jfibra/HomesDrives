@@ -200,6 +200,7 @@ NEXT_PUBLIC_REELS_API_URL=http://YOUR_EC2_IP:8001
 | POST | `/api/reels-maker/jobs/:jobId/upload` |
 | POST | `/api/reels-maker/jobs/:jobId/render` |
 | GET | `/api/reels-maker/jobs/:jobId/video` |
+| GET | `/api/reels-maker/jobs/:jobId/thumbnail` |
 | POST | `/api/reels-maker/youtube/preview` |
 | POST | `/api/reels-maker/youtube/stream-info` |
 

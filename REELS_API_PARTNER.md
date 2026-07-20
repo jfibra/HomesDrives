@@ -84,6 +84,7 @@ Requests without a valid key get `401 Unauthorized`.
 3. POST   /api/reels-maker/jobs/:id/render   → start AI + FFmpeg pipeline
 4. GET    /api/reels-maker/jobs/:id          → poll until status = "completed"
 5. GET    /api/reels-maker/jobs/:id/video    → download the final MP4
+6. GET    /api/reels-maker/jobs/:id/thumbnail → YouTube only: download outro still (custom thumbnail)
 ```
 
 ---
@@ -120,7 +121,8 @@ x-api-key: rk_xxx
 | `templateId` | string | ✅ | Visual style — see [Templates](#templates). Prefer `social-trend`, `luxury`, or `listing-showcase`. |
 | `aspectRatio` | `"portrait"` \| `"landscape"` | No | `portrait` = 9:16 for Reels/TikTok (default). `landscape` = 16:9 for YouTube/Facebook. Forced to `landscape` when `outputFormat` is `"youtube"`. |
 | `outputFormat` | `"reels"` \| `"youtube"` | No | Default `"reels"` (portrait mascot outro). Use **`"youtube"`** for 16:9 videos with the **YouTube landscape outro** (title + details + large QR). Send on **create and/or render**. |
-| `listingTitle` | string | No | YouTube outro primary line (e.g. property name). Falls back to `listingAddress` / story title. Send on **create and/or render**. |
+| `listingTitle` | string | No | YouTube outro primary line(s). Use `\n` for name + price on separate lines. Falls back to `listingAddress` / story title. Send on **create and/or render**. |
+| `listingTitleColor` | string | No | YouTube outro **title** hex color (e.g. `"#F4AA1D"`). Title block only — `listingDetails` stays white/light. Default white. |
 | `listingDetails` | string | No | YouTube outro secondary line (e.g. `3BR · ₱18M · BGC`). Send on **create and/or render**. |
 | `cameraMotion` | `"cinematic"` \| `"subtle"` \| `"off"` | No | Photo-tour motion. **YouTube defaults to `subtle`**. Use `"off"` for **static full-bleed** stills (cover crop, no Ken Burns — no side letterbox bars). Upload native photos; do **not** pre-letterbox with blue/black bars. |
 | `voiceOverEnabled` | boolean | No | Generate AI voiceover narration (**audio only** — no karaoke burn-in) |
@@ -474,8 +476,8 @@ Partners who need **landscape YouTube** videos use the same API with a different
 |---|---|---|
 | Background | Server plate (`youtube-outro-plate.png`) | Navy geometric pattern + waving mascot only — **no** baked logo / title / QR |
 | Logo | Upload `logo` (white / light PNG) | Top-left (~20% width). Prefer uploading; without it the plate has no wordmark |
-| Title | `listingTitle` | White serif, mid-left (falls back to address / story title) |
-| Details | `listingDetails` | Smaller white sans line under title (falls back to price · address / `outroLine`) |
+| Title | `listingTitle` (+ optional `listingTitleColor`) | Serif mid-left; default white. Set `listingTitleColor` (e.g. `#F4AA1D`) for gold/accent. `\n` splits lines (name + price). |
+| Details | `listingDetails` | Smaller white/light sans under title (falls back to price · address / `outroLine`) |
 | QR | Upload `qr` + `qrDisplay=outro-only` | Large white-padded QR, vertically centered on the right |
 
 Tour watermark (if `logoDisplay=always` / `photos-only`) is **masked off** outro frames so the plate logo is not doubled.
@@ -487,6 +489,7 @@ Tour watermark (if `logoDisplay=always` / `photos-only`) is **masked off** outro
 | `outputFormat: "youtube"` | ✅ | On **create and/or render** (re-send on render is fine / recommended) |
 | `outroEnabled: true` | ✅ | Default `true`; do not set `false` or the plate is skipped |
 | `listingTitle` / `listingDetails` | Recommended | Shown on the plate; fallbacks exist (address / story title / `outroLine`) |
+| `listingTitleColor` | Optional | Hex for title only (e.g. `"#F4AA1D"`); details stay white |
 | Upload `logo` + `logoEnabled=true` | **Strongly recommended** | Top-left wordmark on the clean plate |
 | Upload `qr` + `qrEnabled=true` + `qrDisplay=outro-only` | **Strongly recommended** | Large QR on the right |
 | `agentName` / `agentPhone` / `agentHeadshot` | **Not used** | Portrait-outro only; omitting them does **not** suppress the YouTube plate |
@@ -507,8 +510,9 @@ If the outro fails after deploy, the job will **error** (not silently skip) with
   "voiceGender": "woman",
   "captionsEnabled": false,
   "outroEnabled": true,
-  "listingTitle": "BGC Corner Condo",
-  "listingDetails": "3BR · 2BA · ₱18M · Taguig",
+  "listingTitle": "BGC Corner Condo\n₱18,000,000",
+  "listingTitleColor": "#F4AA1D",
+  "listingDetails": "3BR · 2BA · Taguig",
   "reelBrief": "3-bedroom luxury condo in BGC with pool and city views",
   "outroLine": "Scan for listing details"
 }
@@ -591,6 +595,7 @@ x-api-key: rk_xxx
 ```
 
 - When `job.status === "completed"` → prefer downloading via `/video`.
+- **YouTube jobs:** also use `job.thumbnailUrl` / `GET …/thumbnail` for the outro still (YouTube custom thumbnail).
 - When `job.status === "failed"` → `job.error` has a description.
 
 **Recommended polling interval:** every **5 seconds**.
@@ -624,6 +629,47 @@ const res = await fetch(`${BASE_URL}/api/reels-maker/jobs/${jobId}/video`, {
 res.body.pipe(fs.createWriteStream('output.mp4'))
 ```
 
+### 5b. Download YouTube thumbnail (outro still)
+
+For `outputFormat: "youtube"` jobs, the API also saves a **PNG of the landscape outro** (logo + title/details + QR + mascot). Use this as the **custom thumbnail** when uploading to YouTube.
+
+On a completed job:
+
+```json
+{
+  "job": {
+    "outputFormat": "youtube",
+    "resultUrl": "https://…/reel-output.mp4",
+    "thumbnailUrl": "https://…/youtube-thumbnail.png"
+  }
+}
+```
+
+```
+GET /api/reels-maker/jobs/:jobId/thumbnail
+x-api-key: rk_xxx
+```
+
+```
+Content-Type: image/png
+Content-Disposition: attachment; filename="youtube-thumbnail-….png"
+```
+
+```js
+const res = await fetch(`${BASE_URL}/api/reels-maker/jobs/${jobId}/thumbnail`, {
+  headers: { 'x-api-key': API_KEY },
+})
+if (res.ok) {
+  res.body.pipe(fs.createWriteStream('youtube-thumbnail.png'))
+}
+```
+
+| Field / endpoint | When |
+|---|---|
+| `job.thumbnailUrl` | Set on completed **YouTube** jobs (outro still in storage) |
+| `GET …/thumbnail` | Same image with `Content-Disposition: attachment` |
+| Reels jobs | No outro thumbnail (`thumbnailUrl` may be null or a draft preview photo) |
+
 ---
 
 ### 6. Other Endpoints
@@ -632,6 +678,7 @@ res.body.pipe(fs.createWriteStream('output.mp4'))
 |---|---|---|
 | `GET` | `/api/reels-maker/jobs` | List all jobs |
 | `DELETE` | `/api/reels-maker/jobs/:id` | Delete a job and its files |
+| `GET` | `/api/reels-maker/jobs/:id/thumbnail` | Download YouTube outro thumbnail (PNG) |
 | `POST` | `/api/reels-maker/youtube/preview` | Get YouTube track metadata |
 
 **YouTube track preview:**
@@ -769,6 +816,7 @@ No need to append a fake end-card photo as the last media file.
 |---|---|
 | Start on listing photos | Automatic (no intro card) |
 | YouTube 16:9 + landscape outro | `outputFormat: "youtube"` + `outroEnabled: true` + `listingTitle` / `listingDetails` + upload `logo` + `qr` (`qrDisplay=outro-only`) |
+| YouTube upload thumbnail (outro still) | After complete: `job.thumbnailUrl` or `GET /api/reels-maker/jobs/:id/thumbnail` |
 | No zoom on YouTube stills | `cameraMotion: "off"` (full-bleed cover; or default `"subtle"`) |
 | Logo top-center during photos | `logoPosition=top-center` + `logoDisplay=always` or `photos-only` (watermark masked off branded outro — no double logo) |
 | Custom logo in left lower-third tab | Upload `accentLogo` (+ `accentLogoEnabled=true`) — lower-third only, not on outro |
