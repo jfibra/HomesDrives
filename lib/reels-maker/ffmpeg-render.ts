@@ -220,10 +220,10 @@ async function renderImageScene(
     accentLogoBuffer: context.accentLogoBuffer,
   })
 
-  const revealDelay = context.isFirst ? 0.28 : 0.15
+  const revealDelay = context.isFirst ? 0.14 : 0.06
   const lowerThirdReveal = buildLowerThirdRevealFilterComplex({
     delaySeconds: revealDelay,
-    durationSeconds: 1.15,
+    durationSeconds: 0.55,
     from: frame.width > frame.height ? 'bottom' : 'left',
   })
 
@@ -326,10 +326,10 @@ async function renderVideoScene(
     logoBuffer: context.logoBuffer,
     accentLogoBuffer: context.accentLogoBuffer,
   })
-  const revealDelay = context.isFirst ? 0.28 : 0.15
+  const revealDelay = context.isFirst ? 0.14 : 0.06
   const lowerThirdReveal = buildLowerThirdRevealFilterComplex({
     delaySeconds: revealDelay,
-    durationSeconds: 1.15,
+    durationSeconds: 0.55,
     from: frame.width > frame.height ? 'bottom' : 'left',
   })
 

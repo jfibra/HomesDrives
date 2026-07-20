@@ -243,14 +243,14 @@ export function buildLowerThirdRevealFilterComplex(options?: {
   /** Entrance direction. Default `left`. Use `bottom` for landscape YouTube. */
   from?: 'left' | 'bottom'
 }) {
-  const delay = options?.delaySeconds ?? 0.15
-  const anim = options?.durationSeconds ?? 1.15
+  const delay = options?.delaySeconds ?? 0.08
+  const anim = options?.durationSeconds ?? 0.55
   const from = options?.from ?? 'left'
   const d = delay.toFixed(3)
   const a = anim.toFixed(3)
   const progress = `min(1\\,max(0\\,(t-${d})/${a}))`
-  const eased = `pow(${progress}\\,0.65)`
-  const fadeDur = Math.min(0.45, anim * 0.35).toFixed(3)
+  const eased = `pow(${progress}\\,0.72)`
+  const fadeDur = Math.min(0.28, anim * 0.4).toFixed(3)
   const xExpr = from === 'bottom' ? '0' : `-w+w*(${eased})`
   const yExpr = from === 'bottom' ? `h-h*(${eased})` : '0'
   return (
