@@ -278,6 +278,11 @@ export async function renderYoutubeOutroScene(params: {
   const platePath = existsSync(YOUTUBE_OUTRO_PLATE_PATH)
     ? YOUTUBE_OUTRO_PLATE_PATH
     : YOUTUBE_OUTRO_FALLBACK_PATH
+  if (!existsSync(platePath)) {
+    throw new Error(
+      `YouTube outro plate missing (${platePath}). Deploy lib/reels-maker/assets/youtube-outro-plate.png (or youtube-outro-bg.png).`,
+    )
+  }
 
   try {
     const { default: sharp } = await import('sharp')

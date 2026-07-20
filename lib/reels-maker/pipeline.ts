@@ -33,9 +33,23 @@ function normalizeOutputFormat(value: unknown): ReelOutputFormat {
   return 'reels'
 }
 
+function normalizeCameraMotion(
+  value: unknown,
+  outputFormat: ReelOutputFormat,
+): import('@/lib/reels-maker/types').ReelCameraMotion {
+  const raw = String(value ?? '')
+    .trim()
+    .toLowerCase()
+  if (raw === 'off' || raw === 'none' || raw === 'static') return 'off'
+  if (raw === 'subtle' || raw === 'light' || raw === 'minimal') return 'subtle'
+  if (raw === 'cinematic' || raw === 'full') return 'cinematic'
+  return outputFormat === 'youtube' ? 'subtle' : 'cinematic'
+}
+
 export function startReelJob(input: CreateReelJobInput): ReelJob {
   const now = new Date().toISOString()
   const outputFormat = normalizeOutputFormat(input.outputFormat)
+  const cameraMotion = normalizeCameraMotion(input.cameraMotion, outputFormat)
   const aspectRatio =
     outputFormat === 'youtube'
       ? normalizeReelAspectRatio('landscape')
@@ -50,6 +64,7 @@ export function startReelJob(input: CreateReelJobInput): ReelJob {
     templateId: input.templateId,
     aspectRatio,
     outputFormat,
+    cameraMotion,
     voiceOverEnabled: input.voiceOverEnabled,
     voiceGender: normalizeVoiceGender(input.voiceGender) as ReelVoiceGender,
     captionsEnabled: resolveCaptionsEnabled(input),
@@ -310,7 +325,7 @@ async function processReelJob(jobId: string) {
         : null
 
     const listing =
-      job.templateId === 'listing-showcase'
+      job.templateId === 'listing-showcase' || job.outputFormat === 'youtube'
         ? {
             price: job.listingPrice,
             address: job.listingAddress,
@@ -340,6 +355,7 @@ async function processReelJob(jobId: string) {
       media: selectedMedia,
       aspectRatio: normalizeReelAspectRatio(job.aspectRatio),
       outputFormat: job.outputFormat || 'reels',
+      cameraMotion: job.cameraMotion || (job.outputFormat === 'youtube' ? 'subtle' : 'cinematic'),
       music,
       logo,
       accentLogo,

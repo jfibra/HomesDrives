@@ -170,6 +170,7 @@ export async function handleReelJobsPost(request: Request): Promise<Response> {
       templateId,
       aspectRatio: normalizeReelAspectRatio(body.aspectRatio),
       outputFormat: body.outputFormat,
+      cameraMotion: body.cameraMotion,
       voiceOverEnabled: Boolean(body.voiceOverEnabled),
       voiceGender: normalizeVoiceGender(body.voiceGender) as ReelVoiceGender,
       captionsEnabled: resolveCaptionsEnabled(body),
@@ -725,6 +726,7 @@ export async function handleReelJobRender(jobId: string, request: Request): Prom
       templateId?: string
       aspectRatio?: string
       outputFormat?: string
+      cameraMotion?: string
       listingTitle?: string
       listingDetails?: string
       agentName?: string
@@ -744,6 +746,7 @@ export async function handleReelJobRender(jobId: string, request: Request): Prom
       body.templateId ||
       body.aspectRatio ||
       body.outputFormat ||
+      body.cameraMotion ||
       body.listingTitle !== undefined ||
       body.listingDetails !== undefined ||
       body.agentName !== undefined ||
@@ -761,6 +764,19 @@ export async function handleReelJobRender(jobId: string, request: Request): Prom
             ? ('youtube' as const)
             : ('reels' as const)
           : job.outputFormat || 'reels'
+      const cameraRaw = String(body.cameraMotion ?? job.cameraMotion ?? '')
+        .trim()
+        .toLowerCase()
+      const cameraMotion =
+        cameraRaw === 'off' || cameraRaw === 'none' || cameraRaw === 'static'
+          ? ('off' as const)
+          : cameraRaw === 'subtle' || cameraRaw === 'light' || cameraRaw === 'minimal'
+            ? ('subtle' as const)
+            : cameraRaw === 'cinematic' || cameraRaw === 'full'
+              ? ('cinematic' as const)
+              : outputFormat === 'youtube'
+                ? ('subtle' as const)
+                : ('cinematic' as const)
       updateReelJob(jobId, {
         caption: body.caption ?? job.caption,
         reelBrief: body.reelBrief ?? job.reelBrief,
@@ -780,6 +796,7 @@ export async function handleReelJobRender(jobId: string, request: Request): Prom
               ? normalizeReelAspectRatio(body.aspectRatio)
               : job.aspectRatio,
         outputFormat,
+        cameraMotion,
         listingTitle:
           body.listingTitle !== undefined ? String(body.listingTitle).trim() : job.listingTitle || '',
         listingDetails:

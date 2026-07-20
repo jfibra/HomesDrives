@@ -57,6 +57,14 @@ export type ReelVoiceGender = 'man' | 'woman'
  */
 export type ReelOutputFormat = 'reels' | 'youtube'
 
+/**
+ * Photo-tour camera intensity:
+ * - `cinematic` — mild Ken Burns pans (default for reels)
+ * - `subtle` — very light pan / low zoom (default for youtube)
+ * - `off` — static framed stills, no push/zoom
+ */
+export type ReelCameraMotion = 'cinematic' | 'subtle' | 'off'
+
 export type ReelUploadedMedia = {
   id: string
   kind: ReelMediaKind
@@ -145,6 +153,8 @@ export type ReelJob = {
   aspectRatio: ReelAspectRatio
   /** `reels` (default) or `youtube` (landscape + YouTube outro plate). */
   outputFormat: ReelOutputFormat
+  /** Photo-tour motion. YouTube defaults to `subtle`. */
+  cameraMotion: ReelCameraMotion
   voiceOverEnabled: boolean
   /** Narrator gender for TTS — `woman` (default) or `man`. */
   voiceGender: ReelVoiceGender
@@ -204,6 +214,8 @@ export type CreateReelJobInput = {
   aspectRatio?: ReelAspectRatio
   /** Default `reels`. Use `youtube` for 16:9 + YouTube outro. */
   outputFormat?: ReelOutputFormat
+  /** Default `cinematic` for reels, `subtle` for youtube. */
+  cameraMotion?: ReelCameraMotion
   voiceOverEnabled: boolean
   /** Default `woman`. Set `man` for a male narrator. Aliases: `male` / `female`. */
   voiceGender?: ReelVoiceGender | 'male' | 'female'

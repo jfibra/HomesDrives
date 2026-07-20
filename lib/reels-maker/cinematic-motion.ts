@@ -58,40 +58,51 @@ export function buildStaticScale(frame: ReelFrameDimensions) {
   return `scale=${frame.width}:${frame.height}:force_original_aspect_ratio=increase:${scaleFlags},crop=${frame.width}:${frame.height},fps=${FPS}`
 }
 
+/** Fit entire image in frame with letterboxing (no crop) — best for pre-letterboxed YouTube stills. */
+export function buildContainScale(frame: ReelFrameDimensions) {
+  const scaleFlags = `flags=${REEL_SCALE_FLAGS}`
+  return `scale=${frame.width}:${frame.height}:force_original_aspect_ratio=decrease:${scaleFlags},pad=${frame.width}:${frame.height}:(ow-iw)/2:(oh-ih)/2:black,fps=${FPS}`
+}
+
+export type MotionIntensity = 'cinematic' | 'subtle' | 'off'
+
 /** Linear progress 0→1 across the scene (smooth, not circular). */
 function linearExpr(frames: number) {
   return `min(1\\,on/${Math.max(1, frames - 1)})`
 }
 
 /**
- * Map motion → straight Ken Burns pans (constant mild zoom, no sin/cos float).
+ * Map motion → Ken Burns pans. Intensity controls zoom push:
+ * - cinematic: ~1.12× zoom through pre-scaled canvas
+ * - subtle: ~1.04× (YouTube default — avoids “cropped/pushed-in” feel)
+ * - off: static contain (letterbox) — no zoompan
  */
 export function buildMotionFilter(
   motion: ReelSceneMotion,
   durationSeconds: number,
   frame: ReelFrameDimensions,
+  intensity: MotionIntensity = 'cinematic',
 ): string {
+  if (intensity === 'off') {
+    return buildContainScale(frame)
+  }
+
   const preScale = buildPreScale(frame)
   const frames = Math.max(1, Math.round(durationSeconds * FPS))
   const t = linearExpr(frames)
   const size = `s=${frame.width}x${frame.height}:fps=${FPS}:d=${frames}`
   const resolved = normalizeMotion(motion)
-  // Mild zoom so edges have room to pan without circular wander
-  const z = `1.12`
+  const z = intensity === 'subtle' ? '1.04' : '1.12'
 
   switch (resolved) {
     case 'gentle-pan-left':
-      // Right → left
       return `${preScale},zoompan=z='${z}':x='(iw-iw/zoom)*(1-${t})':y='ih/2-(ih/zoom/2)':${size}`
     case 'gentle-pan-right':
     case 'horizontal-track':
-      // Left → right
       return `${preScale},zoompan=z='${z}':x='(iw-iw/zoom)*${t}':y='ih/2-(ih/zoom/2)':${size}`
     case 'reveal-from-top':
-      // Top → bottom
       return `${preScale},zoompan=z='${z}':x='iw/2-(iw/zoom/2)':y='(ih-ih/zoom)*${t}':${size}`
     case 'vertical-drift':
-      // Bottom → top
       return `${preScale},zoompan=z='${z}':x='iw/2-(iw/zoom/2)':y='(ih-ih/zoom)*(1-${t})':${size}`
     default:
       return `${preScale},zoompan=z='${z}':x='(iw-iw/zoom)*${t}':y='ih/2-(ih/zoom/2)':${size}`
@@ -103,10 +114,16 @@ export function buildVideoMotionFilter(
   durationSeconds: number,
   frame: ReelFrameDimensions,
   motion?: ReelSceneMotion | null,
+  intensity: MotionIntensity = 'cinematic',
 ): string {
+  if (intensity === 'off') {
+    return buildContainScale(frame)
+  }
+
   const scaleFlags = `flags=${REEL_SCALE_FLAGS}`
-  const overW = Math.round(frame.width * 1.12)
-  const overH = Math.round(frame.height * 1.12)
+  const zoom = intensity === 'subtle' ? 1.04 : 1.12
+  const overW = Math.round(frame.width * zoom)
+  const overH = Math.round(frame.height * zoom)
   const dur = Math.max(0.5, durationSeconds)
   const resolved = normalizeMotion(motion)
   const p = `min(1\\,t/${dur})`
@@ -132,12 +149,7 @@ export function buildVideoMotionFilter(
       break
   }
 
-  return [
-    `scale=${overW}:${overH}:force_original_aspect_ratio=increase:${scaleFlags}`,
-    `crop=${overW}:${overH}`,
-    `crop=${frame.width}:${frame.height}:${x}:${y}`,
-    `fps=${FPS}`,
-  ].join(',')
+  return `scale=${overW}:${overH}:force_original_aspect_ratio=increase:${scaleFlags},crop=${frame.width}:${frame.height}:x='${x}':y='${y}',fps=${FPS}`
 }
 
 /** Rotate: L→R, R→L, T→B, B→T — never the same twice in a row. */

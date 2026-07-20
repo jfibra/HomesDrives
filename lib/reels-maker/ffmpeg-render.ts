@@ -146,6 +146,7 @@ type SceneRenderContext = {
   isLast: boolean
   logoBuffer?: Buffer | null
   accentLogoBuffer?: Buffer | null
+  cameraMotion?: 'cinematic' | 'subtle' | 'off'
 }
 
 async function renderImageScene(
@@ -163,6 +164,7 @@ async function renderImageScene(
     resolveSceneMotion(scene.motion, duration, context),
     duration,
     frame,
+    context.cameraMotion ?? 'cinematic',
   )
   const colorGrade = buildColorGradeFilter(templateId)
   const bookends = buildSceneBookendFilters({
@@ -274,7 +276,12 @@ async function renderVideoScene(
     isFirst: context.isFirst,
     isLast: context.isLast,
   })
-  const motion = buildVideoMotionFilter(duration, frame, resolveSceneMotion(scene.motion, duration, context))
+  const motion = buildVideoMotionFilter(
+    duration,
+    frame,
+    resolveSceneMotion(scene.motion, duration, context),
+    context.cameraMotion ?? 'cinematic',
+  )
 
   const { title, subtitle } = resolveSceneLowerThirdCopy({
     sceneIndex: index,
@@ -630,6 +637,7 @@ export async function renderReelWithFfmpeg(params: {
   outroCtaText?: string | null
   outroEnabled?: boolean
   outputFormat?: 'reels' | 'youtube'
+  cameraMotion?: 'cinematic' | 'subtle' | 'off'
   voiceOver?: Buffer | null
   voiceOverPromise?: Promise<Buffer | null> | null
   onProgress?: (message: string, progress: number) => void
@@ -642,6 +650,9 @@ export async function renderReelWithFfmpeg(params: {
     }
   }
 
+  const isYoutube = params.outputFormat === 'youtube'
+  const cameraMotion =
+    params.cameraMotion ?? (isYoutube ? 'subtle' : 'cinematic')
   const frame = getReelFrameDimensions(normalizeReelAspectRatio(params.aspectRatio))
   const workDir = await mkdtemp(join(tmpdir(), 'reels-maker-'))
   const mediaById = new Map(params.media.map((item) => [item.id, item]))
@@ -718,6 +729,7 @@ export async function renderReelWithFfmpeg(params: {
         isLast: index === totalScenes - 1,
         logoBuffer: earlyLogoBuffer,
         accentLogoBuffer: earlyAccentLogoBuffer,
+        cameraMotion,
       }
 
       return mediaItem.kind === 'video'
@@ -751,55 +763,78 @@ export async function renderReelWithFfmpeg(params: {
       '@/lib/reels-maker/ffmpeg-listing-scenes'
     )
 
-    // Photos first (no logo intro) → branded outro when enabled
+    // Photos first → branded / YouTube outro when enabled
     const combined: typeof sceneClips = [...sceneClips]
     let brandedOutroDuration = 0
-    const isYoutube = params.outputFormat === 'youtube'
 
     const headshotBuffer = params.agentHeadshot
       ? await downloadReelObject(params.agentHeadshot.bucketName, params.agentHeadshot.storagePath)
       : null
     const agent = params.agent ?? {}
-    const hasOutroContent = Boolean(
-      logoBuffer ||
-        qrBuffer ||
-        headshotBuffer ||
-        agent.name ||
-        agent.phone ||
-        agent.email ||
-        agent.agencyName ||
-        params.outroCtaText?.trim() ||
-        params.listingTitle?.trim() ||
-        params.listingDetails?.trim(),
-    )
+
+    // YouTube: always build the landscape plate when outro is on (logo/QR/title optional with fallbacks).
+    // Reels: require at least one branding/contact element.
+    const hasOutroContent = isYoutube
+      ? true
+      : Boolean(
+          logoBuffer ||
+            qrBuffer ||
+            headshotBuffer ||
+            agent.name ||
+            agent.phone ||
+            agent.email ||
+            agent.agencyName ||
+            params.outroCtaText?.trim() ||
+            params.listingTitle?.trim() ||
+            params.listingDetails?.trim(),
+        )
 
     if (outroEnabled && hasOutroContent) {
-      report('Building outro…', 85)
-      const outro = isYoutube
-        ? await renderYoutubeOutroScene({
-            frame,
-            logoBuffer,
-            qrBuffer,
-            listingTitle: params.listingTitle || params.listing?.address || renderPlan.title,
-            listingDetails:
-              params.listingDetails ||
-              [params.listing?.price, params.listing?.address].filter(Boolean).join('  ·  ') ||
-              params.outroCtaText,
-          })
-        : await renderBrandedOutroScene({
-            frame,
-            logoBuffer,
-            headshotBuffer,
-            qrBuffer,
-            agent,
-            ctaText:
-              params.outroCtaText ||
-              (qrBuffer ? null : isListingShowcase ? 'Scan to view listing' : 'Discover more on Homes.ph'),
-          })
-      const outroPath = join(workDir, 'branded-outro.mp4')
-      await writeFile(outroPath, outro.buffer)
-      brandedOutroDuration = outro.durationSeconds
-      combined.push({ path: outroPath, durationSeconds: outro.durationSeconds, transition: 'fade' })
+      report(isYoutube ? 'Building YouTube outro…' : 'Building outro…', 85)
+      try {
+        const outro = isYoutube
+          ? await renderYoutubeOutroScene({
+              frame,
+              logoBuffer,
+              qrBuffer,
+              listingTitle:
+                params.listingTitle ||
+                params.listing?.address ||
+                renderPlan.title ||
+                'Homes.ph Listing',
+              listingDetails:
+                params.listingDetails ||
+                [params.listing?.price, params.listing?.address].filter(Boolean).join('  ·  ') ||
+                params.outroCtaText ||
+                '',
+            })
+          : await renderBrandedOutroScene({
+              frame,
+              logoBuffer,
+              headshotBuffer,
+              qrBuffer,
+              agent,
+              ctaText:
+                params.outroCtaText ||
+                (qrBuffer ? null : isListingShowcase ? 'Scan to view listing' : 'Discover more on Homes.ph'),
+            })
+        const outroPath = join(workDir, 'branded-outro.mp4')
+        await writeFile(outroPath, outro.buffer)
+        brandedOutroDuration = outro.durationSeconds
+        combined.push({ path: outroPath, durationSeconds: outro.durationSeconds, transition: 'fade' })
+        console.info(
+          `[reels-maker/render] Outro appended (${isYoutube ? 'youtube' : 'reels'}) duration=${outro.durationSeconds}s qr=${Boolean(qrBuffer)} logo=${Boolean(logoBuffer)}`,
+        )
+      } catch (outroError) {
+        console.error('[reels-maker/render] Outro failed', outroError)
+        throw new Error(
+          `Outro render failed: ${outroError instanceof Error ? outroError.message : String(outroError)}`,
+        )
+      }
+    } else {
+      console.warn(
+        `[reels-maker/render] Skipping outro (outroEnabled=${outroEnabled}, hasContent=${hasOutroContent}, format=${params.outputFormat || 'reels'})`,
+      )
     }
 
     sceneClips = combined
