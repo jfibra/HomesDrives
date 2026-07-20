@@ -44,12 +44,13 @@ export type LowerThirdContent = {
 }
 
 /**
- * Broadcast-style slanted lower third (matches Homes.ph reference):
+ * Broadcast-style slanted lower third:
  * - Light-blue accent bars on the far left
  * - Navy logo tab on the left of the white title holder
- * - White main title ribbon
- * - Blue subtitle ribbon
- * - Thin decorative accent on the right (no logo)
+ * - White title ribbon (title + optional subtitle as a second line — no overlapping blue sub-bar)
+ * - Thin decorative accent on the right
+ *
+ * Scales from the *short* edge so landscape 16:9 stays compact (not oversized from width/1080).
  */
 export async function renderLowerThirdPng(
   frameWidth: number,
@@ -58,21 +59,26 @@ export async function renderLowerThirdPng(
 ): Promise<Buffer> {
   const { default: sharp } = await import('sharp')
 
-  const titleLines = wrapTitle(content.title || 'Homes.ph', 26)
-  const subtitle = content.subtitle?.trim()
-    ? content.subtitle.trim().slice(0, 42).toUpperCase()
-    : null
+  const isLandscape = frameWidth > frameHeight
+  // Portrait: width/1080 ≈ 1. Landscape: height/1080 ≈ 1 — keeps bars slim on YouTube.
+  const s = (isLandscape ? frameHeight : frameWidth) / 1080
 
-  const s = frameWidth / 1080
-  const barY = Math.round(frameHeight * 0.78)
-  const mainH = Math.round(110 * s)
-  const subH = Math.round(48 * s)
-  const skew = Math.round(48 * s)
-  const left = Math.round(48 * s)
-  const logoW = Math.round(210 * s)
-  const mainW = Math.round(780 * s)
-  const subW = Math.round(520 * s)
-  const gap = Math.round(10 * s)
+  const rawTitle = (content.title || 'Homes.ph').trim()
+  const rawSubtitle = content.subtitle?.trim() || null
+
+  // Keep subtitle inside the white holder as line 2 (matches partner sample) — avoids overlap.
+  const titleLines = wrapTitle(rawTitle, isLandscape ? 34 : 26)
+  const subtitle =
+    rawSubtitle && rawSubtitle.toUpperCase() !== titleLines.join(' ').toUpperCase()
+      ? rawSubtitle.slice(0, isLandscape ? 36 : 42).toUpperCase()
+      : null
+
+  const barY = Math.round(frameHeight * (isLandscape ? 0.82 : 0.78))
+  const mainH = Math.round((subtitle ? 88 : 72) * s)
+  const skew = Math.round(36 * s)
+  const left = Math.round((isLandscape ? 56 : 48) * s)
+  const logoW = Math.round((isLandscape ? 120 : 168) * s)
+  const mainW = Math.round((isLandscape ? 900 : 780) * s)
 
   const blue = `#${BLUE_PRIMARY.replace(/^0x/i, '')}`
   const blueDeep = `#${BLUE_DEEP.replace(/^0x/i, '')}`
@@ -83,31 +89,41 @@ export async function renderLowerThirdPng(
   const para = (x: number, y: number, w: number, h: number, sk: number) =>
     `${x + sk},${y} ${x + w + sk},${y} ${x + w},${y + h} ${x},${y + h}`
 
+  const longestTitle = titleLines.reduce((a, b) => (a.length >= b.length ? a : b), '')
   const titleFontSize =
-    titleLines[0].length > 22
-      ? Math.round(28 * s)
-      : titleLines[0].length > 14
-        ? Math.round(34 * s)
-        : Math.round(40 * s)
-  const subFontSize = Math.round(20 * s)
+    longestTitle.length > 28
+      ? Math.round(22 * s)
+      : longestTitle.length > 18
+        ? Math.round(26 * s)
+        : Math.round(30 * s)
+  const subFontSize = Math.round(16 * s)
 
-  // Center title in the white title holder (area to the right of the logo tab)
+  // Center title block in the white title holder
   const whiteStart = left + Math.round(logoW * 0.55)
   const whiteW = mainW - Math.round(logoW * 0.25)
   const textAreaLeft = left + logoW
   const textAreaRight = whiteStart + whiteW - Math.round(skew * 0.35)
   const titleX = Math.round((textAreaLeft + textAreaRight) / 2)
-  const lineGap = Math.round(titleFontSize * 1.15)
+
+  const lineGap = Math.round(titleFontSize * 1.12)
+  const subGap = Math.round(subFontSize * 1.35)
   const titleBlockH =
-    titleLines.length <= 1 ? titleFontSize : titleFontSize + lineGap
+    titleLines.length * titleFontSize +
+    (titleLines.length > 1 ? lineGap * (titleLines.length - 1) : 0) +
+    (subtitle ? subGap + subFontSize : 0)
   const titleY =
-    barY + Math.round((mainH - titleBlockH) / 2) + Math.round(titleFontSize * 0.82)
+    barY + Math.round((mainH - titleBlockH) / 2) + Math.round(titleFontSize * 0.85)
+
   const titleLinesXml = titleLines
     .map((line, i) => {
       const dy = i === 0 ? 0 : lineGap
       return `<tspan x="${titleX}" dy="${dy}">${escapeXml(line)}</tspan>`
     })
     .join('')
+
+  const subtitleInHolderXml = subtitle
+    ? `<tspan x="${titleX}" dy="${subGap}" font-size="${subFontSize}" font-weight="600" fill="${blue}">${escapeXml(subtitle)}</tspan>`
+    : ''
 
   // Left blue tab: accentLogo (partner) wins, else main logo
   const tabLogoBuffer =
@@ -116,8 +132,8 @@ export async function renderLowerThirdPng(
   let logoImageXml = ''
   if (tabLogoBuffer?.length) {
     try {
-      const logoMaxW = Math.round(logoW * 0.78)
-      const logoMaxH = Math.round(mainH * 0.62)
+      const logoMaxW = Math.round(logoW * 0.72)
+      const logoMaxH = Math.round(mainH * 0.58)
       const logoPng = await sharp(tabLogoBuffer, { failOn: 'none' })
         .ensureAlpha()
         .resize({
@@ -143,47 +159,32 @@ export async function renderLowerThirdPng(
   const fallbackLogoText = logoImageXml
     ? ''
     : `<text x="${left + Math.round(logoW / 2) + Math.round(skew * 0.28)}" y="${barY + Math.round(mainH * 0.58)}"
-        text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="${Math.round(22 * s)}"
+        text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="${Math.round(18 * s)}"
         font-weight="700" fill="#FFFFFF">LOGO</text>`
 
-  const subtitleXml = subtitle
-    ? `
-      <polygon points="${para(left + Math.round(logoW * 0.45), barY + mainH + gap, subW, subH, skew)}" fill="${blue}" />
-      <polygon points="${para(left + Math.round(logoW * 0.45), barY + mainH + gap, Math.round(18 * s), subH, skew)}" fill="${blueDeep}" opacity="0.55" />
-      <text x="${left + Math.round(logoW * 0.45) + Math.round(28 * s)}" y="${barY + mainH + gap + Math.round(subH * 0.68)}"
-        font-family="Arial, Helvetica, sans-serif" font-size="${subFontSize}" font-weight="600" fill="#FFFFFF">${escapeXml(subtitle)}</text>
-      <rect x="${left + Math.round(logoW * 0.45) + subW + Math.round(8 * s)}" y="${barY + mainH + gap + Math.round(subH * 0.72)}"
-        width="${Math.round(160 * s)}" height="${Math.round(3 * s)}" fill="${lightBlue}" opacity="0.9" />
-    `
-    : `
-      <rect x="${left + Math.round(logoW * 0.45) + Math.round(40 * s)}" y="${barY + mainH + gap + Math.round(18 * s)}"
-        width="${Math.round(200 * s)}" height="${Math.round(3 * s)}" fill="${lightBlue}" opacity="0.85" />
-    `
-
   // Thin decorative right accent only — never a logo
-  const rightTabW = Math.round(28 * s)
-  const rightTabX = frameWidth - Math.round(90 * s)
+  const rightTabW = Math.round(22 * s)
+  const rightTabX = frameWidth - Math.round((isLandscape ? 70 : 90) * s)
   const rightTabY = barY + Math.round(mainH * 0.12)
-  const rightTabH = Math.round(mainH * 0.9)
+  const rightTabH = Math.round(mainH * 0.85)
 
-  const accentBarH = mainH - Math.round(16 * s)
+  const accentBarH = mainH - Math.round(14 * s)
   const accentBarY = barY + Math.round(8 * s)
 
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg width="${frameWidth}" height="${frameHeight}" viewBox="0 0 ${frameWidth} ${frameHeight}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
-  <polygon points="${para(left + Math.round(24 * s), barY - Math.round(14 * s), mainW + Math.round(40 * s), mainH + Math.round(28 * s), skew)}" fill="${softGrey}" opacity="0.92" />
-  <polygon points="${para(left - Math.round(42 * s), accentBarY, Math.round(10 * s), accentBarH, skew)}" fill="${lightBlue}" opacity="0.85" />
-  <polygon points="${para(left - Math.round(26 * s), accentBarY, Math.round(10 * s), accentBarH, skew)}" fill="${lightBlue}" opacity="0.95" />
-  <polygon points="${para(left - Math.round(10 * s), accentBarY, Math.round(10 * s), accentBarH, skew)}" fill="${lightBlue}" />
+  <polygon points="${para(left + Math.round(18 * s), barY - Math.round(10 * s), mainW + Math.round(28 * s), mainH + Math.round(20 * s), skew)}" fill="${softGrey}" opacity="0.9" />
+  <polygon points="${para(left - Math.round(34 * s), accentBarY, Math.round(8 * s), accentBarH, skew)}" fill="${lightBlue}" opacity="0.85" />
+  <polygon points="${para(left - Math.round(20 * s), accentBarY, Math.round(8 * s), accentBarH, skew)}" fill="${lightBlue}" opacity="0.95" />
+  <polygon points="${para(left - Math.round(6 * s), accentBarY, Math.round(8 * s), accentBarH, skew)}" fill="${lightBlue}" />
   <polygon points="${para(left + Math.round(logoW * 0.55), barY, mainW - Math.round(logoW * 0.25), mainH, skew)}" fill="#FFFFFF" />
-  <polygon points="${para(left, barY - Math.round(6 * s), logoW, mainH + Math.round(12 * s), skew)}" fill="${blueDeep}" />
-  <polygon points="${para(left + logoW - Math.round(22 * s), barY - Math.round(6 * s), Math.round(22 * s), mainH + Math.round(12 * s), skew)}" fill="${blue}" opacity="0.35" />
+  <polygon points="${para(left, barY - Math.round(4 * s), logoW, mainH + Math.round(8 * s), skew)}" fill="${blueDeep}" />
+  <polygon points="${para(left + logoW - Math.round(18 * s), barY - Math.round(4 * s), Math.round(18 * s), mainH + Math.round(8 * s), skew)}" fill="${blue}" opacity="0.35" />
   ${logoImageXml}
   ${fallbackLogoText}
-  <polygon points="${para(left, barY + mainH + Math.round(4 * s), logoW, Math.round(4 * s), skew)}" fill="${gold}" />
+  <polygon points="${para(left, barY + mainH + Math.round(2 * s), logoW, Math.round(3 * s), skew)}" fill="${gold}" />
   <text x="${titleX}" y="${titleY}" text-anchor="middle"
-    font-family="Arial, Helvetica, sans-serif" font-size="${titleFontSize}" font-weight="700" fill="${blueDeep}">${titleLinesXml}</text>
-  ${subtitleXml}
+    font-family="Arial, Helvetica, sans-serif" font-size="${titleFontSize}" font-weight="700" fill="${blueDeep}">${titleLinesXml}${subtitleInHolderXml}</text>
   <polygon points="${para(rightTabX, rightTabY, rightTabW, rightTabH, Math.round(skew * 0.7))}" fill="${blue}" />
 </svg>`
 
@@ -240,7 +241,6 @@ export function buildLowerThirdRevealFilterComplex(options?: {
   const anim = options?.durationSeconds ?? 1.15
   const d = delay.toFixed(3)
   const a = anim.toFixed(3)
-  // Ease-out style slide: progress^0.65 spends more time near the end (softer settle)
   const progress = `min(1\\,max(0\\,(t-${d})/${a}))`
   const eased = `pow(${progress}\\,0.65)`
   const xExpr = `-w+w*(${eased})`

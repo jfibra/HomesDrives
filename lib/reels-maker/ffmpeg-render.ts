@@ -903,6 +903,7 @@ export async function renderReelWithFfmpeg(params: {
         params.logo.position,
         frame.width,
         logoTiming,
+        frame.height,
       ))
     }
 

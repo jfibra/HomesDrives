@@ -259,8 +259,9 @@ export async function renderLogoOutroScene(params: {
 }
 
 /**
- * Landscape YouTube outro (16:9 Homes.ph plate):
- * logo top-left (baked or uploaded) · listing title + details left-center · large QR right · mascot bottom-left.
+ * Landscape YouTube outro (16:9) — matches Homes.ph sample layout:
+ * Clean navy+mascot plate → logo top-left → listing title/details left-center → large QR right.
+ * Plate has no baked wordmark/QR; partners upload logo + qr and send listingTitle / listingDetails.
  */
 export async function renderYoutubeOutroScene(params: {
   frame: ReelFrameDimensions
@@ -286,36 +287,40 @@ export async function renderYoutubeOutroScene(params: {
 
   try {
     const { default: sharp } = await import('sharp')
-    const title =
-      params.listingTitle?.trim() ||
-      'Homes.ph Listing'
+    const title = params.listingTitle?.trim() || 'Homes.ph Listing'
     const details = params.listingDetails?.trim() || ''
 
-    // Title + details card on the left (covers placeholder zone)
-    const titleFont = Math.round(Math.min(72, Math.max(42, width * 0.038)))
-    const detailFont = Math.round(Math.min(36, Math.max(22, width * 0.02)))
-    const cardW = Math.round(width * 0.52)
-    const cardH = Math.round(height * 0.28)
-    const cardX = Math.round(width * 0.045)
-    const cardY = Math.round(height * 0.36)
+    // Match sample: title mid-left above mascot; details one line under title
+    const titleFont = Math.round(Math.min(68, Math.max(40, width * 0.036)))
+    const detailFont = Math.round(Math.min(32, Math.max(20, width * 0.018)))
+    const cardW = Math.round(width * 0.48)
+    const lineGap = Math.round(titleFont * 1.2)
+    const titleLines = wrapYoutubeTitle(title, 26)
+    const detailLine = details.slice(0, 64)
+    const titleBlockH = titleLines.length * lineGap
+    const cardH = titleBlockH + (detailLine ? Math.round(detailFont * 2.2) : Math.round(titleFont * 0.4))
+    const cardX = Math.round(width * 0.055)
+    // Vertically center the text block in the left half, clear of mascot (~bottom 28%)
+    const cardY = Math.round(height * 0.34)
 
-    const titleLines = wrapYoutubeTitle(title, 28)
-    const detailLine = details.slice(0, 72)
     const titleTspans = titleLines
       .map((line, i) => {
-        const dy = i === 0 ? 0 : Math.round(titleFont * 1.15)
+        const dy = i === 0 ? 0 : lineGap
         if (i === 0) return `<tspan x="0" dy="0">${escapeXml(line)}</tspan>`
         return `<tspan x="0" dy="${dy}">${escapeXml(line)}</tspan>`
       })
       .join('')
 
+    const titleBaseline = Math.round(titleFont * 0.92)
+    const detailY = titleBaseline + titleBlockH + Math.round(detailFont * 0.55)
+
     const textSvg = Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${cardW}" height="${cardH}">
-  <text x="0" y="${Math.round(cardH * 0.42)}" font-family="Georgia, 'Times New Roman', serif" font-size="${titleFont}"
+  <text x="0" y="${titleBaseline}" font-family="Georgia, 'Times New Roman', serif" font-size="${titleFont}"
     font-weight="700" fill="#FFFFFF">${titleTspans}</text>
   ${
     detailLine
-      ? `<text x="0" y="${Math.round(cardH * 0.78)}" font-family="Arial, Helvetica, sans-serif" font-size="${detailFont}"
+      ? `<text x="0" y="${detailY}" font-family="Arial, Helvetica, sans-serif" font-size="${detailFont}"
     font-weight="500" fill="#E8EEF5">${escapeXml(detailLine)}</text>`
       : ''
   }
@@ -329,16 +334,16 @@ export async function renderYoutubeOutroScene(params: {
     const filters: string[] = [coverScaleFilter(width, height, '0:v', 'plate')]
     let base = 'plate'
 
-    // Optional partner logo over baked mark (top-left)
+    // Partner logo top-left (clean plate has no baked wordmark)
     if (params.logoBuffer?.length) {
       const logoPath = join(workDir, 'logo.png')
       await writeFile(logoPath, params.logoBuffer)
       inputs.push('-loop', '1', '-framerate', String(FPS), '-i', logoPath)
       const idx = inputIndex++
-      const logoW = Math.round(width * 0.22)
+      const logoW = Math.round(width * 0.2)
       filters.push(
         `[${idx}:v]scale=w=${logoW}:h=-1,format=rgba,fade=t=in:st=0.05:d=0.35:alpha=1[ytlogo]`,
-        `[${base}][ytlogo]overlay=x='${Math.round(width * 0.035)}':y='${Math.round(height * 0.05)}'[withlogo]`,
+        `[${base}][ytlogo]overlay=x='${Math.round(width * 0.045)}':y='${Math.round(height * 0.06)}'[withlogo]`,
       )
       base = 'withlogo'
     }
@@ -358,10 +363,11 @@ export async function renderYoutubeOutroScene(params: {
       await writeFile(qrPath, params.qrBuffer)
       inputs.push('-loop', '1', '-framerate', String(FPS), '-i', qrPath)
       const idx = inputIndex++
-      const qrSize = Math.round(Math.min(height * 0.78, width * 0.34))
-      const qrX = Math.round(width * 0.62 + (width * 0.34 - qrSize) / 2)
+      // Sample: large QR on right ~38% of height, vertically centered
+      const qrSize = Math.round(Math.min(height * 0.58, width * 0.28))
+      const qrX = Math.round(width * 0.66 + (width * 0.28 - qrSize) / 2)
       const qrY = Math.round((height - qrSize) / 2)
-      const pad = 18
+      const pad = Math.round(Math.max(16, height * 0.018))
       filters.push(
         `[${idx}:v]scale=${qrSize}:${qrSize}[ytqrs]`,
         `[ytqrs]pad=iw+${pad * 2}:ih+${pad * 2}:${pad}:${pad}:white,format=rgba,fade=t=in:st=0.35:d=0.5:alpha=1[ytqr]`,

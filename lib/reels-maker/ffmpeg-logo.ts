@@ -11,29 +11,50 @@ import type { ReelLogoPosition } from '@/lib/reels-maker/types'
 
 const execFileAsync = promisify(execFile)
 
-/** Match outro logo scale (~50% of frame width). */
-const LOGO_WIDTH_RATIO = 0.5
-const LOGO_MARGIN = 36
-/** Soft full-width black bar behind the watermark so it reads on bright photos. */
-const PLATE_OPACITY = 0.12
-const PLATE_PAD_Y_RATIO = 0.28
+/** Portrait reels: large watermark (~50% width). Landscape/YouTube: compact (~20%). */
+const LOGO_WIDTH_RATIO_PORTRAIT = 0.5
+const LOGO_WIDTH_RATIO_LANDSCAPE = 0.2
+const LOGO_MARGIN = 28
+/** Soft plate behind the watermark. */
+const PLATE_OPACITY = 0.1
+const PLATE_PAD_Y_RATIO = 0.32
 
-function logoMaxWidth(frameWidth: number) {
-  return Math.round(frameWidth * LOGO_WIDTH_RATIO)
+function isLandscapeFrame(frameWidth: number, frameHeight?: number) {
+  return typeof frameHeight === 'number' && frameHeight > 0 ? frameWidth > frameHeight : frameWidth >= 1600
 }
 
-function overlayCoords(position: ReelLogoPosition) {
-  // Plate is full frame width — always pin x to 0; only vertical edge changes.
+function logoMaxWidth(frameWidth: number, frameHeight?: number) {
+  const ratio = isLandscapeFrame(frameWidth, frameHeight)
+    ? LOGO_WIDTH_RATIO_LANDSCAPE
+    : LOGO_WIDTH_RATIO_PORTRAIT
+  return Math.round(frameWidth * ratio)
+}
+
+function overlayCoords(position: ReelLogoPosition, fullWidthPlate: boolean) {
+  if (fullWidthPlate) {
+    switch (position) {
+      case 'bottom-left':
+      case 'bottom-center':
+      case 'bottom-right':
+        return `0:main_h-overlay_h`
+      default:
+        return `0:0`
+    }
+  }
   switch (position) {
-    case 'bottom-left':
-    case 'bottom-center':
-    case 'bottom-right':
-      return `0:main_h-overlay_h`
     case 'top-left':
+      return `${LOGO_MARGIN}:${LOGO_MARGIN}`
     case 'top-center':
+      return `(main_w-overlay_w)/2:${LOGO_MARGIN}`
+    case 'bottom-left':
+      return `${LOGO_MARGIN}:main_h-overlay_h-${LOGO_MARGIN}`
+    case 'bottom-center':
+      return `(main_w-overlay_w)/2:main_h-overlay_h-${LOGO_MARGIN}`
+    case 'bottom-right':
+      return `main_w-overlay_w-${LOGO_MARGIN}:main_h-overlay_h-${LOGO_MARGIN}`
     case 'top-right':
     default:
-      return `0:0`
+      return `main_w-overlay_w-${LOGO_MARGIN}:${LOGO_MARGIN}`
   }
 }
 
@@ -44,10 +65,15 @@ export type OverlayTimingOptions = {
   enableUntilSeconds?: number | null
 }
 
-/** Resize logo and composite onto a low-opacity full-width black bar. */
-async function prepareWatermarkLogoPng(logoBuffer: Buffer, frameWidth: number): Promise<Buffer> {
+/** Resize logo and composite onto a soft black plate (full-width on portrait, tight on landscape). */
+async function prepareWatermarkLogoPng(
+  logoBuffer: Buffer,
+  frameWidth: number,
+  frameHeight?: number,
+): Promise<{ png: Buffer; fullWidthPlate: boolean }> {
   const { default: sharp } = await import('sharp')
-  const maxW = logoMaxWidth(frameWidth)
+  const landscape = isLandscapeFrame(frameWidth, frameHeight)
+  const maxW = logoMaxWidth(frameWidth, frameHeight)
   const logoPng = await sharp(logoBuffer, { failOn: 'none' })
     .ensureAlpha()
     .resize({ width: maxW, fit: 'inside', withoutEnlargement: false })
@@ -57,21 +83,23 @@ async function prepareWatermarkLogoPng(logoBuffer: Buffer, frameWidth: number): 
   const meta = await sharp(logoPng).metadata()
   const lw = meta.width ?? maxW
   const lh = meta.height ?? Math.round(maxW * 0.35)
-  const padY = Math.max(LOGO_MARGIN, Math.round(lh * PLATE_PAD_Y_RATIO))
-  const plateW = frameWidth
+  const padY = Math.max(landscape ? 18 : LOGO_MARGIN, Math.round(lh * PLATE_PAD_Y_RATIO))
+  const padX = landscape ? Math.round(lw * 0.18) : 0
+  const plateW = landscape ? lw + padX * 2 : frameWidth
   const plateH = lh + padY * 2
+  const radius = landscape ? Math.round(Math.min(plateW, plateH) * 0.2) : 0
 
   const plateSvg = Buffer.from(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${plateW}" height="${plateH}">
-      <rect x="0" y="0" width="${plateW}" height="${plateH}"
+      <rect x="0" y="0" width="${plateW}" height="${plateH}" rx="${radius}" ry="${radius}"
         fill="black" fill-opacity="${PLATE_OPACITY}"/>
     </svg>`,
   )
 
-  const logoLeft = Math.round((plateW - lw) / 2)
+  const logoLeft = landscape ? padX : Math.round((plateW - lw) / 2)
   const logoTop = padY
 
-  return sharp({
+  const png = await sharp({
     create: {
       width: plateW,
       height: plateH,
@@ -85,6 +113,8 @@ async function prepareWatermarkLogoPng(logoBuffer: Buffer, frameWidth: number): 
     ])
     .png()
     .toBuffer()
+
+  return { png, fullWidthPlate: !landscape }
 }
 
 export async function applyLogoOverlayToVideo(
@@ -94,13 +124,15 @@ export async function applyLogoOverlayToVideo(
   position: ReelLogoPosition,
   frameWidth = 1080,
   timing?: OverlayTimingOptions,
+  frameHeight?: number,
 ): Promise<Buffer> {
   const workDir = await mkdtemp(join(tmpdir(), 'reels-logo-'))
   const videoPath = join(workDir, 'input.mp4')
   const logoPath = join(workDir, 'logo-watermark.png')
   const outputPath = join(workDir, 'branded.mp4')
   const ffmpeg = await resolveFfmpegBinary()
-  const coords = overlayCoords(position)
+  const prepared = await prepareWatermarkLogoPng(logoBuffer, frameWidth, frameHeight)
+  const coords = overlayCoords(position, prepared.fullWidthPlate)
   const enableFrom = timing?.enableFromSeconds
   const enableUntil = timing?.enableUntilSeconds
   const hasFrom = typeof enableFrom === 'number' && Number.isFinite(enableFrom) && enableFrom > 0
@@ -113,14 +145,12 @@ export async function applyLogoOverlayToVideo(
   } else if (hasUntil) {
     enableExpr = `:enable='lt(t\\,${enableUntil!.toFixed(3)})'`
   }
-  // Plate + logo already sized — overlay as-is
   const filter = `[1:v]format=rgba[lg];[0:v][lg]overlay=${coords}${enableExpr}`
 
   try {
     await writeFile(videoPath, videoBuffer)
     void logoFileName
-    const prepared = await prepareWatermarkLogoPng(logoBuffer, frameWidth)
-    await writeFile(logoPath, prepared)
+    await writeFile(logoPath, prepared.png)
 
     await execFileAsync(
       ffmpeg,

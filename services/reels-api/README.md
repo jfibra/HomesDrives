@@ -15,7 +15,10 @@ It covers authentication (API keys), all endpoints, the **branded mascot outro**
 **Latest partner-facing video structure:**
 
 1. Cinematic photo tour starts immediately (no intro card)  
-2. Branded outro (navy mascot plate → logo → agent photo → name/phone → QR) when `outroEnabled`
+2. **Reels outro** — navy mascot plate → logo → agent photo → name/phone → QR when `outroEnabled`  
+3. **YouTube outro** (`outputFormat: "youtube"`) — clean landscape navy+mascot plate → logo top-left → listing title/details → large QR right (always appended when `outroEnabled` is not false)
+
+Deploy must include `lib/reels-maker/assets/youtube-outro-plate.png` (and `youtube-outro-bg.png` fallback).
 
 ---
 

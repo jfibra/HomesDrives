@@ -12,13 +12,14 @@ You do **not** need a new client protocol. Use the same 5-step workflow. Copy th
 
 ```
 1. Photo tour              — starts immediately (no intro card)
-2. Branded outro  (~4.5s)  — if outroEnabled + logo / QR / agent content
+2. Branded outro           — Reels (~4.5s) or YouTube landscape (~5s)
 ```
 
 | Beat | What partners see | How to enable |
 |---|---|---|
 | **Photo tour** | Listing images play first with cinematic moves + slanted lower-thirds; optional top-center logo watermark | Photos + optional `logoPosition=top-center` / `logoDisplay=always` |
-| **Outro** | Navy mascot plate → top **logo** → circular **agent photo** → **name / phone** → **QR** | `outroEnabled: true` + upload `logo` / `qr` / `agentHeadshot` + set `agentName` / `agentPhone` |
+| **Outro (Reels)** | Navy mascot plate → top **logo** → circular **agent photo** → **name / phone** → **QR** | `outroEnabled: true` + upload `logo` / `qr` / `agentHeadshot` + set `agentName` / `agentPhone` |
+| **Outro (YouTube)** | Clean navy+mascot plate → **logo** top-left → **listing title/details** → **large QR** right | `outputFormat: "youtube"` + `outroEnabled: true` + `listingTitle` / `listingDetails` + upload `logo` + `qr` |
 
 ### Control vs automatic
 
@@ -127,7 +128,7 @@ x-api-key: rk_xxx
 | `captionsEnabled` | boolean | No | Prefer `false`. Karaoke subtitles are **never** burned into the video; bottom scene **titles** still appear. |
 | `subtitlesEnabled` | boolean | No | Alias for `captionsEnabled`. |
 | `reelBrief` | string | No | Property description — improves AI story, scene order, and voiceover |
-| `outroEnabled` | boolean | No | Default `true`. Builds the **branded geometric outro** (logo → agent photo → name/phone → QR) when any of those assets/fields are present. Also drives the spoken VO CTA when voiceover is on. |
+| `outroEnabled` | boolean | No | Default `true`. **Reels:** builds the portrait mascot outro when logo/QR/agent content is present. **YouTube (`outputFormat: "youtube"`):** always builds the landscape plate (title/details/QR/logo composited). Also drives the spoken VO CTA when voiceover is on. |
 | `outroLine` | string | No | Spoken / optional CTA line (e.g. `"Scan for listing details"`). Visual logo/QR/agent layout does **not** require this string — upload assets instead. |
 | `agentName` | string | No | White name line on the branded outro (any template). |
 | `agentPhone` | string | No | White phone line on the branded outro (any template). |
@@ -457,30 +458,43 @@ Aliases on upload (multipart or finalize JSON): `skipOutroWatermark=true` or `lo
 
 ### YouTube posting (`outputFormat: "youtube"`)
 
-Partners who need **landscape YouTube** videos use the same API with a different outro:
+Partners who need **landscape YouTube** videos use the same API with a different end card. When `outputFormat` is `"youtube"`, the server **always appends the YouTube landscape outro** (as long as `outroEnabled` is not `false`). You do **not** need agent fields for it to appear.
 
 | | Reels (`outputFormat: "reels"`) | YouTube (`outputFormat: "youtube"`) |
 |---|---|---|
 | Frame | 9:16 portrait | **16:9 landscape** (forced) |
-| Outro | Portrait navy mascot plate (logo → agent → QR) | **YouTube plate**: logo top-left · listing title/details left · **large QR right** · mascot bottom-left |
-| Camera | `cinematic` pans (default) | **`subtle`** by default (or `"off"` for static) |
+| Outro plate | Portrait navy mascot (logo → agent → QR) | **Clean navy + mascot BG** composited with logo / title / QR |
+| Outro layout | Top logo · circular agent · name/phone · QR | **Logo top-left** · **listing title + details mid-left** · **large QR right** · mascot bottom-left (baked into plate) |
+| Camera | `cinematic` pans (default) | **`subtle`** by default (or `"off"` for static letterbox) |
 | Admin UI | `/reels-maker` | `/youtube-maker` |
+
+#### YouTube outro layout (what gets composited)
+
+| Layer | Source | Notes |
+|---|---|---|
+| Background | Server plate (`youtube-outro-plate.png`) | Navy geometric pattern + waving mascot only — **no** baked logo / title / QR |
+| Logo | Upload `logo` (white / light PNG) | Top-left (~20% width). Prefer uploading; without it the plate has no wordmark |
+| Title | `listingTitle` | White serif, mid-left (falls back to address / story title) |
+| Details | `listingDetails` | Smaller white sans line under title (falls back to price · address / `outroLine`) |
+| QR | Upload `qr` + `qrDisplay=outro-only` | Large white-padded QR, vertically centered on the right |
+
+Tour watermark (if `logoDisplay=always` / `photos-only`) is **masked off** outro frames so the plate logo is not doubled.
 
 #### Required for the YouTube outro to build
 
 | Field | Required? | Notes |
 |---|---|---|
 | `outputFormat: "youtube"` | ✅ | On **create and/or render** (re-send on render is fine / recommended) |
-| `outroEnabled: true` | ✅ | Default true; do not set false |
+| `outroEnabled: true` | ✅ | Default `true`; do not set `false` or the plate is skipped |
 | `listingTitle` / `listingDetails` | Recommended | Shown on the plate; fallbacks exist (address / story title / `outroLine`) |
-| Upload `qr` + `qrEnabled=true` + `qrDisplay=outro-only` | Recommended | Large QR on the right |
-| Upload `logo` + `logoEnabled=true` | Optional | Overlays top-left; plate already has Homes.ph mark |
-| `agentName` / `agentPhone` / `agentHeadshot` | **Not required** | Portrait-outro only; omitting them does **not** suppress the YouTube plate |
+| Upload `logo` + `logoEnabled=true` | **Strongly recommended** | Top-left wordmark on the clean plate |
+| Upload `qr` + `qrEnabled=true` + `qrDisplay=outro-only` | **Strongly recommended** | Large QR on the right |
+| `agentName` / `agentPhone` / `agentHeadshot` | **Not used** | Portrait-outro only; omitting them does **not** suppress the YouTube plate |
 | `logoDisplay: "photos-only"` | OK | Only affects tour watermark; **does not** suppress the YouTube plate |
 
-If the outro still fails after deploy, the job will **error** (not silently skip) with a clear message (e.g. missing plate asset).
+If the outro fails after deploy, the job will **error** (not silently skip) with a clear message (e.g. missing plate asset on the EC2 host).
 
-**Create body:**
+**Create body (YouTube):**
 
 ```json
 {
@@ -498,15 +512,31 @@ If the outro still fails after deploy, the job will **error** (not silently skip
 }
 ```
 
-For **no zoom / no push** on landscape stills (you already letterbox to 1920×1080):
+**Uploads (same endpoints as reels):**
+
+```js
+form.append('logo', logoFile, 'whiteLogo.png')
+form.append('logoEnabled', 'true')
+form.append('logoPosition', 'top-center')   // tour watermark
+form.append('logoDisplay', 'photos-only')  // or always — masked off outro either way
+
+form.append('qr', qrFile, 'listing-qr.png')
+form.append('qrEnabled', 'true')
+form.append('qrDisplay', 'outro-only')
+```
+
+For **no zoom / no push** on landscape stills (already letterboxed to 1920×1080):
 
 ```json
 { "outputFormat": "youtube", "cameraMotion": "off" }
 ```
 
-Upload `logo` + `qr` (`qrDisplay=outro-only`) the same way as reels. The YouTube outro uses listing title/details + QR — not the portrait agent stack.
+**Timeline for YouTube jobs:**
 
-**Copy-paste create body for a full outro:**
+1. Photo tour (16:9) — subtle/off camera + lower-thirds + optional top watermark  
+2. YouTube outro (~5s) — clean navy+mascot plate → logo top-left → title/details → QR right  
+
+**Copy-paste create body for a full portrait (Reels) outro:**
 
 ```json
 {
@@ -734,7 +764,7 @@ No need to append a fake end-card photo as the last media file.
 | Capability | How |
 |---|---|
 | Start on listing photos | Automatic (no intro card) |
-| YouTube 16:9 + landscape outro | `outputFormat: "youtube"` + `listingTitle` / `listingDetails` + `qr` |
+| YouTube 16:9 + landscape outro | `outputFormat: "youtube"` + `outroEnabled: true` + `listingTitle` / `listingDetails` + upload `logo` + `qr` (`qrDisplay=outro-only`) |
 | No zoom on YouTube stills | `cameraMotion: "off"` (or rely on default `"subtle"`) |
 | Logo top-center during photos | `logoPosition=top-center` + `logoDisplay=always` or `photos-only` (watermark masked off branded outro — no double logo) |
 | Custom logo in left lower-third tab | Upload `accentLogo` (+ `accentLogoEnabled=true`) — lower-third only, not on outro |
