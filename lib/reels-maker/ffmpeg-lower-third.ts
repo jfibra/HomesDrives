@@ -70,15 +70,18 @@ export async function renderLowerThirdPng(
   const titleLines = wrapTitle(rawTitle, isLandscape ? 34 : 26)
   const subtitle =
     rawSubtitle && rawSubtitle.toUpperCase() !== titleLines.join(' ').toUpperCase()
-      ? rawSubtitle.slice(0, isLandscape ? 36 : 42).toUpperCase()
+      ? rawSubtitle.slice(0, isLandscape ? 42 : 42).toUpperCase()
       : null
 
   const barY = Math.round(frameHeight * (isLandscape ? 0.82 : 0.78))
   const mainH = Math.round((subtitle ? 88 : 72) * s)
   const skew = Math.round(36 * s)
-  const left = Math.round((isLandscape ? 56 : 48) * s)
   const logoW = Math.round((isLandscape ? 120 : 168) * s)
-  const mainW = Math.round((isLandscape ? 900 : 780) * s)
+  // Landscape: wider ribbon, centered like portrait reels. Portrait: left-anchored (fills most of 9:16).
+  const mainW = Math.round((isLandscape ? 1180 : 780) * s)
+  const left = isLandscape
+    ? Math.round((frameWidth - mainW - skew) / 2)
+    : Math.round(48 * s)
 
   const blue = `#${BLUE_PRIMARY.replace(/^0x/i, '')}`
   const blueDeep = `#${BLUE_DEEP.replace(/^0x/i, '')}`
@@ -162,9 +165,9 @@ export async function renderLowerThirdPng(
         text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="${Math.round(18 * s)}"
         font-weight="700" fill="#FFFFFF">LOGO</text>`
 
-  // Thin decorative right accent only — never a logo
+  // Thin decorative right accent — sits just past the white ribbon (not stranded at frame edge)
   const rightTabW = Math.round(22 * s)
-  const rightTabX = frameWidth - Math.round((isLandscape ? 70 : 90) * s)
+  const rightTabX = left + mainW + Math.round(skew * 0.35)
   const rightTabY = barY + Math.round(mainH * 0.12)
   const rightTabH = Math.round(mainH * 0.85)
 

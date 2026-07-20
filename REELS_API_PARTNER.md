@@ -122,7 +122,7 @@ x-api-key: rk_xxx
 | `outputFormat` | `"reels"` \| `"youtube"` | No | Default `"reels"` (portrait mascot outro). Use **`"youtube"`** for 16:9 videos with the **YouTube landscape outro** (title + details + large QR). Send on **create and/or render**. |
 | `listingTitle` | string | No | YouTube outro primary line (e.g. property name). Falls back to `listingAddress` / story title. Send on **create and/or render**. |
 | `listingDetails` | string | No | YouTube outro secondary line (e.g. `3BR · ₱18M · BGC`). Send on **create and/or render**. |
-| `cameraMotion` | `"cinematic"` \| `"subtle"` \| `"off"` | No | Photo-tour motion. **YouTube defaults to `subtle`**. Use `"off"` for static letterboxed stills (no Ken Burns / push). |
+| `cameraMotion` | `"cinematic"` \| `"subtle"` \| `"off"` | No | Photo-tour motion. **YouTube defaults to `subtle`**. Use `"off"` for **static full-bleed** stills (cover crop, no Ken Burns — no side letterbox bars). Upload native photos; do **not** pre-letterbox with blue/black bars. |
 | `voiceOverEnabled` | boolean | No | Generate AI voiceover narration (**audio only** — no karaoke burn-in) |
 | `voiceGender` | `"woman"` \| `"man"` | No | Narrator voice. Default `"woman"`. Also accepts `"female"` / `"male"`. |
 | `captionsEnabled` | boolean | No | Prefer `false`. Karaoke subtitles are **never** burned into the video; bottom scene **titles** still appear. |
@@ -465,7 +465,7 @@ Partners who need **landscape YouTube** videos use the same API with a different
 | Frame | 9:16 portrait | **16:9 landscape** (forced) |
 | Outro plate | Portrait navy mascot (logo → agent → QR) | **Clean navy + mascot BG** composited with logo / title / QR |
 | Outro layout | Top logo · circular agent · name/phone · QR | **Logo top-left** · **listing title + details mid-left** · **large QR right** · mascot bottom-left (baked into plate) |
-| Camera | `cinematic` pans (default) | **`subtle`** by default (or `"off"` for static letterbox) |
+| Camera | `cinematic` pans (default) | **`subtle`** by default (or `"off"` for static **full-bleed** cover) |
 | Admin UI | `/reels-maker` | `/youtube-maker` |
 
 #### YouTube outro layout (what gets composited)
@@ -527,11 +527,13 @@ form.append('qrEnabled', 'true')
 form.append('qrDisplay', 'outro-only')
 ```
 
-For **no zoom / no push** on landscape stills (already letterboxed to 1920×1080):
+For **no zoom / no push** on landscape stills (images still fill 16:9 via cover crop):
 
 ```json
 { "outputFormat": "youtube", "cameraMotion": "off" }
 ```
+
+Upload **native** property photos (portrait or landscape). Do **not** pre-pad with blue/black bars — the renderer fills the frame.
 
 **Timeline for YouTube jobs:**
 
@@ -767,7 +769,7 @@ No need to append a fake end-card photo as the last media file.
 |---|---|
 | Start on listing photos | Automatic (no intro card) |
 | YouTube 16:9 + landscape outro | `outputFormat: "youtube"` + `outroEnabled: true` + `listingTitle` / `listingDetails` + upload `logo` + `qr` (`qrDisplay=outro-only`) |
-| No zoom on YouTube stills | `cameraMotion: "off"` (or rely on default `"subtle"`) |
+| No zoom on YouTube stills | `cameraMotion: "off"` (full-bleed cover; or default `"subtle"`) |
 | Logo top-center during photos | `logoPosition=top-center` + `logoDisplay=always` or `photos-only` (watermark masked off branded outro — no double logo) |
 | Custom logo in left lower-third tab | Upload `accentLogo` (+ `accentLogoEnabled=true`) — lower-third only, not on outro |
 | Logo only on outro (no watermark) | `logoDisplay=outro-only` (still upload `logo`) |

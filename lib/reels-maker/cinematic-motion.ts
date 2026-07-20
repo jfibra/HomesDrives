@@ -58,7 +58,7 @@ export function buildStaticScale(frame: ReelFrameDimensions) {
   return `scale=${frame.width}:${frame.height}:force_original_aspect_ratio=increase:${scaleFlags},crop=${frame.width}:${frame.height},fps=${FPS}`
 }
 
-/** Fit entire image in frame with letterboxing (no crop) — best for pre-letterboxed YouTube stills. */
+/** Fit entire image in frame with letterboxing (no crop). Prefer cover for YouTube/full-bleed. */
 export function buildContainScale(frame: ReelFrameDimensions) {
   const scaleFlags = `flags=${REEL_SCALE_FLAGS}`
   return `scale=${frame.width}:${frame.height}:force_original_aspect_ratio=decrease:${scaleFlags},pad=${frame.width}:${frame.height}:(ow-iw)/2:(oh-ih)/2:black,fps=${FPS}`
@@ -74,8 +74,8 @@ function linearExpr(frames: number) {
 /**
  * Map motion → Ken Burns pans. Intensity controls zoom push:
  * - cinematic: ~1.12× zoom through pre-scaled canvas
- * - subtle: ~1.04× (YouTube default — avoids “cropped/pushed-in” feel)
- * - off: static contain (letterbox) — no zoompan
+ * - subtle: ~1.04× (YouTube default — light pan, full-bleed cover crop)
+ * - off: static full-bleed cover (no zoompan, no letterbox bars)
  */
 export function buildMotionFilter(
   motion: ReelSceneMotion,
@@ -84,7 +84,7 @@ export function buildMotionFilter(
   intensity: MotionIntensity = 'cinematic',
 ): string {
   if (intensity === 'off') {
-    return buildContainScale(frame)
+    return buildStaticScale(frame)
   }
 
   const preScale = buildPreScale(frame)
@@ -117,7 +117,7 @@ export function buildVideoMotionFilter(
   intensity: MotionIntensity = 'cinematic',
 ): string {
   if (intensity === 'off') {
-    return buildContainScale(frame)
+    return buildStaticScale(frame)
   }
 
   const scaleFlags = `flags=${REEL_SCALE_FLAGS}`

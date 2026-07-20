@@ -290,38 +290,54 @@ export async function renderYoutubeOutroScene(params: {
     const title = params.listingTitle?.trim() || 'Homes.ph Listing'
     const details = params.listingDetails?.trim() || ''
 
-    // Match sample: title mid-left above mascot; details one line under title
-    const titleFont = Math.round(Math.min(68, Math.max(40, width * 0.036)))
-    const detailFont = Math.round(Math.min(32, Math.max(20, width * 0.018)))
-    const cardW = Math.round(width * 0.48)
-    const lineGap = Math.round(titleFont * 1.2)
-    const titleLines = wrapYoutubeTitle(title, 26)
-    const detailLine = details.slice(0, 64)
-    const titleBlockH = titleLines.length * lineGap
-    const cardH = titleBlockH + (detailLine ? Math.round(detailFont * 2.2) : Math.round(titleFont * 0.4))
-    const cardX = Math.round(width * 0.055)
-    // Vertically center the text block in the left half, clear of mascot (~bottom 28%)
-    const cardY = Math.round(height * 0.34)
+    // Full-frame text SVG so we can pin title/details in the safe band above the mascot.
+    // Mascot occupies roughly bottom-left (~y > 52% and x < 28%).
+    const titleFont = Math.round(Math.min(50, Math.max(34, width * 0.027)))
+    const detailFont = Math.round(Math.min(24, Math.max(17, width * 0.0135)))
+    const textX = Math.round(width * 0.055)
+    const titleMaxW = Math.round(width * 0.46)
+    const charsPerLine = Math.max(18, Math.floor(titleMaxW / (titleFont * 0.52)))
+    const titleLines = wrapYoutubeTitle(title, charsPerLine)
+    const detailChars = Math.max(24, Math.floor(titleMaxW / (detailFont * 0.48)))
+    const detailLines = details ? wrapYoutubeTitle(details, detailChars).slice(0, 2) : []
+
+    const titleLineGap = Math.round(titleFont * 1.12)
+    const detailLineGap = Math.round(detailFont * 1.25)
+    const titleStartY = Math.round(height * 0.26)
+    const detailsStartY = titleStartY + titleLines.length * titleLineGap + Math.round(detailFont * 0.7)
+    // Hard cap: last detail baseline must stay clear above mascot cap (~52%+)
+    const detailsMaxY = Math.round(height * 0.44)
+    const detailCount = detailLines.length
+    const lastDetailY =
+      detailCount > 0 ? detailsStartY + (detailCount - 1) * detailLineGap : titleStartY
+    const yShift = lastDetailY > detailsMaxY ? detailsMaxY - lastDetailY : 0
+    const adjTitleY = titleStartY + yShift
+    const adjDetailsY = detailsStartY + yShift
 
     const titleTspans = titleLines
       .map((line, i) => {
-        const dy = i === 0 ? 0 : lineGap
-        if (i === 0) return `<tspan x="0" dy="0">${escapeXml(line)}</tspan>`
-        return `<tspan x="0" dy="${dy}">${escapeXml(line)}</tspan>`
+        const dy = i === 0 ? 0 : titleLineGap
+        if (i === 0) return `<tspan x="${textX}" dy="0">${escapeXml(line)}</tspan>`
+        return `<tspan x="${textX}" dy="${dy}">${escapeXml(line)}</tspan>`
       })
       .join('')
 
-    const titleBaseline = Math.round(titleFont * 0.92)
-    const detailY = titleBaseline + titleBlockH + Math.round(detailFont * 0.55)
+    const detailTspans = detailLines
+      .map((line, i) => {
+        const dy = i === 0 ? 0 : detailLineGap
+        if (i === 0) return `<tspan x="${textX}" dy="0">${escapeXml(line)}</tspan>`
+        return `<tspan x="${textX}" dy="${dy}">${escapeXml(line)}</tspan>`
+      })
+      .join('')
 
     const textSvg = Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${cardW}" height="${cardH}">
-  <text x="0" y="${titleBaseline}" font-family="Georgia, 'Times New Roman', serif" font-size="${titleFont}"
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
+  <text x="${textX}" y="${adjTitleY}" font-family="Georgia, 'Times New Roman', serif" font-size="${titleFont}"
     font-weight="700" fill="#FFFFFF">${titleTspans}</text>
   ${
-    detailLine
-      ? `<text x="0" y="${detailY}" font-family="Arial, Helvetica, sans-serif" font-size="${detailFont}"
-    font-weight="500" fill="#E8EEF5">${escapeXml(detailLine)}</text>`
+    detailLines.length
+      ? `<text x="${textX}" y="${adjDetailsY}" font-family="Arial, Helvetica, sans-serif" font-size="${detailFont}"
+    font-weight="500" fill="#E8EEF5">${detailTspans}</text>`
       : ''
   }
 </svg>`)
@@ -340,10 +356,10 @@ export async function renderYoutubeOutroScene(params: {
       await writeFile(logoPath, params.logoBuffer)
       inputs.push('-loop', '1', '-framerate', String(FPS), '-i', logoPath)
       const idx = inputIndex++
-      const logoW = Math.round(width * 0.2)
+      const logoW = Math.round(width * 0.18)
       filters.push(
         `[${idx}:v]scale=w=${logoW}:h=-1,format=rgba,fade=t=in:st=0.05:d=0.35:alpha=1[ytlogo]`,
-        `[${base}][ytlogo]overlay=x='${Math.round(width * 0.045)}':y='${Math.round(height * 0.06)}'[withlogo]`,
+        `[${base}][ytlogo]overlay=x='${Math.round(width * 0.045)}':y='${Math.round(height * 0.055)}'[withlogo]`,
       )
       base = 'withlogo'
     }
@@ -353,7 +369,7 @@ export async function renderYoutubeOutroScene(params: {
       const idx = inputIndex++
       filters.push(
         `[${idx}:v]format=rgba,fade=t=in:st=0.2:d=0.45:alpha=1[yttitle]`,
-        `[${base}][yttitle]overlay=x=${cardX}:y=${cardY}[withtitle]`,
+        `[${base}][yttitle]overlay=x=0:y=0[withtitle]`,
       )
       base = 'withtitle'
     }
