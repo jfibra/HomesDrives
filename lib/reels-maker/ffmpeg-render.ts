@@ -10,9 +10,7 @@ import {
   probeMediaDuration,
   processMusicTrackForMix,
   processVoiceTrackForMix,
-  REEL_END_PAD_SEC,
   runFfmpegAudio,
-  trimVideoToDuration,
 } from '@/lib/reels-maker/audio-utils'
 import { measureVoiceOverDuration } from '@/lib/reels-maker/audio-utils'
 import { buildSceneBookendFilters, resolveSceneMotion, BLACK_LEADER_SEC, BLACK_TAIL_SEC } from '@/lib/reels-maker/ffmpeg-bookends'
@@ -490,8 +488,8 @@ async function muxAudio(
   const outputPath = join(workDir, 'final.mp4')
   await writeFile(videoInputPath, videoBuffer)
 
-  let videoPath = videoInputPath
-  let actualVideoDuration = await probeMediaDuration(videoPath)
+  const videoPath = videoInputPath
+  const actualVideoDuration = await probeMediaDuration(videoPath)
 
   let processedVoicePath: string | undefined
   let voiceDuration = 0
@@ -501,19 +499,10 @@ async function muxAudio(
     voiceDuration = processed.duration
   }
 
+  // Always keep the full picture timeline. Scenes are already voice-aligned, then the
+  // branded / YouTube outro is appended AFTER that — trimming to voiceDuration used to
+  // chop the outro plate off the end while the job still completed successfully.
   let finalDuration = actualVideoDuration
-  if (processedVoicePath && voiceDuration > 0) {
-    finalDuration = voiceDuration + REEL_END_PAD_SEC
-    if (actualVideoDuration > finalDuration + 0.05) {
-      const trimmedVideoPath = join(workDir, 'video-trimmed.mp4')
-      const trimmedDuration = await trimVideoToDuration(videoPath, trimmedVideoPath, finalDuration)
-      videoPath = trimmedVideoPath
-      actualVideoDuration = trimmedDuration || finalDuration
-    } else if (actualVideoDuration + 0.05 < finalDuration) {
-      finalDuration = actualVideoDuration
-    }
-  }
-
   if (processedVoicePath && voiceDuration > finalDuration + 0.05) {
     const trimmedVoicePath = join(workDir, 'voice-trimmed.wav')
     await runFfmpegAudio([
@@ -528,7 +517,9 @@ async function muxAudio(
     voiceDuration = finalDuration
   }
 
-  finalDuration = Math.min(finalDuration, actualVideoDuration || finalDuration)
+  console.info(
+    `[reels-maker/mux] final=${finalDuration.toFixed(2)}s video=${actualVideoDuration.toFixed(2)}s voice=${voiceDuration.toFixed(2)}s`,
+  )
   const durationArgs = finalDuration >= 1 ? ['-t', finalDuration.toFixed(3)] : []
 
   if (options.musicPath && processedVoicePath) {
@@ -701,7 +692,11 @@ export async function renderReelWithFfmpeg(params: {
     if (resolvedVoiceOver?.length) {
       const voiceDuration = await measureVoiceOverDuration(resolvedVoiceOver)
       if (voiceDuration > 0) {
-        renderPlan = scalePlanForVoiceDuration(params.plan, voiceDuration)
+        // Leave room for the visual outro plate so VO is not stretched across tour-only
+        // frames and then the plate gets treated as "excess" video.
+        const outroReserveSec = params.outroEnabled === false ? 0 : isYoutube ? 4.5 : 4
+        const tourTarget = Math.max(voiceDuration - outroReserveSec, voiceDuration * 0.65)
+        renderPlan = scalePlanForVoiceDuration(params.plan, tourTarget)
       }
     }
     renderPlan = enforceMinSceneDurations(renderPlan)
@@ -834,6 +829,13 @@ export async function renderReelWithFfmpeg(params: {
     } else {
       console.warn(
         `[reels-maker/render] Skipping outro (outroEnabled=${outroEnabled}, hasContent=${hasOutroContent}, format=${params.outputFormat || 'reels'})`,
+      )
+    }
+
+    // YouTube jobs must never complete without the landscape plate when outro is on.
+    if (isYoutube && outroEnabled && brandedOutroDuration <= 0) {
+      throw new Error(
+        'YouTube outro was required (outputFormat=youtube, outroEnabled=true) but was not appended. Check EC2 logs and that youtube-outro-plate.png is deployed.',
       )
     }
 

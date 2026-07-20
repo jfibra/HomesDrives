@@ -494,6 +494,8 @@ Tour watermark (if `logoDisplay=always` / `photos-only`) is **masked off** outro
 
 If the outro fails after deploy, the job will **error** (not silently skip) with a clear message (e.g. missing plate asset on the EC2 host).
 
+**Duration note:** Photo scenes are timed to the voice-over, then the YouTube plate (~5s) is **appended**. Final MP4 length is photo tour + outro (voice may end slightly before the plate finishes). Older builds incorrectly trimmed the file back to voice length and dropped the plate while still returning `completed` — that is fixed; re-render after deploy.
+
 **Create body (YouTube):**
 
 ```json
