@@ -122,7 +122,7 @@ x-api-key: rk_xxx
 | `aspectRatio` | `"portrait"` \| `"landscape"` | No | `portrait` = 9:16 for Reels/TikTok (default). `landscape` = 16:9 for YouTube/Facebook. Forced to `landscape` when `outputFormat` is `"youtube"`. |
 | `outputFormat` | `"reels"` \| `"youtube"` | No | Default `"reels"` (portrait mascot outro). Use **`"youtube"`** for 16:9 videos with the **YouTube landscape outro** (title + details + large QR). Send on **create and/or render**. |
 | `listingTitle` | string | No | YouTube outro primary line(s). Use `\n` for name + price on separate lines. Falls back to `listingAddress` / story title. Send on **create and/or render**. |
-| `listingTitleColor` | string | No | YouTube outro **title** hex color (e.g. `"#F4AA1D"`). Title block only — `listingDetails` stays white/light. Default white. |
+| `listingTitleColor` | string | No | YouTube outro **title** hex color (e.g. `"#F4AA1D"`). Title block only — `listingDetails` stays white. Default **`#F4AA1D`**. |
 | `listingDetails` | string | No | YouTube outro secondary line (e.g. `3BR · ₱18M · BGC`). Send on **create and/or render**. |
 | `cameraMotion` | `"cinematic"` \| `"subtle"` \| `"off"` | No | Photo-tour motion. **YouTube defaults to `subtle`**. Use `"off"` for **static full-bleed** stills (cover crop, no Ken Burns — no side letterbox bars). Upload native photos; do **not** pre-letterbox with blue/black bars. |
 | `voiceOverEnabled` | boolean | No | Generate AI voiceover narration (**audio only** — no karaoke burn-in) |
@@ -477,8 +477,8 @@ Partners who need **landscape YouTube** videos use the same API with a different
 |---|---|---|
 | Background | Server plate (`youtube-outro-plate.png`) | Navy geometric pattern + waving mascot only — **no** baked logo / title / QR |
 | Logo | Upload `logo` (white / light PNG) | Top-left (~20% width). Prefer uploading; without it the plate has no wordmark |
-| Title | `listingTitle` (+ optional `listingTitleColor`) | Serif mid-left; default white. Set `listingTitleColor` (e.g. `#F4AA1D`) for gold/accent. `\n` splits lines (name + price). |
-| Details | `listingDetails` | Smaller white/light sans under title (falls back to price · address / `outroLine`) |
+| Title | `listingTitle` (+ optional `listingTitleColor`) | **Bebas Neue**, design size **50** on the sample plate (~**94px** at 1080p), all-caps, fills left column. Default gold `#F4AA1D`. |
+| Details | `listingDetails` | Smaller white **sans** under title (title case) — not Bebas |
 | QR | Upload `qr` + `qrDisplay=outro-only` | Large white-padded QR, vertically centered on the right |
 
 Tour watermark (if `logoDisplay=always` / `photos-only`) is **masked off** outro frames so the plate logo is not doubled.
