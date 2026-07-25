@@ -319,7 +319,7 @@ export async function renderYoutubeOutroScene(params: {
     let titleFont = Math.round(YOUTUBE_OUTRO_TITLE_SIZE * outScale)
     const minTitleFont = Math.round(YOUTUBE_OUTRO_TITLE_SIZE * outScale)
     let titleLeading = YOUTUBE_OUTRO_TITLE_LEADING
-    const detailFont = Math.round(YOUTUBE_OUTRO_DETAIL_SIZE * scale)
+    let detailFont = Math.round(YOUTUBE_OUTRO_DETAIL_SIZE * scale)
     const textX = Math.round(width * 0.09)
 
     // Logo plate (partner wordmark) — title must start below this band
@@ -334,21 +334,14 @@ export async function renderYoutubeOutroScene(params: {
       logoBottomY = logoY + logoH + Math.round(height * 0.035)
     }
 
-    // Keep a clear gutter before the QR column — clip + composited QR sit to the right
-    const qrLeft = Math.round(width * 0.685)
-    const qrSafeMargin = Math.round(width * 0.022)
-    const titleMaxW = Math.max(280, qrLeft - textX - qrSafeMargin)
-
-    const safeTop = logoBottomY
+    // Keep a clear gutter before the QR column — match the real white QR plate edge
+    const qrSize = Math.round(Math.min(height * 0.55, width * 0.26))
+    const qrPad = Math.round(Math.max(16, height * 0.018))
+    const qrX = Math.round(width * 0.68 + (width * 0.28 - qrSize) / 2)
+    const qrBoxLeft = qrX - qrPad
+    const titleMaxW = Math.max(280, qrBoxLeft - textX - Math.round(width * 0.025))
+    const titleWidthBudget = titleMaxW
     const safeBottom = Math.round(height * YOUTUBE_OUTRO_TEXT_BOTTOM)
-
-    const fitTitle = (fontPx: number, leading: number, chars: number) => {
-      const lines = wrapYoutubeTitle(title.toUpperCase(), chars, 3)
-      const gap = Math.round(fontPx * leading)
-      return { lines, gap, blockH: Math.max(0, lines.length - 1) * gap + fontPx, chars }
-    }
-
-    const titleWidthBudget = titleMaxW - Math.round(6 * outScale)
 
     let fontFaceCss = ''
     if (fileExists(BEBAS_NEUE_PATH)) {
@@ -384,6 +377,12 @@ export async function renderYoutubeOutroScene(params: {
         if (w > titleWidthBudget) return false
       }
       return true
+    }
+
+    const fitTitle = (fontPx: number, leading: number, chars: number) => {
+      const lines = wrapYoutubeTitle(title.toUpperCase(), chars, 3)
+      const gap = Math.round(fontPx * leading)
+      return { lines, gap, blockH: Math.max(0, lines.length - 1) * gap + fontPx, chars }
     }
 
     const wrapTitleForFont = async (fontPx: number, leading: number) => {
@@ -432,13 +431,13 @@ export async function renderYoutubeOutroScene(params: {
       return { font, ...best }
     }
 
-    // Details: wrap up to 2 lines so long addresses clear QR + stay above mascot
-    const detailGap = Math.round(detailFont * 1.2)
-    const measureDetailLineWidth = async (line: string) => {
+    // Details: wrap before QR; prefer commas; up to 3 lines for long addresses
+    const detailGapPx = () => Math.round(detailFont * 1.2)
+    const measureDetailLineWidth = async (line: string, fontPx = detailFont) => {
       const probe = Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${Math.max(80, detailFont + 30)}">
-  <style type="text/css">.d{font-family:Arial, Helvetica, sans-serif;font-size:${detailFont}px;font-weight:500;fill:#000;}</style>
-  <text x="0" y="${detailFont}" class="d">${escapeXml(line)}</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${Math.max(80, fontPx + 30)}">
+  <style type="text/css">.d{font-family:Arial, Helvetica, sans-serif;font-size:${fontPx}px;font-weight:500;fill:#000;}</style>
+  <text x="0" y="${fontPx}" class="d">${escapeXml(line)}</text>
 </svg>`)
       const { data, info } = await sharp(probe).raw().ensureAlpha().toBuffer({ resolveWithObject: true })
       let maxX = 0
@@ -451,28 +450,84 @@ export async function renderYoutubeOutroScene(params: {
       return maxX + 1
     }
 
+    const linesFitDetailBudget = async (lines: string[], fontPx: number) => {
+      for (const line of lines) {
+        if ((await measureDetailLineWidth(line, fontPx)) > titleWidthBudget) return false
+      }
+      return true
+    }
+
     const wrapDetailsForWidth = async (): Promise<string[]> => {
       if (!details) return []
       const raw = details.trim()
       if (!raw) return []
-      // Prefer a single line when it fits the QR-safe budget
-      if ((await measureDetailLineWidth(raw)) <= titleWidthBudget) return [raw]
-      for (let maxLen = Math.max(24, Math.floor(titleWidthBudget / (detailFont * 0.48))); maxLen >= 18; maxLen--) {
-        const lines = wrapYoutubeTitleBody(raw, maxLen, 2)
-        let ok = true
-        for (const line of lines) {
-          if ((await measureDetailLineWidth(line)) > titleWidthBudget) {
-            ok = false
-            break
-          }
-        }
-        if (ok) return lines
+
+      // Prefer 1 line: shrink detail type a little before wrapping (avoids half-address clip)
+      for (let i = 0; i < 8; i++) {
+        if (await linesFitDetailBudget([raw], detailFont)) return [raw]
+        const next = Math.round(detailFont * 0.94)
+        if (next < Math.round(16 * scale)) break
+        detailFont = next
       }
-      // Last resort: force 2 soft wraps even if slightly tight (hard clip still protects QR)
-      return wrapYoutubeTitleBody(raw, Math.max(18, Math.floor(titleWidthBudget / (detailFont * 0.55))), 2)
+
+      // Prefer natural comma breaks into 2–3 lines
+      const commaParts = raw
+        .split(/(?<=,)\s*/)
+        .map((p) => p.trim())
+        .filter(Boolean)
+      if (commaParts.length >= 2) {
+        for (const maxLines of [2, 3]) {
+          const candidate =
+            commaParts.length <= maxLines
+              ? commaParts
+              : (() => {
+                  const lines: string[] = []
+                  let current = ''
+                  const per = Math.ceil(commaParts.length / maxLines)
+                  for (const part of commaParts) {
+                    const next = current ? `${current} ${part}` : part
+                    if (lines.length < maxLines - 1 && next.split(/\s+/).length >= per && current) {
+                      lines.push(current)
+                      current = part
+                    } else current = next
+                  }
+                  if (current) lines.push(current)
+                  return lines.slice(0, maxLines)
+                })()
+          if (await linesFitDetailBudget(candidate, detailFont)) return candidate
+        }
+      }
+
+      // Soft wrap by measured width for 2 then 3 lines
+      for (const maxLines of [2, 3]) {
+        for (
+          let maxLen = Math.max(22, Math.floor(titleWidthBudget / (detailFont * 0.5)));
+          maxLen >= 16;
+          maxLen--
+        ) {
+          const lines = wrapYoutubeTitleBody(raw, maxLen, maxLines)
+          if (await linesFitDetailBudget(lines, detailFont)) return lines
+        }
+      }
+
+      // Still too wide — shrink detail font further and retry 3-line wrap
+      for (let i = 0; i < 6; i++) {
+        detailFont = Math.max(Math.round(14 * scale), Math.round(detailFont * 0.92))
+        for (
+          let maxLen = Math.max(20, Math.floor(titleWidthBudget / (detailFont * 0.5)));
+          maxLen >= 14;
+          maxLen--
+        ) {
+          const lines = wrapYoutubeTitleBody(raw, maxLen, 3)
+          if (await linesFitDetailBudget(lines, detailFont)) return lines
+        }
+      }
+
+      return wrapYoutubeTitleBody(raw, Math.max(14, Math.floor(titleWidthBudget / (detailFont * 0.55))), 3)
     }
 
     let detailLines = await wrapDetailsForWidth()
+    const detailGap = detailGapPx()
 
     let { font: titleFontFit, lines: titleLines, gap: titleLineGap, blockH: titleBlockH } =
       await findLargestFittingFont(titleFont, titleLeading)
@@ -562,27 +617,61 @@ export async function renderYoutubeOutroScene(params: {
       visualBottom = measureVisualBottom(adjTitleY)
     }
 
-    // Hard stop: address baseline must stay clear of mascot head
+    // Hard stop: keep the FULL address (all lines + descenders) above the mascot
     const mascotClearY = Math.round(height * Math.min(YOUTUBE_OUTRO_MASCOT_TOP, YOUTUBE_OUTRO_TEXT_BOTTOM))
-    const lastDetailBaseline =
-      detailLines.length > 0
-        ? adjDetailsY + (detailLines.length - 1) * detailGap
-        : adjTitleY + Math.max(0, titleLines.length - 1) * titleLineGap
-    if (lastDetailBaseline + Math.round(detailFont * 0.2) > mascotClearY) {
-      const shift = lastDetailBaseline + Math.round(detailFont * 0.2) - mascotClearY
-      adjTitleY = Math.max(minTitleBaselineY(), adjTitleY - shift)
+    // Arial descenders need ~0.3em below baseline; keep extra slack so clip never shaves letters
+    const detailInkPad = Math.round(detailFont * 0.55)
+    for (let i = 0; i < 12; i++) {
       syncDetailsY()
+      const lastDetailY =
+        detailLines.length > 0
+          ? adjDetailsY + (detailLines.length - 1) * detailGap + detailInkPad
+          : adjTitleY + Math.max(0, titleLines.length - 1) * titleLineGap
+      if (lastDetailY <= mascotClearY) break
+
+      const overflow = lastDetailY - mascotClearY
+      const minY = minTitleBaselineY()
+      if (adjTitleY - overflow >= minY) {
+        adjTitleY -= overflow
+        syncDetailsY()
+        break
+      }
+      adjTitleY = minY
+      syncDetailsY()
+
+      // Compact title leading, then shrink title type so address stays complete
+      if (titleLineGap > Math.round(titleFont * YOUTUBE_OUTRO_TITLE_LEADING_MIN)) {
+        titleLineGap = Math.max(
+          Math.round(titleFont * YOUTUBE_OUTRO_TITLE_LEADING_MIN),
+          Math.round(titleLineGap * 0.94),
+        )
+      } else if (titleFont > Math.round(48 * outScale)) {
+        titleFont = Math.round(titleFont * 0.96)
+        const refit = await findLargestFittingFont(titleFont, titleLeading)
+        titleFont = refit.font
+        titleLines = refit.lines
+        titleLineGap = Math.round(titleFont * YOUTUBE_OUTRO_TITLE_LEADING_MIN)
+      } else {
+        break
+      }
     }
+    syncDetailsY()
+
+    // Horizontal clip for QR only; vertical clip must cover address descenders fully
+    const clipW = textX + titleWidthBudget
+    const lastVisibleDetailY =
+      detailLines.length > 0
+        ? adjDetailsY + (detailLines.length - 1) * detailGap + detailInkPad
+        : adjTitleY + Math.max(0, titleLines.length - 1) * titleLineGap
+    const clipH = Math.min(height - 2, Math.max(mascotClearY + 2, lastVisibleDetailY + 8))
 
     const detailFamily = `Arial, Helvetica, sans-serif`
-
     const titleTspans = titleLines
       .map((line, i) => {
         const y = adjTitleY + i * titleLineGap
         return `<tspan x="${textX}" y="${y}">${escapeXml(line)}</tspan>`
       })
       .join('')
-
     const detailTspans = detailLines
       .map((line, i) => {
         const y = adjDetailsY + i * detailGap
@@ -590,9 +679,6 @@ export async function renderYoutubeOutroScene(params: {
       })
       .join('')
 
-    // Hard clip: text never paints into QR column or below mascot-clear line
-    const clipW = textX + titleWidthBudget
-    const clipH = Math.min(safeBottom, mascotClearY)
     const textSvg = Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
   <defs>
@@ -651,14 +737,11 @@ export async function renderYoutubeOutroScene(params: {
       await writeFile(qrPath, params.qrBuffer)
       inputs.push('-loop', '1', '-framerate', String(FPS), '-i', qrPath)
       const idx = inputIndex++
-      const qrSize = Math.round(Math.min(height * 0.55, width * 0.26))
-      const qrX = Math.round(width * 0.68 + (width * 0.28 - qrSize) / 2)
       const qrY = Math.round((height - qrSize) / 2)
-      const pad = Math.round(Math.max(16, height * 0.018))
       filters.push(
         `[${idx}:v]scale=${qrSize}:${qrSize}[ytqrs]`,
-        `[ytqrs]pad=iw+${pad * 2}:ih+${pad * 2}:${pad}:${pad}:white,format=rgba,fade=t=in:st=0.35:d=0.5:alpha=1[ytqr]`,
-        `[${base}][ytqr]overlay=x=${qrX - pad}:y=${qrY - pad}[withqr]`,
+        `[ytqrs]pad=iw+${qrPad * 2}:ih+${qrPad * 2}:${qrPad}:${qrPad}:white,format=rgba,fade=t=in:st=0.35:d=0.5:alpha=1[ytqr]`,
+        `[${base}][ytqr]overlay=x=${qrBoxLeft}:y=${qrY - qrPad}[withqr]`,
       )
       base = 'withqr'
     }
