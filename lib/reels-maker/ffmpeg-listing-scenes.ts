@@ -58,12 +58,12 @@ const YOUTUBE_OUTRO_DETAIL_SIZE = 22
 const YOUTUBE_OUTRO_TITLE_LEADING = 1.55
 const YOUTUBE_OUTRO_TITLE_LEADING_MIN = 1.32
 const YOUTUBE_OUTRO_TITLE_LEADING_MAX = 1.68
-/** Mascot hand/head encroach into center-left from ~42% down on the plate. */
-const YOUTUBE_OUTRO_MASCOT_TOP = 0.42
+/** Mascot hand/head encroach into center-left from ~57% down on the plate. */
+const YOUTUBE_OUTRO_MASCOT_TOP = 0.57
 /** Visual gap between last title line and white details (~32px at 576p in sample). */
-const YOUTUBE_OUTRO_TITLE_DETAIL_GAP = 48
-/** All text ink must end above this Y (visual bottom, not baseline). */
-const YOUTUBE_OUTRO_TEXT_BOTTOM = 0.54
+const YOUTUBE_OUTRO_TITLE_DETAIL_GAP = 40
+/** All text ink (including address) must end above this Y — clear of mascot head. */
+const YOUTUBE_OUTRO_TEXT_BOTTOM = 0.48
 
 /** Cover-scale a still into the reel frame (centers crop). */
 function coverScaleFilter(width: number, height: number, labelIn: string, labelOut: string) {
@@ -331,7 +331,7 @@ export async function renderYoutubeOutroScene(params: {
       const srcW = logoMeta.width ?? logoW
       const srcH = logoMeta.height ?? Math.round(logoW * 0.3)
       const logoH = Math.round(logoW * (srcH / srcW))
-      logoBottomY = logoY + logoH + Math.round(height * 0.02)
+      logoBottomY = logoY + logoH + Math.round(height * 0.035)
     }
 
     // Keep a clear gutter before the QR column — clip + composited QR sit to the right
@@ -432,19 +432,58 @@ export async function renderYoutubeOutroScene(params: {
       return { font, ...best }
     }
 
-    // Details stay on one line when possible — sample uses a single subtitle
-    const detailGap = Math.round(detailFont * 1.15)
-    const detailChars = Math.max(32, Math.min(52, Math.floor(titleMaxW / (detailFont * 0.52))))
-    const detailLines = details ? wrapYoutubeTitle(details, detailChars, 1) : []
+    // Details: wrap up to 2 lines so long addresses clear QR + stay above mascot
+    const detailGap = Math.round(detailFont * 1.2)
+    const measureDetailLineWidth = async (line: string) => {
+      const probe = Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${Math.max(80, detailFont + 30)}">
+  <style type="text/css">.d{font-family:Arial, Helvetica, sans-serif;font-size:${detailFont}px;font-weight:500;fill:#000;}</style>
+  <text x="0" y="${detailFont}" class="d">${escapeXml(line)}</text>
+</svg>`)
+      const { data, info } = await sharp(probe).raw().ensureAlpha().toBuffer({ resolveWithObject: true })
+      let maxX = 0
+      for (let y = 0; y < info.height; y++) {
+        for (let x = 0; x < info.width; x++) {
+          const i = (y * info.width + x) * 4
+          if (data[i + 3] > 0) maxX = Math.max(maxX, x)
+        }
+      }
+      return maxX + 1
+    }
+
+    const wrapDetailsForWidth = async (): Promise<string[]> => {
+      if (!details) return []
+      const raw = details.trim()
+      if (!raw) return []
+      // Prefer a single line when it fits the QR-safe budget
+      if ((await measureDetailLineWidth(raw)) <= titleWidthBudget) return [raw]
+      for (let maxLen = Math.max(24, Math.floor(titleWidthBudget / (detailFont * 0.48))); maxLen >= 18; maxLen--) {
+        const lines = wrapYoutubeTitleBody(raw, maxLen, 2)
+        let ok = true
+        for (const line of lines) {
+          if ((await measureDetailLineWidth(line)) > titleWidthBudget) {
+            ok = false
+            break
+          }
+        }
+        if (ok) return lines
+      }
+      // Last resort: force 2 soft wraps even if slightly tight (hard clip still protects QR)
+      return wrapYoutubeTitleBody(raw, Math.max(18, Math.floor(titleWidthBudget / (detailFont * 0.55))), 2)
+    }
+
+    let detailLines = await wrapDetailsForWidth()
 
     let { font: titleFontFit, lines: titleLines, gap: titleLineGap, blockH: titleBlockH } =
       await findLargestFittingFont(titleFont, titleLeading)
     titleFont = titleFontFit
 
     const titleToDetailGap = () =>
-      Math.round((YOUTUBE_OUTRO_TITLE_DETAIL_GAP + detailFont * 0.35) * scale)
+      Math.round((YOUTUBE_OUTRO_TITLE_DETAIL_GAP + detailFont * 0.25) * scale)
     const detailsExtra = detailLines.length
-      ? titleToDetailGap() + detailLines.length * detailGap
+      ? titleToDetailGap() +
+        Math.max(0, detailLines.length - 1) * detailGap +
+        Math.round(detailFont * 0.9)
       : 0
 
     const titleCapAboveBaseline = () => Math.round(titleFont * 0.88)
@@ -464,11 +503,9 @@ export async function renderYoutubeOutroScene(params: {
     const titleBandTop = () => logoBottomY + Math.round(height * 0.01)
     const titleBandBottom = () => safeBottom - detailsExtra
 
-    const computeFillLeading = (firstBaseline: number) => {
+    const computeFillLeading = (_firstBaseline: number) => {
       const bandH = titleBandBottom() - titleBandTop()
-      const ideal = Math.round(
-        (bandH - titleFont) / Math.max(1, titleLines.length - 1),
-      )
+      const ideal = Math.round((bandH - titleFont) / Math.max(1, titleLines.length - 1))
       const minGap = Math.round(titleFont * YOUTUBE_OUTRO_TITLE_LEADING_MIN)
       const maxGap = Math.round(titleFont * YOUTUBE_OUTRO_TITLE_LEADING_MAX)
       return Math.max(minGap, Math.min(maxGap, ideal))
@@ -510,18 +547,30 @@ export async function renderYoutubeOutroScene(params: {
     }
     syncDetailsY()
 
-    // Nudge down to occupy spare band height (sample: title fills center-left)
-    const blockH =
-      titleFont + Math.max(0, titleLines.length - 1) * titleLineGap
+    // Nudge down to occupy spare band height — but never push address into the mascot
+    const blockH = titleFont + Math.max(0, titleLines.length - 1) * titleLineGap
     const spare = titleBandBottom() - (titleBandTop() + blockH)
     if (spare > Math.round(height * 0.02)) {
-      adjTitleY += Math.round(spare * 0.45)
+      adjTitleY += Math.round(spare * 0.35)
       syncDetailsY()
     }
 
     let visualBottom = measureVisualBottom(adjTitleY)
     if (visualBottom > safeBottom) {
       adjTitleY = Math.max(minTitleBaselineY(), adjTitleY - (visualBottom - safeBottom))
+      syncDetailsY()
+      visualBottom = measureVisualBottom(adjTitleY)
+    }
+
+    // Hard stop: address baseline must stay clear of mascot head
+    const mascotClearY = Math.round(height * Math.min(YOUTUBE_OUTRO_MASCOT_TOP, YOUTUBE_OUTRO_TEXT_BOTTOM))
+    const lastDetailBaseline =
+      detailLines.length > 0
+        ? adjDetailsY + (detailLines.length - 1) * detailGap
+        : adjTitleY + Math.max(0, titleLines.length - 1) * titleLineGap
+    if (lastDetailBaseline + Math.round(detailFont * 0.2) > mascotClearY) {
+      const shift = lastDetailBaseline + Math.round(detailFont * 0.2) - mascotClearY
+      adjTitleY = Math.max(minTitleBaselineY(), adjTitleY - shift)
       syncDetailsY()
     }
 
@@ -541,9 +590,9 @@ export async function renderYoutubeOutroScene(params: {
       })
       .join('')
 
-    // Hard clip: text never paints into QR column; vertical limit enforced by layout above
+    // Hard clip: text never paints into QR column or below mascot-clear line
     const clipW = textX + titleWidthBudget
-    const clipH = safeBottom
+    const clipH = Math.min(safeBottom, mascotClearY)
     const textSvg = Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
   <defs>
@@ -643,7 +692,7 @@ function normalizeHexColor(value: string | null | undefined): string {
   return `#${full.toUpperCase()}`
 }
 
-/** Sample-style 3 lines: location on 1–2 comma-balanced rows, then PHILIPPINES | price. */
+/** Prefer sample-style wraps when commas/pipe are present; never invent "PHILIPPINES". */
 function preferredYoutubeTitleLines(text: string): string[] {
   const raw = text.replace(/\\n/g, '\n').trim()
   if (raw.includes('\n')) {
@@ -658,15 +707,17 @@ function preferredYoutubeTitleLines(text: string): string[] {
   const pipeIdx = raw.indexOf('|')
   if (pipeIdx >= 0) {
     const price = raw.slice(pipeIdx).trim()
-    const loc = raw
-      .slice(0, pipeIdx)
-      .trim()
-      .toUpperCase()
+    let before = raw.slice(0, pipeIdx).trim().toUpperCase()
+    const hasPhilippines = /\bPHILIPPINES\b/i.test(before)
+    before = before
       .replace(/\s*,?\s*PHILIPPINES\s*,?\s*$/i, '')
       .replace(/,\s*$/, '')
       .trim()
-    const line3 = `PHILIPPINES ${price}`.replace(/\s+/g, ' ').trim()
-    const headLines = splitCommaBalancedLines(loc, 2)
+    const line3 = hasPhilippines
+      ? `PHILIPPINES ${price}`.replace(/\s+/g, ' ').trim()
+      : price
+    const headLines = splitCommaBalancedLines(before, 2)
+    if (!headLines.length) return [line3].filter(Boolean)
     return [...headLines.slice(0, 2), line3].filter(Boolean)
   }
 
@@ -706,15 +757,19 @@ function wrapYoutubeTitle(text: string, maxLen: number, maxLines = 3) {
   if (pipeIdx >= 0 && maxLines >= 2) {
     const beforePrice = raw.slice(0, pipeIdx).trim()
     const price = raw.slice(pipeIdx).trim()
-    const words = beforePrice.toUpperCase().split(/\s+/).filter(Boolean)
-    const tailWord = (words[words.length - 1] ?? '').replace(/,/g, '')
-    const head = words
-      .slice(0, -1)
-      .join(' ')
+    const hasPhilippines = /\bPHILIPPINES\b/i.test(beforePrice)
+    const words = beforePrice
+      .toUpperCase()
       .replace(/\s*,?\s*PHILIPPINES\s*,?\s*$/i, '')
       .replace(/,\s*$/, '')
       .trim()
-    const line3 = `PHILIPPINES ${price}`.replace(/\s+/g, ' ').trim()
+      .split(/\s+/)
+      .filter(Boolean)
+    const line3 = hasPhilippines
+      ? `PHILIPPINES ${price}`.replace(/\s+/g, ' ').trim()
+      : price
+    // Keep as much location as fits on lines 1–2; price alone on last line when needed
+    const head = words.join(' ')
     const headLines = head ? wrapYoutubeTitleBody(head, maxLen, Math.min(maxLines - 1, 2)) : []
     if (!headLines.length) return [line3].slice(0, maxLines)
     return [...headLines.slice(0, maxLines - 1), line3].slice(0, maxLines)
