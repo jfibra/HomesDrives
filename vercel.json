@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/internal/face-scan/auto",
+      "schedule": "*/2 * * * *"
+    }
+  ]
+}
