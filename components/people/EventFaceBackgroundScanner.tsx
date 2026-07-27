@@ -7,7 +7,7 @@ import { Loader2, ScanFace, X } from 'lucide-react'
 import { PORTAL_ADMIN_SESSION_KEY, PORTAL_API_BASE } from '@/lib/portals/constants'
 
 const POLL_INTERVAL_MS = 20_000
-const BATCH_LIMIT = 5
+const BATCH_LIMIT = 20
 const REFRESH_COOLDOWN_MS = 30_000
 
 function hiddenBannerStorageKey(eventId: string) {
@@ -37,6 +37,7 @@ export default function EventFaceBackgroundScanner({ eventId }: EventFaceBackgro
   const [progress, setProgress] = useState('')
   const [error, setError] = useState('')
   const [rescanningAll, setRescanningAll] = useState(false)
+  const [deepMatching, setDeepMatching] = useState(false)
   const [bannerHidden, setBannerHidden] = useState(false)
   const runIdRef = useRef(0)
   const lastRefreshAtRef = useRef(0)
@@ -262,7 +263,96 @@ export default function EventFaceBackgroundScanner({ eventId }: EventFaceBackgro
     }
   }
 
-  const showBusyPanel = active || rescanningAll || Boolean(error) || (status?.pendingPhotos ?? 0) > 0
+  async function deepMatchMissedPhotos() {
+    const confirmed = window.confirm(
+      'Deep match keeps existing people and searches remaining event photos for faces that were skipped or never linked. This can take a while — keep this workspace open. Continue?',
+    )
+    if (!confirmed) return
+
+    const runId = ++runIdRef.current
+    setDeepMatching(true)
+    setActive(true)
+    setError('')
+    setProgress('Deep matching… re-queuing empty scans, then searching for missed faces.')
+
+    const adminCode = getAdminCode()
+    if (!adminCode) {
+      setError('Admin session expired. Sign in again from the admin portal.')
+      setDeepMatching(false)
+      setActive(false)
+      return
+    }
+
+    let personOffset = 0
+    let scanOffset = 0
+    let totalLinked = 0
+    let first = true
+
+    try {
+      while (runId === runIdRef.current) {
+        const response = await fetch(
+          `${PORTAL_API_BASE}/admin/events/${encodeURIComponent(eventId)}/people/deep-match`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              adminCode,
+              personOffset,
+              scanOffset,
+              requeueEmpty: first,
+            }),
+          },
+        )
+        first = false
+        const data = await response.json().catch(() => null)
+        if (!response.ok) {
+          throw new Error(data?.error || 'Deep match failed.')
+        }
+
+        if (typeof data?.warning === 'string' && data.warning.trim()) {
+          setError(data.warning.trim())
+          break
+        }
+
+        const linked = typeof data?.linkedPhotos === 'number' ? data.linkedPhotos : 0
+        totalLinked += linked
+        const personName = typeof data?.personName === 'string' ? data.personName : 'person'
+        const remaining = typeof data?.remainingPhotos === 'number' ? data.remainingPhotos : 0
+        const totalPeople = typeof data?.totalPeople === 'number' ? data.totalPeople : 0
+        const currentPerson = typeof data?.personOffset === 'number' ? data.personOffset + 1 : 1
+
+        setProgress(
+          `Deep match: ${personName} (${Math.min(currentPerson, totalPeople)}/${totalPeople}) · ${totalLinked} newly linked · ${remaining} left for this person`,
+        )
+
+        if (data?.done) {
+          setProgress(
+            totalLinked > 0
+              ? `Deep match finished. Linked ${totalLinked} more photo${totalLinked === 1 ? '' : 's'}.`
+              : 'Deep match finished. No additional matches found.',
+          )
+          maybeRefreshPeoplePage(totalLinked)
+          router.refresh()
+          break
+        }
+
+        personOffset =
+          typeof data?.nextPersonOffset === 'number' ? data.nextPersonOffset : personOffset + 1
+        scanOffset = typeof data?.nextScanOffset === 'number' ? data.nextScanOffset : 0
+      }
+    } catch (deepError) {
+      if (runId === runIdRef.current) {
+        setError(deepError instanceof Error ? deepError.message : 'Deep match failed.')
+      }
+    } finally {
+      if (runId === runIdRef.current) {
+        setDeepMatching(false)
+        setActive(false)
+      }
+    }
+  }
+
+  const busy = active || rescanningAll || deepMatching
 
   // Collapsed face icon only after the user hides the panel.
   if (bannerHidden) {
@@ -275,12 +365,8 @@ export default function EventFaceBackgroundScanner({ eventId }: EventFaceBackgro
           title="Face scan / Rescan"
           type="button"
         >
-          {active || rescanningAll ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <ScanFace className="h-4 w-4" />
-          )}
-          {(active || rescanningAll || (status?.pendingPhotos ?? 0) > 0) && (
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanFace className="h-4 w-4" />}
+          {(busy || (status?.pendingPhotos ?? 0) > 0) && (
             <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-[#10233f]" />
           )}
         </button>
@@ -292,7 +378,7 @@ export default function EventFaceBackgroundScanner({ eventId }: EventFaceBackgro
     <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex max-w-sm flex-col items-end gap-2">
       <div className="pointer-events-auto rounded-2xl border border-slate-200/90 bg-white/95 px-4 py-3 shadow-lg backdrop-blur-sm">
         <div className="flex items-start gap-3">
-          {active || rescanningAll ? (
+          {busy ? (
             <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-[#10233f]" />
           ) : (
             <ScanFace className="mt-0.5 h-4 w-4 shrink-0 text-[#10233f]" />
@@ -300,7 +386,7 @@ export default function EventFaceBackgroundScanner({ eventId }: EventFaceBackgro
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-2">
               <p className="text-sm font-semibold text-[#10233f]">
-                {active || rescanningAll ? 'Scanning faces in background' : 'Face scan'}
+                {busy ? 'Scanning faces in background' : 'Face scan'}
               </p>
               <button
                 aria-label="Hide face scan progress"
@@ -320,7 +406,7 @@ export default function EventFaceBackgroundScanner({ eventId }: EventFaceBackgro
               </p>
             ) : status?.upToDate ? (
               <p className="mt-1 text-xs text-slate-500">
-                Scan is up to date. Rescan clears people and runs again.
+                Scan is up to date. Use Deep match to catch missed faces, or Rescan to rebuild.
               </p>
             ) : (
               <p className="mt-1 text-xs text-slate-500">Keeps checking for new uploads.</p>
@@ -328,10 +414,18 @@ export default function EventFaceBackgroundScanner({ eventId }: EventFaceBackgro
             {error ? <p className="mt-1 text-xs text-red-600">{error}</p> : null}
           </div>
         </div>
-        <div className="mt-3 flex items-center gap-3">
+        <div className="mt-3 flex flex-col items-start gap-2">
+          <button
+            className="text-xs font-semibold text-[#10233f] underline-offset-2 transition hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={busy}
+            onClick={() => void deepMatchMissedPhotos()}
+            type="button"
+          >
+            Deep match (keep people)
+          </button>
           <button
             className="text-xs font-semibold text-slate-500 underline-offset-2 transition hover:text-[#10233f] hover:underline disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={active || rescanningAll}
+            disabled={busy}
             onClick={() => void rescanAllPhotos()}
             type="button"
           >

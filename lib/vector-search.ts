@@ -6,8 +6,8 @@ import type { DetectedFace, FaceMatch } from '@/lib/types/people'
 import {
   FACE_CREATE_MIN_CONFIDENCE,
   FACE_EMBEDDING_DIMENSIONS,
+  FACE_LINK_THRESHOLD,
   FACE_MATCH_MARGIN,
-  FACE_MATCH_THRESHOLD,
 } from '@/lib/types/people'
 
 export type MatchOrCreatePersonResult = {
@@ -46,7 +46,7 @@ export async function findSimilarFaces(params: {
   const supabase = createSupabaseAdminClient()
   const { data, error } = await supabase.rpc('match_faces', {
     query_embedding: formatEmbeddingForRpc(params.embedding),
-    match_threshold: params.threshold ?? FACE_MATCH_THRESHOLD,
+    match_threshold: params.threshold ?? FACE_LINK_THRESHOLD,
     match_count: params.limit ?? 5,
   })
 
@@ -70,7 +70,7 @@ export async function findSimilarFacesForEvent(params: {
   const { data, error } = await supabase.rpc('match_faces_for_event', {
     query_embedding: formatEmbeddingForRpc(params.embedding),
     p_event_id: params.eventId,
-    match_threshold: params.threshold ?? FACE_MATCH_THRESHOLD,
+    match_threshold: params.threshold ?? FACE_LINK_THRESHOLD,
     match_count: params.limit ?? 5,
   })
 
@@ -92,7 +92,7 @@ export async function matchOrCreatePerson(params: {
   /** Detector confidence — required to invent a new person when no match exists. */
   detectionConfidence?: number | null
 }): Promise<MatchOrCreatePersonOutcome> {
-  const threshold = params.threshold ?? FACE_MATCH_THRESHOLD
+  const threshold = params.threshold ?? FACE_LINK_THRESHOLD
   const suggestedName = params.suggestedName?.trim() || null
   const detectionConfidence = params.detectionConfidence ?? null
   const matches = params.eventId
@@ -131,7 +131,7 @@ export async function matchOrCreatePerson(params: {
     second != null &&
     second.person_id !== best.person_id &&
     best.similarity - second.similarity < FACE_MATCH_MARGIN &&
-    best.similarity < 0.62
+    best.similarity < 0.55
 
   if (isAmbiguous) {
     // Do not invent a duplicate person — wait for a clearer match later.

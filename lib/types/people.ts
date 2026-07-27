@@ -80,11 +80,15 @@ export type FaceSearchResult = {
 
 export const FACE_EMBEDDING_DIMENSIONS = 512
 
-function readFaceMatchThreshold() {
-  const raw = process.env.FACE_MATCH_THRESHOLD?.trim()
-  if (!raw) return 0.48
+function readFaceLinkThreshold() {
+  const raw = process.env.FACE_LINK_THRESHOLD?.trim() ?? process.env.FACE_MATCH_THRESHOLD?.trim()
+  if (!raw) return 0.42
   const parsed = Number.parseFloat(raw)
-  return Number.isFinite(parsed) && parsed > 0 && parsed < 1 ? parsed : 0.48
+  return Number.isFinite(parsed) && parsed > 0 && parsed < 1 ? parsed : 0.42
+}
+
+function readFaceMatchThreshold() {
+  return readFaceLinkThreshold()
 }
 
 function readFaceMatchMargin() {
@@ -94,7 +98,10 @@ function readFaceMatchMargin() {
   return Number.isFinite(parsed) && parsed >= 0 && parsed < 1 ? parsed : 0.06
 }
 
-/** Cosine similarity threshold for grouping the same person (0.45–0.55 typical for ArcFace). */
+/** Cosine similarity to link a face to an existing person (lower = more photos linked). */
+export const FACE_LINK_THRESHOLD = readFaceLinkThreshold()
+
+/** @deprecated Use FACE_LINK_THRESHOLD */
 export const FACE_MATCH_THRESHOLD = readFaceMatchThreshold()
 
 /** Min gap between 1st and 2nd match; skip when two different people score too similarly. */
@@ -103,4 +110,9 @@ export const FACE_MATCH_MARGIN = readFaceMatchMargin()
 /** Detector confidence required before inventing a brand-new person. */
 export const FACE_CREATE_MIN_CONFIDENCE = Number.parseFloat(
   process.env.FACE_CREATE_MIN_CONFIDENCE ?? '0.68',
+)
+
+/** Slightly lower threshold when actively searching for a known person in more photos. */
+export const FACE_FIND_MORE_THRESHOLD = Number.parseFloat(
+  process.env.FACE_FIND_MORE_THRESHOLD ?? '0.45',
 )

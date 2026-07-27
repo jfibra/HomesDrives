@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { replacePortalPhoto, requirePortalAdmin } from '@/lib/portals/storage'
-import { enqueuePhotoFaceProcessing } from '@/lib/server/face-pipeline'
+import { enqueuePhotoFaceProcessing, resetPhotoFaceScanState } from '@/lib/server/face-pipeline'
 
 export const runtime = 'nodejs'
 
@@ -24,6 +24,7 @@ export async function POST(
 
     await requirePortalAdmin(adminCode)
     const photo = await replacePortalPhoto(id, file)
+    await resetPhotoFaceScanState(photo.id)
     enqueuePhotoFaceProcessing(photo.id)
     return NextResponse.json({ photo })
   } catch (error) {

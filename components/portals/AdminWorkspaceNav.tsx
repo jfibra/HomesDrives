@@ -1,20 +1,32 @@
 'use client'
 
 import Link from 'next/link'
-import { Camera, FolderOpen, Users } from 'lucide-react'
+import { Camera, FolderOpen, Images, Users } from 'lucide-react'
 
 import {
   getAdminEventPeoplePath,
+  getAdminEventPhotosPath,
   getAdminEventPhotographersPath,
   getAdminEventWorkspacePath,
 } from '@/lib/portals/constants'
 
 type AdminWorkspaceNavProps = {
-  activeTab: 'folders' | 'people' | 'photographers'
+  activeTab: 'folders' | 'people' | 'photographers' | 'photos'
   eventSlug: string
+  fileCount?: number
+  scannableImageCount?: number
 }
 
-export default function AdminWorkspaceNav({ activeTab, eventSlug }: AdminWorkspaceNavProps) {
+function formatCount(value: number) {
+  return new Intl.NumberFormat().format(value)
+}
+
+export default function AdminWorkspaceNav({
+  activeTab,
+  eventSlug,
+  fileCount,
+  scannableImageCount,
+}: AdminWorkspaceNavProps) {
   const tabs = [
     {
       id: 'folders' as const,
@@ -34,12 +46,23 @@ export default function AdminWorkspaceNav({ activeTab, eventSlug }: AdminWorkspa
       href: getAdminEventPeoplePath(eventSlug),
       icon: Users,
     },
+    {
+      id: 'photos' as const,
+      label:
+        typeof fileCount === 'number' ? `All files (${formatCount(fileCount)})` : 'All files',
+      href: getAdminEventPhotosPath(eventSlug),
+      icon: Images,
+      title:
+        typeof scannableImageCount === 'number'
+          ? `${formatCount(scannableImageCount)} scannable images for face detection`
+          : undefined,
+    },
   ]
 
   return (
     <nav
       aria-label="Workspace sections"
-      className="mb-5 grid grid-cols-3 gap-1 rounded-2xl border border-white/80 bg-white/75 p-1.5 shadow-sm backdrop-blur-sm sm:flex sm:gap-2"
+      className="mb-5 grid grid-cols-2 gap-1 rounded-2xl border border-white/80 bg-white/75 p-1.5 shadow-sm backdrop-blur-sm sm:flex sm:flex-wrap sm:gap-2"
     >
       {tabs.map((tab) => {
         const Icon = tab.icon
@@ -54,6 +77,7 @@ export default function AdminWorkspaceNav({ activeTab, eventSlug }: AdminWorkspa
             }`}
             href={tab.href}
             key={tab.id}
+            title={'title' in tab && tab.title ? tab.title : undefined}
           >
             <Icon className="h-4 w-4 shrink-0" />
             <span className="truncate">{tab.label}</span>

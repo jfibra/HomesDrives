@@ -24,9 +24,10 @@ EMBED_SIZE = 112
 DETECTION_MODEL_NAME = "det_10g.onnx"
 RECOGNITION_MODEL_NAME = "w600k_r50.onnx"
 MIN_FACE_SIZE_PX = int(os.getenv("FACE_MIN_SIZE_PX", "96"))
-MIN_FACE_SHARPNESS = float(os.getenv("FACE_MIN_SHARPNESS", "125"))
-MIN_FACE_AREA_RATIO = float(os.getenv("FACE_MIN_AREA_RATIO", "0.0006"))
-DET_SCORE_THRESHOLD = float(os.getenv("FACE_DET_SCORE_THRESHOLD", "0.68"))
+MIN_FACE_SHARPNESS = float(os.getenv("FACE_MIN_SHARPNESS", "140"))
+MIN_FACE_AREA_RATIO = float(os.getenv("FACE_MIN_AREA_RATIO", "0.0008"))
+DET_SCORE_THRESHOLD = float(os.getenv("FACE_DET_SCORE_THRESHOLD", "0.70"))
+MIN_EYE_BAND_STD = float(os.getenv("FACE_MIN_EYE_BAND_STD", "14"))
 
 ARCFACE_DST = np.array(
     [
@@ -84,7 +85,7 @@ def _bbox_aspect_ratio_ok(bbox: np.ndarray) -> bool:
     height = max(1.0, float(bbox[3] - bbox[1]))
     ratio = width / height
     # Hands / body parts are often wider or taller than a face crop.
-    return 0.72 <= ratio <= 1.28
+    return 0.75 <= ratio <= 1.25
 
 
 def _landmarks_valid(landmarks: np.ndarray, bbox: np.ndarray, image_shape: tuple[int, int]) -> bool:
@@ -152,9 +153,9 @@ def _looks_like_face_texture(aligned_bgr: np.ndarray) -> bool:
 
     eye_std = float(eye_band.std())
     cheek_std = float(cheek_band.std())
-    if eye_std < 12.0:
+    if eye_std < MIN_EYE_BAND_STD:
         return False
-    if eye_std < cheek_std * 0.85:
+    if eye_std < cheek_std * 0.90:
         return False
 
     # Aligned faces usually have a slightly darker upper half (eyes/brows).
@@ -162,7 +163,7 @@ def _looks_like_face_texture(aligned_bgr: np.ndarray) -> bool:
     bottom = gray[int(h * 0.55) :, :]
     if top.size == 0 or bottom.size == 0:
         return False
-    if float(top.mean()) >= float(bottom.mean()) + 12:
+    if float(top.mean()) >= float(bottom.mean()) + 10:
         return False
 
     return True

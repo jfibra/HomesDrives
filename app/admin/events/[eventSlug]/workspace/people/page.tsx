@@ -2,12 +2,17 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 
 import AdminEventWorkspaceShell from '@/components/portals/AdminEventWorkspaceShell'
+import FaceScanStatusBanner from '@/components/people/FaceScanStatusBanner'
 import PeopleGridManager from '@/components/people/PeopleGridManager'
 import PeopleLibrarySearchBar from '@/components/people/PeopleLibrarySearchBar'
 import PeoplePagination from '@/components/people/PeoplePagination'
 import { getAdminEventPeoplePath, getAdminEventPeopleSearchPath } from '@/lib/portals/constants'
 import { requirePortalEventBySlug } from '@/lib/portals/events'
 import { listPeopleForEvent } from '@/lib/people'
+import {
+  getEventFaceScanStatus,
+  kickoffEventFaceScan,
+} from '@/lib/server/event-face-processing'
 
 const PAGE_SIZE = 24
 
@@ -36,6 +41,18 @@ export default async function AdminEventPeoplePage({ params, searchParams }: Adm
 
   let peopleResult
   let loadError = ''
+  let scanStatus = { totalPhotos: 0, pendingPhotos: 0, scannedPhotos: 0, upToDate: true }
+
+  try {
+    scanStatus = await getEventFaceScanStatus(event.id)
+    if (scanStatus.pendingPhotos > 0) {
+      kickoffEventFaceScan(event.id).catch(() => {
+        // background kickoff is best-effort
+      })
+    }
+  } catch {
+    // status banner is optional
+  }
 
   try {
     peopleResult = await listPeopleForEvent({
@@ -60,10 +77,8 @@ export default async function AdminEventPeoplePage({ params, searchParams }: Adm
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Library</p>
             <h2 className="mt-2 text-2xl font-semibold text-[#10233f] sm:text-3xl">People</h2>
             <p className="mt-2 max-w-2xl text-sm text-slate-500">
-              Automatically grouped faces from your photo library. New photos are scanned in the
-              background while this event workspace is open. Use{' '}
-              <span className="font-medium text-slate-600">Select people to remove</span> for blurry or
-              false detections.
+              Automatically grouped faces from your photo library. Photo counts show how many
+              images include each person&apos;s face — not total event files.
             </p>
           </div>
           <Link
@@ -73,6 +88,12 @@ export default async function AdminEventPeoplePage({ params, searchParams }: Adm
             Face search
           </Link>
         </div>
+
+        <FaceScanStatusBanner
+          pendingPhotos={scanStatus.pendingPhotos}
+          scannedPhotos={scanStatus.scannedPhotos}
+          totalPhotos={scanStatus.totalPhotos}
+        />
 
         <div className="mb-6">
           <PeopleLibrarySearchBar defaultValue={searchQuery} />

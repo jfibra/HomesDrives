@@ -9,17 +9,22 @@ import {
 } from '@/lib/server/albums'
 import { deleteFacesForPhoto, insertFace } from '@/lib/faces'
 import { dedupeBySpatialOverlap, boundingBoxArea } from '@/lib/face-dedupe'
-import { isFaceCropAcceptable } from '@/lib/face-quality'
+import { isFaceBoundingBoxShapeOk, isFaceCropAcceptable } from '@/lib/face-quality'
 import { detectFacesInImage } from '@/lib/server/insightface-client'
 import { normalizeBoundingBox } from '@/lib/face-geometry'
 import { ensurePersonNameFromPhotoIfUnknown } from '@/lib/people'
 import { derivePersonNameFromFileName } from '@/lib/person-name-from-file'
 import { matchOrCreatePerson, isMatchSkipped } from '@/lib/vector-search'
 import type { DetectedFace } from '@/lib/types/people'
+import { cosineSimilarity } from '@/lib/face-similarity'
 
 const IMAGE_EXTENSIONS = /\.(jpe?g|png|webp|bmp|gif|heic|heif|avif)$/i
 const MIN_PIPELINE_FACE_CONFIDENCE = Number.parseFloat(
-  process.env.FACE_PIPELINE_MIN_CONFIDENCE ?? '0.68',
+  process.env.FACE_PIPELINE_MIN_CONFIDENCE ?? '0.70',
+)
+/** Find-more / deep-match use the same confidence bar — no hands or soft false positives. */
+const FIND_MORE_MIN_DETECTION_CONFIDENCE = Number.parseFloat(
+  process.env.FACE_FIND_MORE_MIN_CONFIDENCE ?? String(MIN_PIPELINE_FACE_CONFIDENCE),
 )
 
 type PhotoRow = {
@@ -204,6 +209,10 @@ export async function processPhotoFaces(photoId: string): Promise<{ facesDetecte
 
     try {
       thumbBuffer = await cropFaceThumbnail(imageBuffer, detectedFace.bounding_box)
+      if (!isFaceBoundingBoxShapeOk(detectedFace.bounding_box)) {
+        console.info(`[face-pipeline] skipping non-face shape on ${photoId}`)
+        continue
+      }
       const quality = await isFaceCropAcceptable(thumbBuffer)
       if (!quality.ok) {
         console.info(
@@ -284,6 +293,128 @@ export async function processPhotoFaces(photoId: string): Promise<{ facesDetecte
 
   await markPhotoFacesScanned(photoId)
   return { facesDetected: bestByPerson.size }
+}
+
+/** Detect faces in a photo and link matches to a known person without removing other tags. */
+export async function linkPersonInPhotoIfMatch(params: {
+  photoId: string
+  personId: string
+  referenceEmbedding: number[]
+  threshold: number
+}): Promise<{ linkedFaces: number }> {
+  const { isFaceRejectedForPerson, isPhotoFacesDiscarded } = await import('@/lib/face-rejections')
+
+  if (await isPhotoFacesDiscarded(params.photoId)) {
+    return { linkedFaces: 0 }
+  }
+  if (await isFaceRejectedForPerson(params.photoId, params.personId)) {
+    return { linkedFaces: 0 }
+  }
+
+  const supabase = createSupabaseAdminClient()
+  const { data: existingPersonFace, error: existingError } = await supabase
+    .from('faces')
+    .select('id')
+    .eq('photo_id', params.photoId)
+    .eq('person_id', params.personId)
+    .maybeSingle()
+
+  if (existingError) throw new Error(existingError.message)
+  if (existingPersonFace) {
+    return { linkedFaces: 0 }
+  }
+
+  const { data, error } = await supabase
+    .from('albums_photos')
+    .select(
+      'id, folder_id, bucket_name, storage_path, image_url, original_file_name, width, height, file_type',
+    )
+    .eq('id', params.photoId)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  if (!data) return { linkedFaces: 0 }
+
+  const photo = data as PhotoRow
+  if (!isProcessableImage(photo)) {
+    return { linkedFaces: 0 }
+  }
+
+  const imageBuffer = await downloadPhotoBuffer(photo)
+  const detectedFaces = dedupeBySpatialOverlap(await detectFacesInImage(imageBuffer))
+  if (detectedFaces.length === 0) {
+    return { linkedFaces: 0 }
+  }
+
+  let bestMatch: {
+    detectedFace: DetectedFace
+    faceThumbnailUrl: string | null
+    similarity: number
+  } | null = null
+
+  for (let index = 0; index < detectedFaces.length; index++) {
+    const detectedFace = detectedFaces[index]
+    if (!isFaceBoundingBoxShapeOk(detectedFace.bounding_box)) {
+      continue
+    }
+    if ((detectedFace.confidence ?? 0) < FIND_MORE_MIN_DETECTION_CONFIDENCE) {
+      continue
+    }
+
+    const similarity = cosineSimilarity(detectedFace.embedding, params.referenceEmbedding)
+    if (similarity < params.threshold) {
+      continue
+    }
+
+    let faceThumbnailUrl: string | null = null
+    try {
+      const thumbBuffer = await cropFaceThumbnail(imageBuffer, detectedFace.bounding_box)
+      const quality = await isFaceCropAcceptable(thumbBuffer)
+      if (!quality.ok) {
+        continue
+      }
+      faceThumbnailUrl = await uploadFaceThumbnail({
+        buffer: thumbBuffer,
+        photoId: params.photoId,
+        faceIndex: index + 1,
+      })
+    } catch {
+      continue
+    }
+
+    if (!bestMatch || similarity > bestMatch.similarity) {
+      bestMatch = { detectedFace, faceThumbnailUrl, similarity }
+    }
+  }
+
+  if (!bestMatch) {
+    return { linkedFaces: 0 }
+  }
+
+  await insertFace({
+    photoId: params.photoId,
+    personId: params.personId,
+    embedding: bestMatch.detectedFace.embedding,
+    faceThumbnailUrl: bestMatch.faceThumbnailUrl,
+    boundingBox: bestMatch.detectedFace.bounding_box,
+    confidence: bestMatch.detectedFace.confidence ?? null,
+  })
+
+  return { linkedFaces: 1 }
+}
+
+export async function resetPhotoFaceScanState(photoId: string): Promise<void> {
+  await deleteFacesForPhoto(photoId)
+
+  const supabase = createSupabaseAdminClient()
+  const { error } = await supabase
+    .from('albums_photos')
+    .update({ faces_scanned_at: null })
+    .eq('id', photoId)
+
+  if (error && !/faces_scanned_at|does not exist|schema cache/i.test(error.message)) {
+    throw new Error(error.message)
+  }
 }
 
 export function enqueuePhotoFaceProcessing(photoId: string) {

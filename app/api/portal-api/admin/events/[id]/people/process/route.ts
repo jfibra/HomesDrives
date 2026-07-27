@@ -54,7 +54,7 @@ export async function POST(request: Request, context: RouteContext) {
     const body = await request.json().catch(() => null)
     const adminCode = readAdminCode(request, body)
     const offset = typeof body?.offset === 'number' && Number.isFinite(body.offset) ? body.offset : 0
-    const limit = typeof body?.limit === 'number' && Number.isFinite(body.limit) ? body.limit : 5
+    const limit = typeof body?.limit === 'number' && Number.isFinite(body.limit) ? body.limit : 20
     const mode: EventFaceScanMode = body?.mode === 'all' ? 'all' : 'pending'
     const resetLibrary = body?.resetLibrary === true || (mode === 'all' && offset === 0)
 

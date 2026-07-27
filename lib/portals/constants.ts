@@ -75,6 +75,10 @@ export function getAdminEventPhotographersPath(eventSlug: string) {
   return `${getAdminEventWorkspacePath(eventSlug)}/photographers`
 }
 
+export function getAdminEventPhotosPath(eventSlug: string) {
+  return `${getAdminEventWorkspacePath(eventSlug)}/photos`
+}
+
 export function getAdminEventPhotographerPath(eventSlug: string, photographerId: string) {
   return `${getAdminEventPhotographersPath(eventSlug)}/${encodeURIComponent(photographerId)}`
 }

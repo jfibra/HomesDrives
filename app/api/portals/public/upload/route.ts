@@ -6,6 +6,7 @@ import { PUBLIC_PORTAL_CODE } from '@/lib/portals/constants'
 import { requirePortalEventBySlug } from '@/lib/portals/events'
 import { createPortalFolder, uploadPortalPhoto } from '@/lib/portals/storage'
 import { inferPortalContentType } from '@/lib/portals/upload-file-utils'
+import { enqueuePhotoFaceProcessing } from '@/lib/server/face-pipeline'
 
 export const runtime = 'nodejs'
 
@@ -108,7 +109,7 @@ export async function POST(request: Request) {
     let uploadedCount = 0
     for (const file of imageFiles) {
       const buffer = Buffer.from(await file.arrayBuffer())
-      await uploadPortalPhoto({
+      const photo = await uploadPortalPhoto({
         folderId: folder.id,
         uploaderCode: PUBLIC_PORTAL_CODE,
         fileName: file.name,
@@ -116,6 +117,7 @@ export async function POST(request: Request) {
         contentType: inferPortalContentType(file.name, file.type || ''),
         eventId: event.id,
       })
+      enqueuePhotoFaceProcessing(String(photo.id))
       uploadedCount += 1
     }
 

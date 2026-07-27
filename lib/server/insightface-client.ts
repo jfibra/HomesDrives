@@ -49,11 +49,12 @@ function mapApiFace(face: InsightFaceApiFace, imageWidth: number, imageHeight: n
 }
 
 const MIN_FACE_DETECTION_CONFIDENCE = Number.parseFloat(
-  process.env.FACE_MIN_DETECTION_CONFIDENCE ?? '0.68',
+  process.env.FACE_MIN_DETECTION_CONFIDENCE ?? '0.70',
 )
 
 async function postImageToInsightFace(path: string, imageBuffer: Buffer): Promise<InsightFaceDetectResponse> {
-  const url = `${getInsightFaceApiUrl().replace(/\/$/, '')}${path}`
+  const baseUrl = getInsightFaceApiUrl().replace(/\/$/, '')
+  const url = `${baseUrl}${path}`
   const formData = new FormData()
   formData.append(
     'file',
@@ -61,16 +62,24 @@ async function postImageToInsightFace(path: string, imageBuffer: Buffer): Promis
     'photo.jpg',
   )
 
-  const response = await fetch(url, {
-    method: 'POST',
-    body: formData,
-    signal: AbortSignal.timeout(120_000),
-  })
+  let response: Response
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      body: formData,
+      signal: AbortSignal.timeout(120_000),
+    })
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : 'Network error'
+    throw new Error(
+      `Cannot reach InsightFace at ${baseUrl} (${detail}). Start the face service and try again.`,
+    )
+  }
 
   if (!response.ok) {
     const text = await response.text().catch(() => '')
     throw new Error(
-      text || `InsightFace API error (${response.status}). Is the face service running at ${getInsightFaceApiUrl()}?`,
+      text || `InsightFace API error (${response.status}). Is the face service running at ${baseUrl}?`,
     )
   }
 

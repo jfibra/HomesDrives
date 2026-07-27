@@ -94,7 +94,7 @@ export default function PersonCard({
       <div className="space-y-1 p-4">
         <p className="truncate text-sm font-semibold text-[#10233f]">{coverPerson.name}</p>
         <p className="text-xs text-slate-500">
-          {coverPerson.photo_count} photo{coverPerson.photo_count === 1 ? '' : 's'}
+          {coverPerson.photo_count} photo{coverPerson.photo_count === 1 ? '' : 's'} with this face
         </p>
       </div>
     </>

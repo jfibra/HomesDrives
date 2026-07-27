@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ChevronLeft, ImageIcon, Pencil } from 'lucide-react'
@@ -39,6 +39,27 @@ export default function PersonDetailClient({
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState('')
   const [coverPickerOpen, setCoverPickerOpen] = useState(false)
+  const [isFindingMore, setIsFindingMore] = useState(false)
+  const [isFindingAll, setIsFindingAll] = useState(false)
+  const [findMoreMessage, setFindMoreMessage] = useState('')
+  const [findMoreOffset, setFindMoreOffset] = useState(0)
+  const findAllAbortRef = useRef(false)
+
+  const displayedPhotoCount = eventId ? photosResult.totalCount : person.photo_count
+
+  useEffect(() => {
+    setFindMoreOffset(0)
+    setFindMoreMessage('')
+    findAllAbortRef.current = true
+    setIsFindingAll(false)
+    setIsFindingMore(false)
+  }, [eventId, person.id])
+
+  useEffect(() => {
+    return () => {
+      findAllAbortRef.current = true
+    }
+  }, [])
 
   async function saveName() {
     const trimmed = nameDraft.trim()
@@ -82,6 +103,136 @@ export default function PersonDetailClient({
       setPerson(data.person)
     }
     router.refresh()
+  }
+
+  type FindMoreBatch = {
+    linkedPhotos: number
+    scannedPhotos: number
+    remainingPhotos: number
+    candidatePhotos: number
+    nextScanOffset: number
+    warning: string
+  }
+
+  async function runFindMoreBatch(scanOffset: number): Promise<FindMoreBatch> {
+    const response = await fetch(`/api/people/${person.id}/photos/find-more`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ eventId, scanOffset }),
+    })
+    const data = await response.json().catch(() => null)
+    if (!response.ok) {
+      throw new Error(data?.error || 'Unable to find more photos.')
+    }
+    if (data?.person) {
+      setPerson(data.person)
+    }
+
+    return {
+      linkedPhotos: typeof data?.linkedPhotos === 'number' ? data.linkedPhotos : 0,
+      scannedPhotos: typeof data?.scannedPhotos === 'number' ? data.scannedPhotos : 0,
+      remainingPhotos: typeof data?.remainingPhotos === 'number' ? data.remainingPhotos : 0,
+      candidatePhotos: typeof data?.candidatePhotos === 'number' ? data.candidatePhotos : 0,
+      nextScanOffset:
+        typeof data?.nextScanOffset === 'number' ? Math.max(0, data.nextScanOffset) : 0,
+      warning: typeof data?.warning === 'string' ? data.warning.trim() : '',
+    }
+  }
+
+  async function findMorePhotos() {
+    if (!eventId || isFindingAll) return
+
+    setIsFindingMore(true)
+    setFindMoreMessage('')
+    setError('')
+    try {
+      const batch = await runFindMoreBatch(findMoreOffset)
+      setFindMoreOffset(batch.nextScanOffset)
+
+      if (batch.warning) setError(batch.warning)
+
+      if (batch.linkedPhotos > 0) {
+        setFindMoreMessage(
+          `Linked ${batch.linkedPhotos} more photo${batch.linkedPhotos === 1 ? '' : 's'} with this face (scanned ${batch.scannedPhotos} image${batch.scannedPhotos === 1 ? '' : 's'}).`,
+        )
+      } else if (batch.scannedPhotos > 0 && batch.remainingPhotos > 0) {
+        setFindMoreMessage(
+          `Scanned ${batch.scannedPhotos} more image${batch.scannedPhotos === 1 ? '' : 's'} — no new matches in this batch. ${batch.remainingPhotos} unlinked image${batch.remainingPhotos === 1 ? '' : 's'} left; click again or use Find all.`,
+        )
+      } else if (batch.candidatePhotos > 0 && batch.scannedPhotos === 0) {
+        setFindMoreMessage(
+          `Found ${batch.candidatePhotos} unlinked image${batch.candidatePhotos === 1 ? '' : 's'} to search. Click Find all to scan them automatically.`,
+        )
+      } else {
+        setFindMoreMessage('No more unlinked images to search for this person in this event.')
+      }
+      router.refresh()
+    } catch (findError) {
+      setError(findError instanceof Error ? findError.message : 'Unable to find more photos.')
+    } finally {
+      setIsFindingMore(false)
+    }
+  }
+
+  async function findAllMatchingPhotos() {
+    if (!eventId || isFindingMore || isFindingAll) return
+
+    findAllAbortRef.current = false
+    setIsFindingAll(true)
+    setFindMoreMessage('')
+    setError('')
+
+    let offset = findMoreOffset
+    let totalLinked = 0
+    let totalScanned = 0
+    let batches = 0
+
+    try {
+      while (!findAllAbortRef.current) {
+        setFindMoreMessage(
+          `Bulk searching… batch ${batches + 1}${totalLinked > 0 ? ` · ${totalLinked} linked so far` : ''}${totalScanned > 0 ? ` · ${totalScanned} images checked` : ''}. Keep this page open.`,
+        )
+
+        const batch = await runFindMoreBatch(offset)
+        batches += 1
+        totalLinked += batch.linkedPhotos
+        totalScanned += batch.scannedPhotos
+        offset = batch.nextScanOffset
+        setFindMoreOffset(offset)
+
+        if (batch.warning) {
+          setError(batch.warning)
+          break
+        }
+
+        if (batch.remainingPhotos <= 0 || batch.scannedPhotos === 0) {
+          break
+        }
+      }
+
+      if (findAllAbortRef.current) {
+        setFindMoreMessage(
+          `Stopped early. Linked ${totalLinked} photo${totalLinked === 1 ? '' : 's'} across ${totalScanned} image${totalScanned === 1 ? '' : 's'}. Click Find all to continue.`,
+        )
+      } else if (totalLinked > 0) {
+        setFindMoreMessage(
+          `Done. Linked ${totalLinked} more photo${totalLinked === 1 ? '' : 's'} for this person (checked ${totalScanned} image${totalScanned === 1 ? '' : 's'}).`,
+        )
+      } else {
+        setFindMoreMessage(
+          `Done. Checked ${totalScanned} image${totalScanned === 1 ? '' : 's'} — no additional matches for this person.`,
+        )
+      }
+      router.refresh()
+    } catch (findError) {
+      setError(findError instanceof Error ? findError.message : 'Unable to find more photos.')
+    } finally {
+      setIsFindingAll(false)
+    }
+  }
+
+  function stopFindAll() {
+    findAllAbortRef.current = true
   }
 
   async function removePhotos(photoIds: string[]) {
@@ -167,11 +318,43 @@ export default function PersonDetailClient({
                 <ImageIcon className="h-3.5 w-3.5" />
                 Change preview
               </button>
+              {eventId ? (
+                <>
+                  <button
+                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-60"
+                    disabled={isFindingMore || isFindingAll}
+                    onClick={() => void findMorePhotos()}
+                    type="button"
+                  >
+                    {isFindingMore ? 'Searching…' : 'Find more photos'}
+                  </button>
+                  {isFindingAll ? (
+                    <button
+                      className="inline-flex items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 transition hover:bg-amber-100"
+                      onClick={stopFindAll}
+                      type="button"
+                    >
+                      Stop search
+                    </button>
+                  ) : (
+                    <button
+                      className="inline-flex items-center gap-1 rounded-lg border border-[#10233f]/20 bg-[#10233f] px-3 py-1.5 text-xs font-medium text-white transition hover:bg-[#1a3559] disabled:opacity-60"
+                      disabled={isFindingMore}
+                      onClick={() => void findAllMatchingPhotos()}
+                      title="Automatically scan all remaining event photos for this face. Keep this page open."
+                      type="button"
+                    >
+                      Find all matching photos
+                    </button>
+                  )}
+                </>
+              ) : null}
             </div>
           )}
           {error ? <p className="mt-2 text-sm text-red-600">{error}</p> : null}
+          {findMoreMessage ? <p className="mt-2 text-sm text-emerald-700">{findMoreMessage}</p> : null}
           <p className="mt-2 text-sm text-slate-500">
-            {person.photo_count} photo{person.photo_count === 1 ? '' : 's'}
+            {displayedPhotoCount} photo{displayedPhotoCount === 1 ? '' : 's'} with this face
             {person.cover_locked ? ' · Custom preview' : ''}
           </p>
         </div>

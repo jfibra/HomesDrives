@@ -141,6 +141,11 @@ export default function AdminWorkspaceClient({ eventSlug }: { eventSlug: string 
     [folders, selectedFolderId],
   )
 
+  const totalPhotoCount = useMemo(
+    () => folders.reduce((sum, folder) => sum + folder.photo_count, 0),
+    [folders],
+  )
+
   const childFolders = useMemo(() => {
     if (!selectedFolderId) return []
     return folders
@@ -648,7 +653,7 @@ export default function AdminWorkspaceClient({ eventSlug }: { eventSlug: string 
         </div>
       ) : null}
 
-      <AdminWorkspaceNav activeTab="folders" eventSlug={eventSlug} />
+      <AdminWorkspaceNav activeTab="folders" eventSlug={eventSlug} fileCount={totalPhotoCount} />
 
       <input
         accept="image/*,video/*"

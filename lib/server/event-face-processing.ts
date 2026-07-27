@@ -194,6 +194,19 @@ export async function listEventPhotosPendingFaceScan(eventId: string): Promise<s
   return pendingIds
 }
 
+export async function countEventScannableImages(eventId: string): Promise<number> {
+  return (await listEventImagePhotoIds(eventId)).length
+}
+
+export async function kickoffEventFaceScan(eventId: string) {
+  return processEventPhotoFacesBatch({
+    eventId,
+    mode: 'pending',
+    limit: 20,
+    offset: 0,
+  })
+}
+
 export async function getEventFaceScanStatus(eventId: string) {
   const totalPhotos = (await listEventImagePhotoIds(eventId)).length
   const pendingPhotos = (await listEventPhotosPendingFaceScan(eventId)).length
@@ -215,7 +228,7 @@ export async function processEventPhotoFacesBatch(params: {
   resetLibrary?: boolean
 }) {
   const offset = Math.max(0, params.offset ?? 0)
-  const limit = Math.min(10, Math.max(1, params.limit ?? 5))
+  const limit = Math.min(25, Math.max(1, params.limit ?? 20))
   const mode = params.mode ?? 'pending'
   const shouldReset = Boolean(params.resetLibrary) && mode === 'all' && offset === 0
 
