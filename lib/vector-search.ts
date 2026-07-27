@@ -2,14 +2,33 @@ import { createSupabaseAdminClient } from '@/lib/server/albums'
 import { createPerson, ensurePersonNameFromPhotoIfUnknown } from '@/lib/people'
 import { derivePersonNameFromFileName } from '@/lib/person-name-from-file'
 import { insertFace } from '@/lib/faces'
-import type { BoundingBox, DetectedFace, FaceMatch } from '@/lib/types/people'
-import { FACE_EMBEDDING_DIMENSIONS, FACE_MATCH_MARGIN, FACE_MATCH_THRESHOLD } from '@/lib/types/people'
+import type { DetectedFace, FaceMatch } from '@/lib/types/people'
+import {
+  FACE_CREATE_MIN_CONFIDENCE,
+  FACE_EMBEDDING_DIMENSIONS,
+  FACE_MATCH_MARGIN,
+  FACE_MATCH_THRESHOLD,
+} from '@/lib/types/people'
 
 export type MatchOrCreatePersonResult = {
   personId: string
   isNewPerson: boolean
   similarity: number | null
   matchedFaceId: string | null
+}
+
+/** Returned when the face should not become a person (ambiguous or too weak to create). */
+export type MatchOrCreatePersonSkip = {
+  skipped: true
+  reason: string
+}
+
+export type MatchOrCreatePersonOutcome = MatchOrCreatePersonResult | MatchOrCreatePersonSkip
+
+export function isMatchSkipped(
+  result: MatchOrCreatePersonOutcome,
+): result is MatchOrCreatePersonSkip {
+  return 'skipped' in result && result.skipped === true
 }
 
 function formatEmbeddingForRpc(embedding: number[]): string {
@@ -70,9 +89,12 @@ export async function matchOrCreatePerson(params: {
   eventId?: string | null
   threshold?: number
   suggestedName?: string | null
-}): Promise<MatchOrCreatePersonResult> {
+  /** Detector confidence — required to invent a new person when no match exists. */
+  detectionConfidence?: number | null
+}): Promise<MatchOrCreatePersonOutcome> {
   const threshold = params.threshold ?? FACE_MATCH_THRESHOLD
   const suggestedName = params.suggestedName?.trim() || null
+  const detectionConfidence = params.detectionConfidence ?? null
   const matches = params.eventId
     ? await findSimilarFacesForEvent({
         eventId: params.eventId,
@@ -87,6 +109,13 @@ export async function matchOrCreatePerson(params: {
       })
 
   if (matches.length === 0) {
+    if (detectionConfidence == null || detectionConfidence < FACE_CREATE_MIN_CONFIDENCE) {
+      return {
+        skipped: true,
+        reason: `Too weak to create a new person (confidence=${detectionConfidence ?? 'n/a'}).`,
+      }
+    }
+
     const person = await createPerson({ name: suggestedName ?? undefined })
     return {
       personId: person.id,
@@ -100,16 +129,15 @@ export async function matchOrCreatePerson(params: {
   const second = matches[1]
   const isAmbiguous =
     second != null &&
+    second.person_id !== best.person_id &&
     best.similarity - second.similarity < FACE_MATCH_MARGIN &&
-    best.similarity < 0.58
+    best.similarity < 0.62
 
   if (isAmbiguous) {
-    const person = await createPerson({ name: suggestedName ?? undefined })
+    // Do not invent a duplicate person — wait for a clearer match later.
     return {
-      personId: person.id,
-      isNewPerson: true,
-      similarity: null,
-      matchedFaceId: null,
+      skipped: true,
+      reason: `Ambiguous match between people (best=${best.similarity.toFixed(3)}, second=${second.similarity.toFixed(3)}).`,
     }
   }
 
@@ -128,7 +156,7 @@ export async function storeDetectedFace(params: {
   faceThumbnailUrl: string | null
   threshold?: number
   originalFileName?: string | null
-}): Promise<MatchOrCreatePersonResult & { faceId: string }> {
+}): Promise<(MatchOrCreatePersonResult & { faceId: string }) | MatchOrCreatePersonSkip> {
   const suggestedName = params.originalFileName
     ? derivePersonNameFromFileName(params.originalFileName)
     : null
@@ -138,7 +166,12 @@ export async function storeDetectedFace(params: {
     eventId: params.eventId,
     threshold: params.threshold,
     suggestedName,
+    detectionConfidence: params.detectedFace.confidence ?? null,
   })
+
+  if (isMatchSkipped(match)) {
+    return match
+  }
 
   if (!match.isNewPerson && params.originalFileName) {
     await ensurePersonNameFromPhotoIfUnknown(match.personId, params.originalFileName)
@@ -150,6 +183,7 @@ export async function storeDetectedFace(params: {
     embedding: params.detectedFace.embedding,
     faceThumbnailUrl: params.faceThumbnailUrl,
     boundingBox: params.detectedFace.bounding_box,
+    confidence: params.detectedFace.confidence ?? null,
   })
 
   return { ...match, faceId: face.id }

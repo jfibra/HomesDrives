@@ -9,14 +9,18 @@ import {
 } from '@/lib/server/albums'
 import { deleteFacesForPhoto, insertFace } from '@/lib/faces'
 import { dedupeBySpatialOverlap, boundingBoxArea } from '@/lib/face-dedupe'
+import { isFaceCropAcceptable } from '@/lib/face-quality'
 import { detectFacesInImage } from '@/lib/server/insightface-client'
 import { normalizeBoundingBox } from '@/lib/face-geometry'
 import { ensurePersonNameFromPhotoIfUnknown } from '@/lib/people'
 import { derivePersonNameFromFileName } from '@/lib/person-name-from-file'
-import { matchOrCreatePerson } from '@/lib/vector-search'
+import { matchOrCreatePerson, isMatchSkipped } from '@/lib/vector-search'
 import type { DetectedFace } from '@/lib/types/people'
 
 const IMAGE_EXTENSIONS = /\.(jpe?g|png|webp|bmp|gif|heic|heif|avif)$/i
+const MIN_PIPELINE_FACE_CONFIDENCE = Number.parseFloat(
+  process.env.FACE_PIPELINE_MIN_CONFIDENCE ?? '0.68',
+)
 
 type PhotoRow = {
   id: string
@@ -166,6 +170,13 @@ export async function processPhotoFaces(photoId: string): Promise<{ facesDetecte
     return { facesDetected: 0 }
   }
 
+  const { isPhotoFacesDiscarded } = await import('@/lib/face-rejections')
+  if (await isPhotoFacesDiscarded(photoId)) {
+    await deleteFacesForPhoto(photoId)
+    await markPhotoFacesScanned(photoId)
+    return { facesDetected: 0 }
+  }
+
   const eventId = await getPhotoEventId(photo)
 
   await deleteFacesForPhoto(photoId)
@@ -179,6 +190,8 @@ export async function processPhotoFaces(photoId: string): Promise<{ facesDetecte
   }
 
   const suggestedName = derivePersonNameFromFileName(photo.original_file_name)
+  const { listRejectedPersonIdsForPhoto } = await import('@/lib/face-rejections')
+  const rejectedPersonIds = await listRejectedPersonIdsForPhoto(photoId)
   const bestByPerson = new Map<
     string,
     { detectedFace: DetectedFace; faceThumbnailUrl: string | null }
@@ -187,9 +200,17 @@ export async function processPhotoFaces(photoId: string): Promise<{ facesDetecte
   for (let index = 0; index < detectedFaces.length; index++) {
     const detectedFace = detectedFaces[index]
     let faceThumbnailUrl: string | null = null
+    let thumbBuffer: Buffer | null = null
 
     try {
-      const thumbBuffer = await cropFaceThumbnail(imageBuffer, detectedFace.bounding_box)
+      thumbBuffer = await cropFaceThumbnail(imageBuffer, detectedFace.bounding_box)
+      const quality = await isFaceCropAcceptable(thumbBuffer)
+      if (!quality.ok) {
+        console.info(
+          `[face-pipeline] skipping low-quality face on ${photoId}: ${quality.reason} (sharpness=${quality.sharpness.toFixed(1)})`,
+        )
+        continue
+      }
       faceThumbnailUrl = await uploadFaceThumbnail({
         buffer: thumbBuffer,
         photoId,
@@ -197,23 +218,55 @@ export async function processPhotoFaces(photoId: string): Promise<{ facesDetecte
       })
     } catch (thumbError) {
       console.warn('[face-pipeline] thumbnail upload failed:', thumbError)
+      continue
+    }
+
+    // Weak detections create noisy embeddings → duplicate "people". Skip instead of inventing a person.
+    if ((detectedFace.confidence ?? 0) < MIN_PIPELINE_FACE_CONFIDENCE) {
+      console.info(
+        `[face-pipeline] skipping low-confidence face on ${photoId}: confidence=${detectedFace.confidence}`,
+      )
+      continue
     }
 
     const match = await matchOrCreatePerson({
       embedding: detectedFace.embedding,
       eventId,
       suggestedName,
+      detectionConfidence: detectedFace.confidence ?? null,
     })
+
+    if (isMatchSkipped(match)) {
+      console.info(`[face-pipeline] skipping face on ${photoId}: ${match.reason}`)
+      continue
+    }
+
+    if (!match.isNewPerson && rejectedPersonIds.has(match.personId)) {
+      // User marked this photo as "No face here" for this person — never re-link.
+      continue
+    }
 
     if (!match.isNewPerson && photo.original_file_name) {
       await ensurePersonNameFromPhotoIfUnknown(match.personId, photo.original_file_name)
     }
 
     const existing = bestByPerson.get(match.personId)
-    if (
-      !existing ||
-      boundingBoxArea(detectedFace.bounding_box) > boundingBoxArea(existing.detectedFace.bounding_box)
-    ) {
+    const existingScore = existing
+      ? {
+          confidence: existing.detectedFace.confidence ?? -1,
+          area: boundingBoxArea(existing.detectedFace.bounding_box),
+        }
+      : null
+    const nextScore = {
+      confidence: detectedFace.confidence ?? -1,
+      area: boundingBoxArea(detectedFace.bounding_box),
+    }
+    const isBetter =
+      !existingScore ||
+      nextScore.confidence > existingScore.confidence ||
+      (nextScore.confidence === existingScore.confidence && nextScore.area > existingScore.area)
+
+    if (isBetter) {
       bestByPerson.set(match.personId, { detectedFace, faceThumbnailUrl })
     }
   }
@@ -225,6 +278,7 @@ export async function processPhotoFaces(photoId: string): Promise<{ facesDetecte
       embedding: matched.detectedFace.embedding,
       faceThumbnailUrl: matched.faceThumbnailUrl,
       boundingBox: matched.detectedFace.bounding_box,
+      confidence: matched.detectedFace.confidence ?? null,
     })
   }
 

@@ -56,6 +56,7 @@ export async function POST(request: Request, context: RouteContext) {
     const offset = typeof body?.offset === 'number' && Number.isFinite(body.offset) ? body.offset : 0
     const limit = typeof body?.limit === 'number' && Number.isFinite(body.limit) ? body.limit : 5
     const mode: EventFaceScanMode = body?.mode === 'all' ? 'all' : 'pending'
+    const resetLibrary = body?.resetLibrary === true || (mode === 'all' && offset === 0)
 
     if (!adminCode) {
       return NextResponse.json({ error: 'Missing adminCode.' }, { status: 400 })
@@ -72,6 +73,7 @@ export async function POST(request: Request, context: RouteContext) {
       offset,
       limit,
       mode,
+      resetLibrary,
     })
 
     return NextResponse.json(result)

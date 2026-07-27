@@ -11,6 +11,8 @@ import type { Person } from '@/lib/types/people'
 type PeopleGridManagerProps = {
   emptyAction?: ReactNode
   enableBulkDelete?: boolean
+  listPage?: number
+  listQuery?: string
   people: Person[]
   personBasePath?: string
 }
@@ -18,6 +20,8 @@ type PeopleGridManagerProps = {
 export default function PeopleGridManager({
   emptyAction,
   enableBulkDelete = false,
+  listPage = 1,
+  listQuery = '',
   people,
   personBasePath = '/people',
 }: PeopleGridManagerProps) {
@@ -149,6 +153,8 @@ export default function PeopleGridManager({
 
       <PeopleGrid
         emptyAction={emptyAction}
+        listPage={listPage}
+        listQuery={listQuery}
         onTogglePerson={selectMode ? togglePerson : undefined}
         people={people}
         personBasePath={personBasePath}

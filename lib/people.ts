@@ -1,8 +1,10 @@
 import { createSupabaseAdminClient } from '@/lib/server/albums'
+import { applyBestCoverFacesToPeople, hydratePeopleCoversFromDb } from '@/lib/face-cover'
 import { derivePersonNameFromFileName } from '@/lib/person-name-from-file'
 import type { PaginatedResult, Person, PersonPhoto } from '@/lib/types/people'
 
-const PERSON_SELECT = 'id, name, cover_face_url, photo_count, created_at'
+const PERSON_SELECT = 'id, name, cover_face_url, cover_locked, photo_count, created_at'
+const PERSON_SELECT_LEGACY = 'id, name, cover_face_url, photo_count, created_at'
 
 function mapPerson(row: Record<string, unknown>): Person {
   return {
@@ -12,6 +14,7 @@ function mapPerson(row: Record<string, unknown>): Person {
       typeof row.cover_face_url === 'string' && row.cover_face_url.trim()
         ? row.cover_face_url.trim()
         : null,
+    cover_locked: row.cover_locked === true,
     photo_count: typeof row.photo_count === 'number' ? row.photo_count : 0,
     created_at: String(row.created_at ?? ''),
   }
@@ -28,6 +31,38 @@ function mapPersonPhoto(row: Record<string, unknown>): PersonPhoto {
   }
 }
 
+async function selectPeopleRows(
+  run: (
+    select: string,
+  ) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null; count?: number | null }>,
+): Promise<{ data: unknown[]; count?: number | null }> {
+  const primary = await run(PERSON_SELECT)
+  if (!primary.error) {
+    return { data: primary.data ?? [], count: primary.count }
+  }
+  if (/cover_locked/i.test(primary.error.message)) {
+    const fallback = await run(PERSON_SELECT_LEGACY)
+    if (fallback.error) throw new Error(fallback.error.message)
+    return { data: fallback.data ?? [], count: fallback.count }
+  }
+  throw new Error(primary.error.message)
+}
+
+async function selectPersonRow(
+  run: (select: string) => PromiseLike<{ data: unknown | null; error: { message: string } | null }>,
+): Promise<Record<string, unknown> | null> {
+  const primary = await run(PERSON_SELECT)
+  if (!primary.error) {
+    return primary.data ? (primary.data as Record<string, unknown>) : null
+  }
+  if (/cover_locked/i.test(primary.error.message)) {
+    const fallback = await run(PERSON_SELECT_LEGACY)
+    if (fallback.error) throw new Error(fallback.error.message)
+    return fallback.data ? (fallback.data as Record<string, unknown>) : null
+  }
+  throw new Error(primary.error.message)
+}
+
 export async function listPeople(params: {
   page?: number
   pageSize?: number
@@ -38,19 +73,22 @@ export async function listPeople(params: {
   const to = from + pageSize - 1
 
   const supabase = createSupabaseAdminClient()
-  const { data, error, count } = await supabase
-    .from('people')
-    .select(PERSON_SELECT, { count: 'exact' })
-    .gt('photo_count', 0)
-    .order('photo_count', { ascending: false })
-    .order('created_at', { ascending: false })
-    .range(from, to)
-
-  if (error) throw new Error(error.message)
+  const { data, count } = await selectPeopleRows((select) =>
+    supabase
+      .from('people')
+      .select(select, { count: 'exact' })
+      .gt('photo_count', 0)
+      .order('photo_count', { ascending: false })
+      .order('created_at', { ascending: false })
+      .range(from, to),
+  )
 
   const totalCount = count ?? 0
+  const items = await applyBestCoverFacesToPeople<Person>(
+    await hydratePeopleCoversFromDb(data.map((row) => mapPerson(row as Record<string, unknown>))),
+  )
   return {
-    items: (data ?? []).map((row) => mapPerson(row as Record<string, unknown>)),
+    items,
     page,
     pageSize,
     totalCount,
@@ -60,15 +98,14 @@ export async function listPeople(params: {
 
 export async function getPersonById(personId: string): Promise<Person | null> {
   const supabase = createSupabaseAdminClient()
-  const { data, error } = await supabase
-    .from('people')
-    .select(PERSON_SELECT)
-    .eq('id', personId)
-    .maybeSingle()
-
-  if (error) throw new Error(error.message)
+  const data = await selectPersonRow((select) =>
+    supabase.from('people').select(select).eq('id', personId).maybeSingle(),
+  )
   if (!data) return null
-  return mapPerson(data as Record<string, unknown>)
+  const [person] = await applyBestCoverFacesToPeople<Person>(
+    await hydratePeopleCoversFromDb([mapPerson(data)]),
+  )
+  return person ?? null
 }
 
 export async function createPerson(params?: {
@@ -76,18 +113,26 @@ export async function createPerson(params?: {
   coverFaceUrl?: string | null
 }): Promise<Person> {
   const supabase = createSupabaseAdminClient()
-  const { data, error } = await supabase
-    .from('people')
-    .insert({
-      name: params?.name?.trim() || 'Unknown',
-      cover_face_url: params?.coverFaceUrl ?? null,
-      photo_count: 0,
-    })
-    .select(PERSON_SELECT)
-    .single()
+  const insertPayload: Record<string, unknown> = {
+    name: params?.name?.trim() || 'Unknown',
+    cover_face_url: params?.coverFaceUrl ?? null,
+    photo_count: 0,
+    cover_locked: false,
+  }
 
-  if (error) throw new Error(error.message)
-  return mapPerson(data as Record<string, unknown>)
+  const primary = await supabase.from('people').insert(insertPayload).select(PERSON_SELECT).single()
+  if (!primary.error) {
+    return mapPerson(primary.data as Record<string, unknown>)
+  }
+
+  if (/cover_locked/i.test(primary.error.message)) {
+    delete insertPayload.cover_locked
+    const retry = await supabase.from('people').insert(insertPayload).select(PERSON_SELECT_LEGACY).single()
+    if (retry.error) throw new Error(retry.error.message)
+    return mapPerson(retry.data as Record<string, unknown>)
+  }
+
+  throw new Error(primary.error.message)
 }
 
 export async function updatePersonName(personId: string, name: string): Promise<Person> {
@@ -95,15 +140,11 @@ export async function updatePersonName(personId: string, name: string): Promise<
   if (!trimmed) throw new Error('Name is required.')
 
   const supabase = createSupabaseAdminClient()
-  const { data, error } = await supabase
-    .from('people')
-    .update({ name: trimmed })
-    .eq('id', personId)
-    .select(PERSON_SELECT)
-    .single()
-
-  if (error) throw new Error(error.message)
-  return mapPerson(data as Record<string, unknown>)
+  const data = await selectPersonRow((select) =>
+    supabase.from('people').update({ name: trimmed }).eq('id', personId).select(select).single(),
+  )
+  if (!data) throw new Error('Person not found.')
+  return mapPerson(data)
 }
 
 export async function updatePersonCover(personId: string, coverFaceUrl: string): Promise<void> {
@@ -114,6 +155,56 @@ export async function updatePersonCover(personId: string, coverFaceUrl: string):
     .eq('id', personId)
 
   if (error) throw new Error(error.message)
+}
+
+/** Manually choose (or unlock auto) the People-grid preview face. */
+export async function setPersonCoverPreview(params: {
+  personId: string
+  faceThumbnailUrl?: string | null
+  locked: boolean
+}): Promise<Person> {
+  const supabase = createSupabaseAdminClient()
+  const coverUrl = params.faceThumbnailUrl?.trim() || null
+
+  if (params.locked) {
+    if (!coverUrl) throw new Error('Choose a face preview photo.')
+    const patch: Record<string, unknown> = {
+      cover_face_url: coverUrl,
+      cover_locked: true,
+    }
+    let result = await supabase
+      .from('people')
+      .update(patch)
+      .eq('id', params.personId)
+      .select(PERSON_SELECT)
+      .single()
+
+    if (result.error && /cover_locked/i.test(result.error.message)) {
+      delete patch.cover_locked
+      result = await supabase
+        .from('people')
+        .update(patch)
+        .eq('id', params.personId)
+        .select(PERSON_SELECT_LEGACY)
+        .single()
+    }
+    if (result.error) throw new Error(result.error.message)
+    // Even if DB has no cover_locked column yet, treat this choice as locked for the client.
+    return { ...mapPerson(result.data as Record<string, unknown>), cover_locked: true }
+  }
+
+  // Unlock → auto best face
+  const unlockPatch: Record<string, unknown> = { cover_locked: false }
+  let unlock = await supabase.from('people').update(unlockPatch).eq('id', params.personId)
+  if (unlock.error && !/cover_locked/i.test(unlock.error.message)) {
+    throw new Error(unlock.error.message)
+  }
+
+  const { refreshPersonCoverFromBestFace } = await import('@/lib/face-cover')
+  await refreshPersonCoverFromBestFace(params.personId, { force: true })
+  const person = await getPersonById(params.personId)
+  if (!person) throw new Error('Person not found.')
+  return person
 }
 
 export async function refreshPersonPhotoCount(personId: string): Promise<void> {
@@ -207,8 +298,14 @@ export async function listPeopleForEvent(params: {
   })
   if (error) throw new Error(error.message)
 
+  const items = await applyBestCoverFacesToPeople<Person>(
+    await hydratePeopleCoversFromDb(
+      (data ?? []).map((row: Record<string, unknown>) => mapPerson(row)),
+    ),
+  )
+
   return {
-    items: (data ?? []).map((row) => mapPerson(row as Record<string, unknown>)),
+    items,
     page,
     pageSize,
     totalCount,

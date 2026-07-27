@@ -4,6 +4,8 @@ import PersonCard from '@/components/people/PersonCard'
 
 type PeopleGridProps = {
   emptyAction?: ReactNode
+  listPage?: number
+  listQuery?: string
   onTogglePerson?: (personId: string) => void
   people: Person[]
   personBasePath?: string
@@ -12,6 +14,8 @@ type PeopleGridProps = {
 
 export default function PeopleGrid({
   emptyAction,
+  listPage = 1,
+  listQuery = '',
   onTogglePerson,
   people,
   personBasePath = '/people',
@@ -37,6 +41,8 @@ export default function PeopleGrid({
       {people.map((person) => (
         <PersonCard
           key={person.id}
+          listPage={listPage}
+          listQuery={listQuery}
           onToggle={onTogglePerson ? () => onTogglePerson(person.id) : undefined}
           person={person}
           personBasePath={personBasePath}

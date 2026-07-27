@@ -35,6 +35,7 @@ function parseSearchResponse(data: Record<string, unknown> | null): FaceSearchRe
                 typeof p.cover_face_url === 'string' && p.cover_face_url.trim()
                   ? p.cover_face_url.trim()
                   : null,
+              cover_locked: p.cover_locked === true,
               photo_count: typeof p.photo_count === 'number' ? p.photo_count : 0,
               created_at: typeof p.created_at === 'string' ? p.created_at : '',
             },
@@ -56,6 +57,7 @@ function parseSearchResponse(data: Record<string, unknown> | null): FaceSearchRe
             typeof personData.cover_face_url === 'string' && personData.cover_face_url.trim()
               ? personData.cover_face_url.trim()
               : null,
+          cover_locked: personData.cover_locked === true,
           photo_count: typeof personData.photo_count === 'number' ? personData.photo_count : 0,
           created_at: typeof personData.created_at === 'string' ? personData.created_at : '',
         }

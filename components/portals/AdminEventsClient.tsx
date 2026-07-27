@@ -21,6 +21,7 @@ import {
   Shield,
   Trash2,
   X,
+  ExternalLink,
 } from 'lucide-react'
 
 import PortalFrame from '@/components/portals/PortalFrame'
@@ -439,13 +440,6 @@ export default function AdminEventsClient() {
                         src={portalEvent.cover_image_url ?? undefined}
                       />
                     ) : null}
-                    {!isEditing && showFullEventDetails ? (
-                      <Link
-                        aria-label={`Manage ${portalEvent.name}`}
-                        className="absolute inset-0 z-[1] cursor-pointer max-md:hidden"
-                        href={workspacePath}
-                      />
-                    ) : null}
                     <div
                       aria-hidden
                       className={`pointer-events-none absolute inset-0 z-[2] transition duration-300 ${
@@ -602,8 +596,21 @@ export default function AdminEventsClient() {
                     </div>
 
                       <div
-                        className={`flex w-full shrink-0 md:w-auto ${showFullEventDetails ? 'flex' : 'hidden md:flex'}`}
+                        className={`flex w-full shrink-0 items-stretch gap-2 md:w-auto ${showFullEventDetails ? 'flex' : 'hidden md:flex'}`}
                       >
+                        {!isEditing ? (
+                          <Link
+                            className={`inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition outline-none focus-visible:ring-2 sm:min-h-0 sm:flex-none ${
+                              hasCover
+                                ? 'border border-white/40 bg-white text-[#10233f] hover:bg-white/90 focus-visible:ring-white/50'
+                                : 'border border-[#1428AE]/25 bg-[#1428AE] text-white hover:bg-[#101f8a] focus-visible:ring-[#1428AE]/30'
+                            }`}
+                            href={workspacePath}
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                            Open
+                          </Link>
+                        ) : null}
                         <input
                           accept="image/*"
                           className="hidden"
@@ -630,7 +637,7 @@ export default function AdminEventsClient() {
                         />
                         <DropdownMenu>
                           <DropdownMenuTrigger
-                            className={`inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#D51C39] bg-[#D51C39] px-4 py-2 text-sm font-semibold text-white transition outline-none hover:bg-[#b81832] focus-visible:ring-2 focus-visible:ring-[#D51C39]/30 sm:min-h-0 sm:w-auto sm:justify-start ${isUploadingAssets ? 'pointer-events-none opacity-60' : ''}`}
+                            className={`inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-[#D51C39] bg-[#D51C39] px-4 py-2 text-sm font-semibold text-white transition outline-none hover:bg-[#b81832] focus-visible:ring-2 focus-visible:ring-[#D51C39]/30 sm:min-h-0 sm:w-auto sm:flex-none sm:justify-start ${isUploadingAssets ? 'pointer-events-none opacity-60' : ''}`}
                             disabled={isUploadingAssets}
                           >
                             <Settings2 className="h-4 w-4" />

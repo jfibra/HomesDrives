@@ -1,12 +1,32 @@
 import { createSupabaseAdminClient } from '@/lib/server/albums'
 import { dedupePhotoFaceAnnotations } from '@/lib/face-dedupe'
+import { refreshPersonCoverFromBestFace as refreshBestPersonCover } from '@/lib/face-cover'
 import type { BoundingBox, Face, PhotoFaceAnnotation } from '@/lib/types/people'
 import { FACE_EMBEDDING_DIMENSIONS } from '@/lib/types/people'
-import { createPerson, refreshPersonPhotoCount, updatePersonCover } from '@/lib/people'
+import { createPerson, refreshPersonPhotoCount } from '@/lib/people'
 import { derivePersonNameFromFileName } from '@/lib/person-name-from-file'
 
 const FACE_SELECT =
+  'id, photo_id, person_id, embedding, face_thumbnail_url, bounding_box, detection_confidence, created_at'
+const FACE_SELECT_LEGACY =
   'id, photo_id, person_id, embedding, face_thumbnail_url, bounding_box, created_at'
+
+async function selectFaces(
+  query: (select: string) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>,
+): Promise<Face[]> {
+  const primary = await query(FACE_SELECT)
+  if (!primary.error) {
+    return (primary.data ?? []).map((row) => mapFace(row as Record<string, unknown>))
+  }
+
+  if (/detection_confidence/i.test(primary.error.message)) {
+    const fallback = await query(FACE_SELECT_LEGACY)
+    if (fallback.error) throw new Error(fallback.error.message)
+    return (fallback.data ?? []).map((row) => mapFace(row as Record<string, unknown>))
+  }
+
+  throw new Error(primary.error.message)
+}
 
 function mapBoundingBox(value: unknown): BoundingBox {
   if (!value || typeof value !== 'object') {
@@ -39,6 +59,7 @@ function parseEmbedding(value: unknown): number[] | null {
 }
 
 function mapFace(row: Record<string, unknown>): Face {
+  const confidenceRaw = row.detection_confidence ?? row.confidence
   return {
     id: String(row.id),
     photo_id: String(row.photo_id),
@@ -49,6 +70,8 @@ function mapFace(row: Record<string, unknown>): Face {
         ? row.face_thumbnail_url.trim()
         : null,
     bounding_box: mapBoundingBox(row.bounding_box),
+    confidence:
+      typeof confidenceRaw === 'number' && Number.isFinite(confidenceRaw) ? confidenceRaw : null,
     created_at: String(row.created_at ?? ''),
   }
 }
@@ -62,10 +85,9 @@ function formatEmbeddingForPg(embedding: number[]): string {
 
 export async function getFacesByPhotoId(photoId: string): Promise<Face[]> {
   const supabase = createSupabaseAdminClient()
-  const { data, error } = await supabase.from('faces').select(FACE_SELECT).eq('photo_id', photoId)
-
-  if (error) throw new Error(error.message)
-  return (data ?? []).map((row) => mapFace(row as Record<string, unknown>))
+  return selectFaces((select) =>
+    supabase.from('faces').select(select).eq('photo_id', photoId),
+  )
 }
 
 export async function getPhotoFaceAnnotations(photoId: string): Promise<PhotoFaceAnnotation[]> {
@@ -145,6 +167,8 @@ export async function detachPhotoFromPerson(params: {
 
   await refreshPersonPhotoCount(params.personId)
   await refreshPersonPhotoCount(newPerson.id)
+  await refreshBestPersonCover(params.personId)
+  await refreshBestPersonCover(newPerson.id)
 
   return { newPersonId: newPerson.id, movedFaces: faces.length }
 }
@@ -184,23 +208,79 @@ export async function removePhotosFromPerson(params: {
   }
 
   const supabase = createSupabaseAdminClient()
+
+  // "No face here" = false detection on this photo → remove EVERY face tag on it,
+  // not only the current person (otherwise other people remain on the same photo).
   const { data: faces, error: selectError } = await supabase
     .from('faces')
-    .select('id')
-    .eq('person_id', params.personId)
+    .select('id, person_id, face_thumbnail_url')
     .in('photo_id', uniquePhotoIds)
 
   if (selectError) throw new Error(selectError.message)
 
-  const faceIds = (faces ?? []).map((row) => String(row.id))
-  if (faceIds.length === 0) {
+  const faceRows = faces ?? []
+  if (faceRows.length === 0) {
     throw new Error('No face detections found for the selected photos.')
   }
+
+  const faceIds = faceRows.map((row) => String(row.id))
+  const affectedPersonIds = [
+    ...new Set([params.personId, ...faceRows.map((row) => String(row.person_id))]),
+  ]
+
+  const removedThumbUrlsByPerson = new Map<string, Set<string>>()
+  for (const row of faceRows) {
+    const personId = String(row.person_id)
+    const thumb =
+      typeof row.face_thumbnail_url === 'string' ? row.face_thumbnail_url.trim() : ''
+    if (!thumb) continue
+    const set = removedThumbUrlsByPerson.get(personId) ?? new Set<string>()
+    set.add(thumb)
+    removedThumbUrlsByPerson.set(personId, set)
+  }
+
+  const { discardFacesOnPhotos, rejectFacesForPersonPhotos } = await import('@/lib/face-rejections')
+
+  // Keep person-level rejection for the current person + discard the whole photo.
+  await rejectFacesForPersonPhotos({
+    personId: params.personId,
+    photoIds: uniquePhotoIds,
+  })
+  await discardFacesOnPhotos(uniquePhotoIds)
 
   const { error: deleteError } = await supabase.from('faces').delete().in('id', faceIds)
   if (deleteError) throw new Error(deleteError.message)
 
-  await refreshPersonPhotoCount(params.personId)
+  for (const personId of affectedPersonIds) {
+    await refreshPersonPhotoCount(personId)
+
+    const removedThumbs = removedThumbUrlsByPerson.get(personId)
+    const { data: personRow } = await supabase
+      .from('people')
+      .select('cover_face_url')
+      .eq('id', personId)
+      .maybeSingle()
+    const currentCover =
+      typeof personRow?.cover_face_url === 'string' ? personRow.cover_face_url.trim() : ''
+
+    if (currentCover && removedThumbs?.has(currentCover)) {
+      const clearPrimary = await supabase
+        .from('people')
+        .update({ cover_face_url: null, cover_locked: false })
+        .eq('id', personId)
+      if (clearPrimary.error && /cover_locked/i.test(clearPrimary.error.message)) {
+        const clearLegacy = await supabase
+          .from('people')
+          .update({ cover_face_url: null })
+          .eq('id', personId)
+        if (clearLegacy.error) throw new Error(clearLegacy.error.message)
+      } else if (clearPrimary.error) {
+        throw new Error(clearPrimary.error.message)
+      }
+    }
+
+    await refreshBestPersonCover(personId, { force: true })
+  }
 
   return {
     removedPhotos: uniquePhotoIds.length,
@@ -223,7 +303,12 @@ export async function deleteFacesForPhoto(photoId: string): Promise<void> {
   const { error: deleteError } = await supabase.from('faces').delete().eq('photo_id', photoId)
   if (deleteError) throw new Error(deleteError.message)
 
-  await Promise.all(personIds.map((personId) => refreshPersonPhotoCount(personId)))
+  await Promise.all(
+    personIds.map(async (personId) => {
+      await refreshPersonPhotoCount(personId)
+      await refreshBestPersonCover(personId)
+    }),
+  )
 }
 
 export async function insertFace(params: {
@@ -232,40 +317,52 @@ export async function insertFace(params: {
   embedding: number[]
   faceThumbnailUrl: string | null
   boundingBox: BoundingBox
+  confidence?: number | null
 }): Promise<Face> {
   const supabase = createSupabaseAdminClient()
-  const { data, error } = await supabase
-    .from('faces')
-    .insert({
-      photo_id: params.photoId,
-      person_id: params.personId,
-      embedding: formatEmbeddingForPg(params.embedding),
-      face_thumbnail_url: params.faceThumbnailUrl,
-      bounding_box: params.boundingBox,
-    })
-    .select(FACE_SELECT)
-    .single()
+  const confidence =
+    typeof params.confidence === 'number' && Number.isFinite(params.confidence)
+      ? params.confidence
+      : null
 
-  if (error) throw new Error(error.message)
-
-  await refreshPersonPhotoCount(params.personId)
-
-  const personFaces = await getFacesByPersonId(params.personId)
-  if (personFaces.length === 1 && params.faceThumbnailUrl) {
-    await updatePersonCover(params.personId, params.faceThumbnailUrl)
+  const insertPayload: Record<string, unknown> = {
+    photo_id: params.photoId,
+    person_id: params.personId,
+    embedding: formatEmbeddingForPg(params.embedding),
+    face_thumbnail_url: params.faceThumbnailUrl,
+    bounding_box: params.boundingBox,
+  }
+  if (confidence != null) {
+    insertPayload.detection_confidence = confidence
   }
 
-  return mapFace(data as Record<string, unknown>)
+  let insertedRow: Record<string, unknown> | null = null
+  const primary = await supabase.from('faces').insert(insertPayload).select(FACE_SELECT).single()
+
+  if (primary.error && confidence != null && /detection_confidence/i.test(primary.error.message)) {
+    delete insertPayload.detection_confidence
+    const retry = await supabase
+      .from('faces')
+      .insert(insertPayload)
+      .select(FACE_SELECT_LEGACY)
+      .single()
+    if (retry.error) throw new Error(retry.error.message)
+    insertedRow = retry.data as Record<string, unknown>
+  } else if (primary.error) {
+    throw new Error(primary.error.message)
+  } else {
+    insertedRow = primary.data as Record<string, unknown>
+  }
+
+  await refreshPersonPhotoCount(params.personId)
+  await refreshBestPersonCover(params.personId)
+
+  return mapFace(insertedRow)
 }
 
 export async function getFacesByPersonId(personId: string): Promise<Face[]> {
   const supabase = createSupabaseAdminClient()
-  const { data, error } = await supabase
-    .from('faces')
-    .select(FACE_SELECT)
-    .eq('person_id', personId)
-    .order('created_at', { ascending: true })
-
-  if (error) throw new Error(error.message)
-  return (data ?? []).map((row) => mapFace(row as Record<string, unknown>))
+  return selectFaces((select) =>
+    supabase.from('faces').select(select).eq('person_id', personId).order('created_at', { ascending: true }),
+  )
 }

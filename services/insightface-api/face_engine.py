@@ -23,10 +23,10 @@ MODEL_DIR = Path(os.getenv("FACE_MODEL_DIR", Path(__file__).parent / "models"))
 EMBED_SIZE = 112
 DETECTION_MODEL_NAME = "det_10g.onnx"
 RECOGNITION_MODEL_NAME = "w600k_r50.onnx"
-DET_SCORE_THRESHOLD = float(os.getenv("FACE_DET_SCORE_THRESHOLD", "0.55"))
-MIN_FACE_SIZE_PX = int(os.getenv("FACE_MIN_SIZE_PX", "64"))
-MIN_FACE_SHARPNESS = float(os.getenv("FACE_MIN_SHARPNESS", "55"))
-MIN_FACE_AREA_RATIO = float(os.getenv("FACE_MIN_AREA_RATIO", "0.00015"))
+MIN_FACE_SIZE_PX = int(os.getenv("FACE_MIN_SIZE_PX", "96"))
+MIN_FACE_SHARPNESS = float(os.getenv("FACE_MIN_SHARPNESS", "125"))
+MIN_FACE_AREA_RATIO = float(os.getenv("FACE_MIN_AREA_RATIO", "0.0006"))
+DET_SCORE_THRESHOLD = float(os.getenv("FACE_DET_SCORE_THRESHOLD", "0.68"))
 
 ARCFACE_DST = np.array(
     [
@@ -83,7 +83,8 @@ def _bbox_aspect_ratio_ok(bbox: np.ndarray) -> bool:
     width = max(1.0, float(bbox[2] - bbox[0]))
     height = max(1.0, float(bbox[3] - bbox[1]))
     ratio = width / height
-    return 0.68 <= ratio <= 1.35
+    # Hands / body parts are often wider or taller than a face crop.
+    return 0.72 <= ratio <= 1.28
 
 
 def _landmarks_valid(landmarks: np.ndarray, bbox: np.ndarray, image_shape: tuple[int, int]) -> bool:
@@ -102,31 +103,67 @@ def _landmarks_valid(landmarks: np.ndarray, bbox: np.ndarray, image_shape: tuple
 
     left_eye, right_eye, nose, left_mouth, right_mouth = landmarks
 
-    if abs(float(left_eye[1] - right_eye[1])) > height * 0.12:
+    if abs(float(left_eye[1] - right_eye[1])) > height * 0.10:
         return False
 
     eye_distance = float(np.linalg.norm(right_eye - left_eye))
-    if eye_distance < width * 0.22 or eye_distance > width * 0.68:
+    if eye_distance < width * 0.26 or eye_distance > width * 0.62:
         return False
 
-    if not (min(left_eye[0], right_eye[0]) <= nose[0] <= max(left_eye[0], right_eye[0])):
+    # Hands rarely form a clear left-eye / right-eye / nose triangle.
+    if not (min(left_eye[0], right_eye[0]) + width * 0.05 <= nose[0] <= max(left_eye[0], right_eye[0]) - width * 0.05):
         return False
 
     eye_line_y = (left_eye[1] + right_eye[1]) / 2.0
-    if nose[1] <= eye_line_y + height * 0.08:
+    if nose[1] <= eye_line_y + height * 0.10:
+        return False
+    if nose[1] > eye_line_y + height * 0.55:
         return False
 
     mouth_y = (left_mouth[1] + right_mouth[1]) / 2.0
-    if mouth_y <= nose[1] + height * 0.06:
+    if mouth_y <= nose[1] + height * 0.08:
+        return False
+    if mouth_y > y2 + height * 0.05:
         return False
 
     mouth_width = float(np.linalg.norm(right_mouth - left_mouth))
-    if mouth_width < eye_distance * 0.45 or mouth_width > eye_distance * 1.8:
+    if mouth_width < eye_distance * 0.50 or mouth_width > eye_distance * 1.55:
         return False
 
     for x, y in landmarks:
-        if x < x1 - width * 0.15 or x > x2 + width * 0.15 or y < y1 - height * 0.15 or y > y2 + height * 0.15:
+        if x < x1 - width * 0.08 or x > x2 + width * 0.08 or y < y1 - height * 0.08 or y > y2 + height * 0.08:
             return False
+
+    return True
+
+
+def _looks_like_face_texture(aligned_bgr: np.ndarray) -> bool:
+    """Reject hands / flat skin blobs that pass crude landmark checks."""
+    gray = cv2.cvtColor(aligned_bgr, cv2.COLOR_BGR2GRAY)
+    h, w = gray.shape
+    if h < 40 or w < 40:
+        return False
+
+    # Eye band should have more local contrast than cheek/hand skin.
+    eye_band = gray[int(h * 0.18) : int(h * 0.42), int(w * 0.12) : int(w * 0.88)]
+    cheek_band = gray[int(h * 0.55) : int(h * 0.82), int(w * 0.18) : int(w * 0.82)]
+    if eye_band.size == 0 or cheek_band.size == 0:
+        return False
+
+    eye_std = float(eye_band.std())
+    cheek_std = float(cheek_band.std())
+    if eye_std < 12.0:
+        return False
+    if eye_std < cheek_std * 0.85:
+        return False
+
+    # Aligned faces usually have a slightly darker upper half (eyes/brows).
+    top = gray[: int(h * 0.45), :]
+    bottom = gray[int(h * 0.55) :, :]
+    if top.size == 0 or bottom.size == 0:
+        return False
+    if float(top.mean()) >= float(bottom.mean()) + 12:
+        return False
 
     return True
 
@@ -136,13 +173,7 @@ def _is_sharp_enough(aligned_bgr: np.ndarray) -> bool:
     sharpness = float(cv2.Laplacian(gray, cv2.CV_64F).var())
     if sharpness < MIN_FACE_SHARPNESS:
         return False
-
-    # Real faces usually have darker eye region than cheeks in aligned crop.
-    top = gray[: int(gray.shape[0] * 0.45), :]
-    bottom = gray[int(gray.shape[0] * 0.55) :, :]
-    if top.size == 0 or bottom.size == 0:
-        return False
-    return float(top.mean()) < float(bottom.mean()) + 18
+    return _looks_like_face_texture(aligned_bgr)
 
 
 class FaceEngine:

@@ -106,7 +106,7 @@ export default function EventFaceBackgroundScanner({ eventId }: EventFaceBackgro
   }, [eventId, getAdminCode])
 
   const processBatch = useCallback(
-    async (params: { offset: number; mode: 'pending' | 'all' }) => {
+    async (params: { offset: number; mode: 'pending' | 'all'; resetLibrary?: boolean }) => {
       const adminCode = getAdminCode()
       if (!adminCode) {
         throw new Error('Admin session expired. Sign in again from the admin portal.')
@@ -122,6 +122,7 @@ export default function EventFaceBackgroundScanner({ eventId }: EventFaceBackgro
             offset: params.offset,
             limit: BATCH_LIMIT,
             mode: params.mode,
+            resetLibrary: Boolean(params.resetLibrary),
           }),
         },
       )
@@ -144,15 +145,25 @@ export default function EventFaceBackgroundScanner({ eventId }: EventFaceBackgro
   )
 
   const runScanLoop = useCallback(
-    async (mode: 'pending' | 'all', runId: number) => {
+    async (mode: 'pending' | 'all', runId: number, options?: { resetLibrary?: boolean }) => {
       let offset = 0
       let totalPhotos = 0
       let scannedPhotos = 0
       let totalFaces = 0
       let totalFailed = 0
+      const resetLibrary = Boolean(options?.resetLibrary)
+
+      if (resetLibrary && mode === 'all') {
+        setActive(true)
+        setProgress('Clearing people list, then rescanning all photos…')
+      }
 
       while (runId === runIdRef.current) {
-        const data = await processBatch({ offset, mode })
+        const data = await processBatch({
+          offset,
+          mode,
+          resetLibrary: resetLibrary && offset === 0,
+        })
         totalPhotos = typeof data.totalPhotos === 'number' ? data.totalPhotos : totalPhotos
         scannedPhotos += typeof data.processed === 'number' ? data.processed : 0
         totalFaces += typeof data.facesDetected === 'number' ? data.facesDetected : 0
@@ -231,12 +242,18 @@ export default function EventFaceBackgroundScanner({ eventId }: EventFaceBackgro
   }, [eventId, fetchStatus, runScanLoop])
 
   async function rescanAllPhotos() {
+    const confirmed = window.confirm(
+      'Rescan clears this event’s people list and face tags, then scans every photo again. Continue?',
+    )
+    if (!confirmed) return
+
     const runId = ++runIdRef.current
     setRescanningAll(true)
     setError('')
 
     try {
-      await runScanLoop('all', runId)
+      await runScanLoop('all', runId, { resetLibrary: true })
+      router.refresh()
     } catch (rescanError) {
       setError(rescanError instanceof Error ? rescanError.message : 'Face scan failed.')
       setActive(false)
@@ -245,20 +262,17 @@ export default function EventFaceBackgroundScanner({ eventId }: EventFaceBackgro
     }
   }
 
-  const showBannerPanel = active || rescanningAll || Boolean(error) || (status?.pendingPhotos ?? 0) > 0
+  const showBusyPanel = active || rescanningAll || Boolean(error) || (status?.pendingPhotos ?? 0) > 0
 
-  if (!showBannerPanel && status?.upToDate) {
-    return null
-  }
-
+  // Collapsed face icon only after the user hides the panel.
   if (bannerHidden) {
     return (
       <div className="pointer-events-none fixed bottom-4 right-4 z-50">
         <button
-          aria-label="Show face scan progress"
+          aria-label="Open face scan controls"
           className="pointer-events-auto relative inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-200/90 bg-white/95 text-[#10233f] shadow-lg backdrop-blur-sm transition hover:bg-slate-50"
           onClick={showBanner}
-          title="Show face scan progress"
+          title="Face scan / Rescan"
           type="button"
         >
           {active || rescanningAll ? (
@@ -304,6 +318,10 @@ export default function EventFaceBackgroundScanner({ eventId }: EventFaceBackgro
               <p className="mt-1 text-xs text-slate-600">
                 {status.pendingPhotos} photo{status.pendingPhotos === 1 ? '' : 's'} waiting to scan
               </p>
+            ) : status?.upToDate ? (
+              <p className="mt-1 text-xs text-slate-500">
+                Scan is up to date. Rescan clears people and runs again.
+              </p>
             ) : (
               <p className="mt-1 text-xs text-slate-500">Keeps checking for new uploads.</p>
             )}
@@ -317,7 +335,7 @@ export default function EventFaceBackgroundScanner({ eventId }: EventFaceBackgro
             onClick={() => void rescanAllPhotos()}
             type="button"
           >
-            Rescan all photos
+            Rescan all (clear people)
           </button>
           <button
             className="text-xs font-semibold text-slate-400 underline-offset-2 transition hover:text-slate-600 hover:underline"

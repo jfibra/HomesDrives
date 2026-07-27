@@ -426,9 +426,10 @@ export default function PersonGallery({
                   </button>
                 ) : null}
                 <p className="max-w-md text-xs text-white/70">
-                  Use <span className="font-medium">No face here</span> for false detections. Use{' '}
-                  <span className="font-medium">Not this person</span> when it is a real face assigned to the
-                  wrong person.
+                  Use <span className="font-medium">No face here</span> for false detections — removes
+                  every face tag on this photo and won&apos;t scan it again. Use{' '}
+                  <span className="font-medium">Not this person</span> when it is a real face assigned to
+                  the wrong person.
                 </p>
               </div>
             ) : null}

@@ -3,11 +3,18 @@ import Link from 'next/link'
 type PeoplePaginationProps = {
   basePath: string
   page: number
+  /** Extra query params preserved across page links (e.g. fromPage on person detail). */
+  preserveParams?: Record<string, string | undefined>
   searchQuery?: string
   totalPages: number
 }
 
-function buildHref(basePath: string, page: number, searchQuery?: string) {
+function buildHref(
+  basePath: string,
+  page: number,
+  searchQuery?: string,
+  preserveParams?: Record<string, string | undefined>,
+) {
   const params = new URLSearchParams()
   if (page > 1) {
     params.set('page', String(page))
@@ -16,6 +23,12 @@ function buildHref(basePath: string, page: number, searchQuery?: string) {
   if (trimmed) {
     params.set('q', trimmed)
   }
+  if (preserveParams) {
+    for (const [key, value] of Object.entries(preserveParams)) {
+      const trimmedValue = value?.trim()
+      if (trimmedValue) params.set(key, trimmedValue)
+    }
+  }
   const queryString = params.toString()
   return queryString ? `${basePath}?${queryString}` : basePath
 }
@@ -23,6 +36,7 @@ function buildHref(basePath: string, page: number, searchQuery?: string) {
 export default function PeoplePagination({
   basePath,
   page,
+  preserveParams,
   searchQuery,
   totalPages,
 }: PeoplePaginationProps) {
@@ -38,7 +52,11 @@ export default function PeoplePagination({
       <Link
         aria-disabled={page <= 1}
         className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-50 aria-disabled:pointer-events-none aria-disabled:opacity-40"
-        href={page > 1 ? buildHref(basePath, page - 1, searchQuery) : buildHref(basePath, 1, searchQuery)}
+        href={
+          page > 1
+            ? buildHref(basePath, page - 1, searchQuery, preserveParams)
+            : buildHref(basePath, 1, searchQuery, preserveParams)
+        }
       >
         Previous
       </Link>
@@ -49,7 +67,7 @@ export default function PeoplePagination({
               ? 'bg-[#10233f] text-white'
               : 'border border-slate-200 text-slate-600 hover:bg-slate-50'
           }`}
-          href={buildHref(basePath, pageNumber, searchQuery)}
+          href={buildHref(basePath, pageNumber, searchQuery, preserveParams)}
           key={pageNumber}
         >
           {pageNumber}
@@ -58,7 +76,11 @@ export default function PeoplePagination({
       <Link
         aria-disabled={page >= totalPages}
         className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-50 aria-disabled:pointer-events-none aria-disabled:opacity-40"
-        href={page < totalPages ? buildHref(basePath, page + 1, searchQuery) : buildHref(basePath, totalPages, searchQuery)}
+        href={
+          page < totalPages
+            ? buildHref(basePath, page + 1, searchQuery, preserveParams)
+            : buildHref(basePath, totalPages, searchQuery, preserveParams)
+        }
       >
         Next
       </Link>

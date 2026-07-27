@@ -5,12 +5,13 @@ import PersonDetailClient from '@/components/people/PersonDetailClient'
 import { getAdminEventPeoplePath, getAdminEventPersonPath } from '@/lib/portals/constants'
 import { requirePortalEventBySlug } from '@/lib/portals/events'
 import { getPersonById, getPersonPhotosForEvent } from '@/lib/people'
+import { buildPeopleListHref, readPeopleListReturn } from '@/lib/people-navigation'
 
 const PAGE_SIZE = 24
 
 type AdminEventPersonPageProps = {
   params: Promise<{ eventSlug: string; personId: string }>
-  searchParams: Promise<{ page?: string }>
+  searchParams: Promise<{ page?: string; fromPage?: string; fromQ?: string }>
 }
 
 function readPage(value: string | undefined) {
@@ -22,6 +23,7 @@ export default async function AdminEventPersonPage({ params, searchParams }: Adm
   const { eventSlug, personId } = await params
   const query = await searchParams
   const page = readPage(query.page)
+  const listReturn = readPeopleListReturn(query)
 
   let event
   try {
@@ -52,16 +54,22 @@ export default async function AdminEventPersonPage({ params, searchParams }: Adm
 
   const peopleBasePath = getAdminEventPeoplePath(event.slug)
   const personBasePath = getAdminEventPersonPath(event.slug, personId)
+  const backHref = buildPeopleListHref(peopleBasePath, {
+    page: listReturn.page,
+    q: listReturn.q,
+  })
 
   return (
     <AdminEventWorkspaceShell activeTab="people" event={event}>
       <div className="overflow-hidden rounded-[1.75rem] border border-white/80 bg-white/75 p-5 shadow-[0_20px_60px_-12px_rgba(16,35,63,0.12)] backdrop-blur-sm sm:p-8">
         <PersonDetailClient
-          backHref={peopleBasePath}
+          backHref={backHref}
           enableBulkRename
           eventId={event.id}
           initialPerson={person}
+          listReturn={listReturn}
           paginationBasePath={personBasePath}
+          peopleBasePath={peopleBasePath}
           photosResult={photosResult}
         />
       </div>

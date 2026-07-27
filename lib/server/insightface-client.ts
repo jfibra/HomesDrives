@@ -49,7 +49,7 @@ function mapApiFace(face: InsightFaceApiFace, imageWidth: number, imageHeight: n
 }
 
 const MIN_FACE_DETECTION_CONFIDENCE = Number.parseFloat(
-  process.env.FACE_MIN_DETECTION_CONFIDENCE ?? '0.55',
+  process.env.FACE_MIN_DETECTION_CONFIDENCE ?? '0.68',
 )
 
 async function postImageToInsightFace(path: string, imageBuffer: Buffer): Promise<InsightFaceDetectResponse> {

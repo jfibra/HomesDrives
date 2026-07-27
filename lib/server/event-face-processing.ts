@@ -6,6 +6,98 @@ const IMAGE_EXTENSIONS = /\.(jpe?g|png|webp|bmp|gif|heic|heif|avif)$/i
 
 export type EventFaceScanMode = 'pending' | 'all'
 
+/**
+ * Full rescan prep: remove every face tag + people for this event, clear scan
+ * markers so all photos are processed again from a blank people list.
+ * Keeps "No face here" discards so those photos stay skipped.
+ */
+export async function resetEventPeopleLibrary(eventId: string): Promise<{
+  photoIds: number
+  deletedFaces: number
+  deletedPeople: number
+}> {
+  const photoIds = await listEventImagePhotoIds(eventId)
+  if (photoIds.length === 0) {
+    return { photoIds: 0, deletedFaces: 0, deletedPeople: 0 }
+  }
+
+  const supabase = createSupabaseAdminClient()
+  const personIds = new Set<string>()
+  let deletedFaces = 0
+
+  for (const photoChunk of chunk(photoIds, 200)) {
+    const { data: faceRows, error: faceSelectError } = await supabase
+      .from('faces')
+      .select('id, person_id')
+      .in('photo_id', photoChunk)
+
+    if (faceSelectError) throw new Error(faceSelectError.message)
+
+    for (const row of faceRows ?? []) {
+      personIds.add(String(row.person_id))
+    }
+
+    if ((faceRows ?? []).length > 0) {
+      const { error: faceDeleteError } = await supabase
+        .from('faces')
+        .delete()
+        .in(
+          'id',
+          (faceRows ?? []).map((row) => String(row.id)),
+        )
+      if (faceDeleteError) throw new Error(faceDeleteError.message)
+      deletedFaces += faceRows?.length ?? 0
+    }
+
+    const { error: scanClearError } = await supabase
+      .from('albums_photos')
+      .update({ faces_scanned_at: null })
+      .in('id', photoChunk)
+
+    if (scanClearError && !/faces_scanned_at|does not exist|schema cache/i.test(scanClearError.message)) {
+      throw new Error(scanClearError.message)
+    }
+
+    // Drop person↔photo rejections for wiped people; photo discards stay.
+    const { error: rejectionClearError } = await supabase
+      .from('face_rejections')
+      .delete()
+      .in('photo_id', photoChunk)
+
+    if (
+      rejectionClearError &&
+      !/face_rejections|does not exist|schema cache/i.test(rejectionClearError.message)
+    ) {
+      throw new Error(rejectionClearError.message)
+    }
+  }
+
+  let deletedPeople = 0
+  const peopleList = [...personIds]
+  for (const peopleChunk of chunk(peopleList, 100)) {
+    // Only delete people who no longer have any faces (event-only people).
+    const stillLinked: string[] = []
+    const { data: remaining, error: remainingError } = await supabase
+      .from('faces')
+      .select('person_id')
+      .in('person_id', peopleChunk)
+
+    if (remainingError) throw new Error(remainingError.message)
+    for (const row of remaining ?? []) {
+      stillLinked.push(String(row.person_id))
+    }
+    const stillLinkedSet = new Set(stillLinked)
+    const orphanIds = peopleChunk.filter((id) => !stillLinkedSet.has(id))
+    if (orphanIds.length === 0) continue
+
+    const { error: peopleDeleteError } = await supabase.from('people').delete().in('id', orphanIds)
+    if (peopleDeleteError) throw new Error(peopleDeleteError.message)
+    deletedPeople += orphanIds.length
+  }
+
+  return { photoIds: photoIds.length, deletedFaces, deletedPeople }
+}
+
 function isProcessableImageName(fileName: string, fileType: string | null) {
   const normalizedType = fileType?.toLowerCase() ?? ''
   if (normalizedType.startsWith('image/')) return true
@@ -119,10 +211,19 @@ export async function processEventPhotoFacesBatch(params: {
   offset?: number
   limit?: number
   mode?: EventFaceScanMode
+  /** When true with mode=all and offset=0, wipe people/faces before scanning. */
+  resetLibrary?: boolean
 }) {
   const offset = Math.max(0, params.offset ?? 0)
   const limit = Math.min(10, Math.max(1, params.limit ?? 5))
   const mode = params.mode ?? 'pending'
+  const shouldReset = Boolean(params.resetLibrary) && mode === 'all' && offset === 0
+
+  let resetSummary: Awaited<ReturnType<typeof resetEventPeopleLibrary>> | null = null
+  if (shouldReset) {
+    resetSummary = await resetEventPeopleLibrary(params.eventId)
+  }
+
   const photoIds =
     mode === 'all'
       ? await listEventImagePhotoIds(params.eventId)
@@ -158,5 +259,6 @@ export async function processEventPhotoFacesBatch(params: {
     nextOffset: done ? null : nextOffset,
     done,
     errors,
+    reset: resetSummary,
   }
 }

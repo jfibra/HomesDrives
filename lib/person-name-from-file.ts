@@ -1,5 +1,11 @@
 const IMAGE_EXTENSION_PATTERN = /\.(jpe?g|png|webp|bmp|gif|heic|heif|avif)$/i
 
+/** Camera / export dumps — never use these as a person display name. */
+const GENERIC_CAMERA_NAME_PATTERN =
+  /^(?:IMG|DSC|DCIM|PIC|PICTURE|PHOTO|IMAGE|P|SAM|MVIMG|BURST|Screenshot|Screen\s*Shot)(?:[_\s-]?\d+)+(?:\s*\(\d+\))?$/i
+
+const MOSTLY_NUMERIC_NAME_PATTERN = /^\d+(?:\s+\d+)*$/
+
 export function derivePersonNameFromFileName(fileName: string): string | null {
   const trimmed = fileName.trim()
   if (!trimmed) return null
@@ -13,5 +19,9 @@ export function derivePersonNameFromFileName(fileName: string): string | null {
     .replace(/\s+/g, ' ')
     .trim()
 
-  return cleaned.length > 0 ? cleaned : null
+  if (!cleaned) return null
+  if (GENERIC_CAMERA_NAME_PATTERN.test(cleaned)) return null
+  if (MOSTLY_NUMERIC_NAME_PATTERN.test(cleaned)) return null
+
+  return cleaned
 }

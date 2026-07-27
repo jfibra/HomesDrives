@@ -3,8 +3,9 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, Pencil } from 'lucide-react'
+import { ChevronLeft, ImageIcon, Pencil } from 'lucide-react'
 
+import PersonCoverPicker from '@/components/people/PersonCoverPicker'
 import PersonGallery from '@/components/people/PersonGallery'
 import PeoplePagination from '@/components/people/PeoplePagination'
 import type { PaginatedResult, Person, PersonPhoto } from '@/lib/types/people'
@@ -14,7 +15,10 @@ type PersonDetailClientProps = {
   enableBulkRename?: boolean
   eventId?: string
   initialPerson: Person
+  listReturn?: { page: number; q: string }
   paginationBasePath?: string
+  /** Clean people library path (no query) for linking to other people. */
+  peopleBasePath?: string
   photosResult: PaginatedResult<PersonPhoto>
 }
 
@@ -23,7 +27,9 @@ export default function PersonDetailClient({
   enableBulkRename = false,
   eventId,
   initialPerson,
+  listReturn,
   paginationBasePath,
+  peopleBasePath,
   photosResult,
 }: PersonDetailClientProps) {
   const router = useRouter()
@@ -32,6 +38,7 @@ export default function PersonDetailClient({
   const [isEditing, setIsEditing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState('')
+  const [coverPickerOpen, setCoverPickerOpen] = useState(false)
 
   async function saveName() {
     const trimmed = nameDraft.trim()
@@ -104,7 +111,7 @@ export default function PersonDetailClient({
       </Link>
 
       <div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-center">
-        <div className="h-24 w-24 shrink-0 overflow-hidden rounded-full bg-slate-100 shadow-sm">
+        <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-full bg-slate-100 shadow-sm">
           {person.cover_face_url ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img alt={person.name} className="h-full w-full object-cover" src={person.cover_face_url} />
@@ -152,14 +159,33 @@ export default function PersonDetailClient({
                 <Pencil className="h-3.5 w-3.5" />
                 Rename
               </button>
+              <button
+                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
+                onClick={() => setCoverPickerOpen(true)}
+                type="button"
+              >
+                <ImageIcon className="h-3.5 w-3.5" />
+                Change preview
+              </button>
             </div>
           )}
           {error ? <p className="mt-2 text-sm text-red-600">{error}</p> : null}
           <p className="mt-2 text-sm text-slate-500">
             {person.photo_count} photo{person.photo_count === 1 ? '' : 's'}
+            {person.cover_locked ? ' · Custom preview' : ''}
           </p>
         </div>
       </div>
+
+      <PersonCoverPicker
+        onOpenChange={setCoverPickerOpen}
+        onUpdated={(updated) => {
+          setPerson(updated)
+          router.refresh()
+        }}
+        open={coverPickerOpen}
+        person={person}
+      />
 
       <PersonGallery
         defaultRenameBase={person.name}
@@ -167,13 +193,17 @@ export default function PersonDetailClient({
         eventId={eventId}
         onDetachPhotos={detachPhotos}
         onRemovePhotos={removePhotos}
-        peopleBasePath={backHref}
+        peopleBasePath={peopleBasePath ?? backHref.split('?')[0]}
         personId={person.id}
         photos={photosResult.items}
       />
       <PeoplePagination
         basePath={paginationBasePath ?? `/people/${person.id}`}
         page={photosResult.page}
+        preserveParams={{
+          fromPage: listReturn && listReturn.page > 1 ? String(listReturn.page) : undefined,
+          fromQ: listReturn?.q || undefined,
+        }}
         totalPages={photosResult.totalPages}
       />
     </div>

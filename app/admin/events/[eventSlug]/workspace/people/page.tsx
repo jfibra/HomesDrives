@@ -98,6 +98,8 @@ export default async function AdminEventPeoplePage({ params, searchParams }: Adm
             </p>
           }
           enableBulkDelete
+          listPage={safePage}
+          listQuery={searchQuery}
           people={peopleResult.items}
           personBasePath={peopleBasePath}
         />
