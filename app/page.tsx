@@ -1,3 +1,5 @@
+import { redirect } from 'next/navigation'
+
 import {
   listAllowedPlaceTypes,
   listAllowedTags,
@@ -13,6 +15,8 @@ type HomePageProps = {
 }
 
 const PAGE_SIZE = 24
+/** Default public landing filter — `/` opens restaurant photos. */
+const DEFAULT_PUBLIC_PLACE_TYPE = 'Restaurant'
 
 function readSearchValue(value: SearchParamValue) {
   if (Array.isArray(value)) {
@@ -42,6 +46,17 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   const page = readPositiveInt(params.page, 1)
   const sort: AlbumsMarketplaceSort =
     rawSort === 'oldest' || rawSort === 'captured' ? rawSort : 'newest'
+
+  // Make Restaurant the main public homepage.
+  if (!placeType) {
+    const next = new URLSearchParams()
+    if (query) next.set('q', query)
+    next.set('placeType', DEFAULT_PUBLIC_PLACE_TYPE)
+    if (tag) next.set('tag', tag)
+    if (sort !== 'newest') next.set('sort', sort)
+    if (page > 1) next.set('page', String(page))
+    redirect(`/?${next.toString()}`)
+  }
 
   const [placeTypes, tags, marketplace] = await Promise.all([
     listAllowedPlaceTypes().catch(() => []),

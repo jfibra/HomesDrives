@@ -253,12 +253,18 @@ export default function HomeMarketplaceClient({
               <div className="flex gap-2 whitespace-nowrap pb-1">
                 {placeTypes.map((option) => {
                   const active = option.label === placeType;
+                  // Keep Restaurant as the default landing — don't clear it to empty `/`.
+                  const nextPlaceType = active
+                    ? option.label === "Restaurant"
+                      ? "Restaurant"
+                      : ""
+                    : option.label;
                   return (
                     <Link
                       key={option.slug}
                       href={createUrlWithFilters({
                         page: 1,
-                        placeType: active ? "" : option.label,
+                        placeType: nextPlaceType,
                         query,
                         sort,
                         tag,
@@ -369,12 +375,17 @@ export default function HomeMarketplaceClient({
                 <div className="space-y-1">
                   {placeTypes.map((option) => {
                     const active = option.label === placeType;
+                    const nextPlaceType = active
+                      ? option.label === "Restaurant"
+                        ? "Restaurant"
+                        : ""
+                      : option.label;
                     return (
                       <Link
                         key={option.slug}
                         href={createUrlWithFilters({
                           page: 1,
-                          placeType: active ? "" : option.label,
+                          placeType: nextPlaceType,
                           query,
                           sort,
                           tag,
