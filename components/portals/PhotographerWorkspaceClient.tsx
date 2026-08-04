@@ -57,6 +57,7 @@ import {
   getPortalUploadConcurrency,
   isDirectStorageFetchError,
   preparePortalFileForServerUpload,
+  preparePortalFileForUpload,
   shouldFallbackPortalUploadToServer,
 } from '@/lib/portals/upload-client-utils'
 import type { PortalEvent, PortalFolder, PortalFolderNode, PortalPhoto } from '@/lib/portals/types'
@@ -317,14 +318,8 @@ async function uploadPortalFileResolved(
   accessToken = '',
   photographerId = '',
 ): Promise<PortalPhoto> {
-  if (isPortalFileOverUploadLimit(file)) {
-    const contentType = inferPortalContentType(file.name, file.type)
-    throw new Error(
-      `"${file.name}" exceeds the ${formatPortalUploadLimitLabel(file.name, contentType)} limit.`,
-    )
-  }
-
-  return uploadPortalFileWithFallback(folderId, file, eventSlug, accessToken, photographerId)
+  const prepared = await preparePortalFileForUpload(file)
+  return uploadPortalFileWithFallback(folderId, prepared, eventSlug, accessToken, photographerId)
 }
 
 async function runWithConcurrency<T>(
@@ -907,6 +902,22 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
     const failures: string[] = []
     const skippedMessages: string[] = []
 
+    // Convert HEIC → JPEG before upload so photos display in all browsers.
+    const normalizedFiles: File[] = []
+    for (const file of filesToUpload) {
+      try {
+        normalizedFiles.push(await preparePortalFileForUpload(file))
+      } catch (error) {
+        failures.push(`${file.name}: ${error instanceof Error ? error.message : 'Unable to prepare file.'}`)
+      }
+    }
+
+    if (normalizedFiles.length === 0) {
+      setError(failures[0] || 'No files could be prepared for upload.')
+      setUploading(false)
+      return
+    }
+
     if (invalidFiles.length > 0) {
       skippedMessages.push(
         `${invalidFiles.length} file(s) skipped (not an image or video): ${invalidFiles
@@ -927,7 +938,7 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
 
     try {
       const auth = sessionAuth()
-      const uploadQueue = [...filesToUpload]
+      const uploadQueue = [...normalizedFiles]
       let completedCount = 0
       const finishedFileKeys = new Set<string>()
 
@@ -1102,10 +1113,10 @@ export default function PhotographerWorkspaceClient({ eventSlug }: { eventSlug: 
         refreshFolderId = selectedFolderId
       }
 
-      if (uploadedCount === filesToUpload.length) {
+      if (uploadedCount === normalizedFiles.length && failures.length === 0) {
         setSuccess(`Uploaded ${uploadedCount} file(s).`)
       } else if (uploadedCount > 0) {
-        setSuccess(`Uploaded ${uploadedCount} of ${filesToUpload.length} file(s).`)
+        setSuccess(`Uploaded ${uploadedCount} of ${normalizedFiles.length} file(s).`)
       }
 
       const messages: string[] = [...skippedMessages]

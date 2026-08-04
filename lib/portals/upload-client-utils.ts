@@ -1,4 +1,5 @@
 import { compressImageForTransport } from '@/lib/client/compress-upload-image'
+import { normalizeImageFileForWebDisplay } from '@/lib/client/normalize-heic-upload'
 import {
   MAX_SERVER_PROXY_UPLOAD_BYTES,
   PORTAL_PRESIGN_BATCH_SIZE,
@@ -66,16 +67,38 @@ export async function preparePortalFileForServerUpload(file: File): Promise<File
     )
   }
 
-  if (canPortalFileUseServerUpload(file)) {
-    return file
+  const contentType = inferPortalContentType(file.name, file.type)
+  const displayReady = isPortalImageFile(file.name, contentType)
+    ? await normalizeImageFileForWebDisplay(file)
+    : file
+
+  if (canPortalFileUseServerUpload(displayReady)) {
+    return displayReady
   }
 
-  const contentType = inferPortalContentType(file.name, file.type)
-  if (!isPortalImageFile(file.name, contentType)) {
+  const readyType = inferPortalContentType(displayReady.name, displayReady.type)
+  if (!isPortalImageFile(displayReady.name, readyType)) {
     throw new Error(
       `"${file.name}" is too large for server upload. Direct storage upload failed — try Wi‑Fi or a desktop browser.`,
     )
   }
 
-  return compressImageForTransport(file)
+  return compressImageForTransport(displayReady)
+}
+
+/** Normalize HEIC and validate size before direct S3 / server upload. */
+export async function preparePortalFileForUpload(file: File): Promise<File> {
+  if (isPortalFileOverUploadLimit(file)) {
+    const contentType = inferPortalContentType(file.name, file.type)
+    throw new Error(
+      `"${file.name}" exceeds the ${formatPortalUploadLimitLabel(file.name, contentType)} limit.`,
+    )
+  }
+
+  const contentType = inferPortalContentType(file.name, file.type)
+  if (!isPortalImageFile(file.name, contentType)) {
+    return file
+  }
+
+  return normalizeImageFileForWebDisplay(file)
 }

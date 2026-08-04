@@ -58,6 +58,10 @@ import {
   MAX_PHOTO_UPLOAD_BYTES,
   MAX_SERVER_PROXY_UPLOAD_BYTES,
 } from '@/lib/photo-upload-limits'
+import {
+  isLikelyImageFile,
+  normalizeImageFileForWebDisplay,
+} from '@/lib/client/normalize-heic-upload'
 import { cn } from '@/lib/utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1654,7 +1658,7 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
       setAnalysisError('Create or open a folder location before uploading photos.')
       return
     }
-    const files = Array.from(fileList).filter((f) => f.type.startsWith('image/'))
+    const files = Array.from(fileList).filter((f) => isLikelyImageFile(f))
     if (!files.length) { setAnalysisError('Please upload image files only.'); return }
 
     const oversize = files.filter((f) => f.size > CLIENT_HARD_INPUT_BYTES)
@@ -1671,8 +1675,10 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
       const prepared = await Promise.all(
         files.map(async (f) => {
           assertPhotoWithinLimit(f)
-          // Keep original bytes up to 50 MB. Large files upload direct to S3.
-          return { file: f, image: await analyzeImage(f) }
+          // Convert HEIC → JPEG so photos show in Chrome/Firefox (not only Safari).
+          const uploadFile = await normalizeImageFileForWebDisplay(f)
+          assertPhotoWithinLimit(uploadFile)
+          return { file: uploadFile, image: await analyzeImage(uploadFile) }
         }),
       )
       const existingIds = new Set(uploadedImages.map((img) => img.id))
