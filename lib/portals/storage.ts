@@ -1042,24 +1042,100 @@ export async function deletePortalPhoto(id: string) {
 }
 
 export async function replacePortalPhoto(id: string, file: File) {
+  const fileBuffer = Buffer.from(await file.arrayBuffer())
+  const contentType = file.type || 'application/octet-stream'
+  return replacePortalPhotoWithBuffer({
+    id,
+    contentType,
+    fileBuffer,
+    fileName: file.name,
+  })
+}
+
+export async function replacePortalPhotoFromStorage(params: {
+  id: string
+  bucketName: string
+  storagePath: string
+  contentType: string
+  fileName: string
+  fileSizeBytes: number
+}) {
   const supabaseAdmin = createSupabaseAdminClient()
   const { data: photo, error: selectError } = await supabaseAdmin
     .from('albums_photos')
     .select('id, bucket_name, storage_path, uploader_name')
-    .eq('id', id)
+    .eq('id', params.id)
     .maybeSingle()
 
   if (selectError) throw new Error(selectError.message)
   if (!photo) throw new Error('Photo not found.')
 
-  const fileBuffer = Buffer.from(await file.arrayBuffer())
-  const contentType = file.type || 'application/octet-stream'
   const isVideo =
-    contentType.toLowerCase().startsWith('video/') ||
-    /\.(mp4|webm|mov|m4v|mkv|avi)$/i.test(file.name)
+    params.contentType.toLowerCase().startsWith('video/') ||
+    /\.(mp4|webm|mov|m4v|mkv|avi)$/i.test(params.fileName)
 
   const maxBytes = isVideo ? MAX_VIDEO_UPLOAD_BYTES : MAX_PHOTO_UPLOAD_BYTES
-  if (fileBuffer.length > maxBytes) {
+  if (params.fileSizeBytes > maxBytes) {
+    throw new Error(
+      `Each ${isVideo ? 'video' : 'photo'} must be ${formatPortalMaxUploadLabel(maxBytes)} or smaller.`,
+    )
+  }
+
+  await assertStoredObjectByteLength({
+    bucketName: params.bucketName,
+    storagePath: params.storagePath,
+    expectedBytes: params.fileSizeBytes,
+  })
+
+  const previousBucket = photo.bucket_name
+  const previousPath = photo.storage_path
+
+  const imageUrl = buildPublicImageUrl(params.bucketName, params.storagePath)
+  const { data, error } = await supabaseAdmin
+    .from('albums_photos')
+    .update({
+      bucket_name: params.bucketName,
+      storage_path: params.storagePath,
+      image_url: imageUrl,
+      original_file_name: params.fileName,
+      file_type: params.contentType,
+      file_size_bytes: params.fileSizeBytes,
+    })
+    .eq('id', params.id)
+    .select('id, folder_id, image_url, original_file_name, file_size_bytes, created_at')
+    .single()
+
+  if (error) throw new Error(error.message)
+
+  if (previousBucket !== params.bucketName || previousPath !== params.storagePath) {
+    await deleteImageObject(previousBucket, previousPath).catch(() => null)
+  }
+
+  return data as PortalPhoto
+}
+
+async function replacePortalPhotoWithBuffer(params: {
+  id: string
+  contentType: string
+  fileBuffer: Buffer
+  fileName: string
+}) {
+  const supabaseAdmin = createSupabaseAdminClient()
+  const { data: photo, error: selectError } = await supabaseAdmin
+    .from('albums_photos')
+    .select('id, bucket_name, storage_path, uploader_name')
+    .eq('id', params.id)
+    .maybeSingle()
+
+  if (selectError) throw new Error(selectError.message)
+  if (!photo) throw new Error('Photo not found.')
+
+  const isVideo =
+    params.contentType.toLowerCase().startsWith('video/') ||
+    /\.(mp4|webm|mov|m4v|mkv|avi)$/i.test(params.fileName)
+
+  const maxBytes = isVideo ? MAX_VIDEO_UPLOAD_BYTES : MAX_PHOTO_UPLOAD_BYTES
+  if (params.fileBuffer.length > maxBytes) {
     throw new Error(
       `Each ${isVideo ? 'video' : 'photo'} must be ${formatPortalMaxUploadLabel(maxBytes)} or smaller.`,
     )
@@ -1068,16 +1144,16 @@ export async function replacePortalPhoto(id: string, file: File) {
   await deleteImageObject(photo.bucket_name, photo.storage_path)
 
   const uploadedObject = await uploadOriginalMediaObject({
-    contentType,
-    fileBuffer,
-    fileName: file.name,
+    contentType: params.contentType,
+    fileBuffer: params.fileBuffer,
+    fileName: params.fileName,
     uploaderName: photo.uploader_name,
   })
 
   await assertStoredObjectByteLength({
     bucketName: uploadedObject.bucketName,
     storagePath: uploadedObject.storagePath,
-    expectedBytes: fileBuffer.length,
+    expectedBytes: params.fileBuffer.length,
   })
 
   const imageUrl = buildPublicImageUrl(uploadedObject.bucketName, uploadedObject.storagePath)
@@ -1087,16 +1163,81 @@ export async function replacePortalPhoto(id: string, file: File) {
       bucket_name: uploadedObject.bucketName,
       storage_path: uploadedObject.storagePath,
       image_url: imageUrl,
-      original_file_name: file.name,
-      file_type: contentType,
-      file_size_bytes: fileBuffer.length,
+      original_file_name: params.fileName,
+      file_type: params.contentType,
+      file_size_bytes: params.fileBuffer.length,
     })
-    .eq('id', id)
+    .eq('id', params.id)
     .select('id, folder_id, image_url, original_file_name, file_size_bytes, created_at')
     .single()
 
   if (error) throw new Error(error.message)
   return data as PortalPhoto
+}
+
+export async function createPortalPhotoReplacePresign(params: {
+  photoId: string
+  fileName: string
+  contentType: string
+  fileSizeBytes: number
+}) {
+  const supabaseAdmin = createSupabaseAdminClient()
+  const { data: photo, error } = await supabaseAdmin
+    .from('albums_photos')
+    .select('id, uploader_name')
+    .eq('id', params.photoId)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  if (!photo) throw new Error('Photo not found.')
+
+  const isVideo =
+    params.contentType.toLowerCase().startsWith('video/') ||
+    /\.(mp4|webm|mov|m4v|mkv|avi)$/i.test(params.fileName)
+  const maxBytes = isVideo ? MAX_VIDEO_UPLOAD_BYTES : MAX_PHOTO_UPLOAD_BYTES
+  if (params.fileSizeBytes <= 0 || params.fileSizeBytes > maxBytes) {
+    throw new Error(
+      `Each ${isVideo ? 'video' : 'photo'} must be ${formatPortalMaxUploadLabel(maxBytes)} or smaller.`,
+    )
+  }
+
+  const contentType = params.contentType || 'application/octet-stream'
+  const expiresInSeconds = isVideo ? VIDEO_PRESIGN_EXPIRY_SECONDS : DEFAULT_PRESIGN_EXPIRY_SECONDS
+
+  if (isVideo && params.fileSizeBytes >= MULTIPART_VIDEO_THRESHOLD_BYTES) {
+    const presigned = await createPresignedMultipartUpload({
+      contentType,
+      expiresInSeconds,
+      fileName: params.fileName,
+      fileSizeBytes: params.fileSizeBytes,
+      partSizeBytes: MULTIPART_PART_SIZE_BYTES,
+      uploaderName: photo.uploader_name,
+    })
+    return {
+      uploadMode: 'multipart' as const,
+      bucketName: presigned.bucketName,
+      storagePath: presigned.storagePath,
+      contentType: presigned.contentType,
+      uploadId: presigned.uploadId,
+      partSizeBytes: presigned.partSizeBytes,
+      partUrls: presigned.partUrls,
+    }
+  }
+
+  const presigned = await createPresignedUploadObject({
+    contentType,
+    expiresInSeconds,
+    fileName: params.fileName,
+    uploaderName: photo.uploader_name,
+  })
+
+  return {
+    uploadMode: 'single' as const,
+    uploadUrl: presigned.uploadUrl,
+    bucketName: presigned.bucketName,
+    storagePath: presigned.storagePath,
+    contentType: presigned.contentType,
+  }
 }
 
 export { PHOTOGRAPHER_PORTAL_CODE, PUBLIC_PORTAL_CODE }

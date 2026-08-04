@@ -29,6 +29,12 @@ import { withEventQuery } from '@/lib/portals/event-query'
 import type { PortalEvent } from '@/lib/portals/types'
 import type { PortalFolder, PortalFolderNode, PortalPhoto } from '@/lib/portals/types'
 import { sortPortalPhotosByFileName } from '@/lib/portals/sort-photos'
+import {
+  MAX_PHOTO_UPLOAD_BYTES,
+  MAX_SERVER_PROXY_UPLOAD_BYTES,
+  MAX_VIDEO_UPLOAD_BYTES,
+} from '@/lib/photo-upload-limits'
+import { isPortalVideoFile } from '@/lib/portals/upload-file-utils'
 
 function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback
@@ -606,6 +612,78 @@ export default function AdminWorkspaceClient({ eventSlug }: { eventSlug: string 
     clearMessages()
     setReplacingPhotoId(photoId)
     try {
+      const contentType = file.type || 'application/octet-stream'
+      const isVideo = isPortalVideoFile(file.name, contentType)
+      const maxBytes = isVideo ? MAX_VIDEO_UPLOAD_BYTES : MAX_PHOTO_UPLOAD_BYTES
+      if (file.size > maxBytes) {
+        throw new Error(
+          `Each ${isVideo ? 'video' : 'photo'} must be ${Math.round(maxBytes / (1024 * 1024))} MB or smaller.`,
+        )
+      }
+
+      // Large files go browser → S3 (avoids Vercel ~4.5 MB body limit).
+      if (file.size > MAX_SERVER_PROXY_UPLOAD_BYTES) {
+        const presignRes = await fetch(`/api/portal-api/admin/photos/${photoId}/replace`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'presign',
+            adminCode,
+            fileName: file.name,
+            contentType,
+            fileSizeBytes: file.size,
+          }),
+        })
+        const presignData = await presignRes.json().catch(() => null)
+        if (!presignRes.ok) {
+          throw new Error(presignData?.error || 'Unable to prepare replacement upload.')
+        }
+
+        const upload = presignData?.upload as
+          | {
+              uploadMode?: string
+              uploadUrl?: string
+              bucketName?: string
+              storagePath?: string
+              contentType?: string
+            }
+          | undefined
+
+        if (!upload?.uploadUrl || !upload.bucketName || !upload.storagePath) {
+          throw new Error('Replacement upload preparation was incomplete.')
+        }
+
+        const putRes = await fetch(upload.uploadUrl, {
+          method: 'PUT',
+          body: file,
+          headers: { 'Content-Type': upload.contentType || contentType },
+        })
+        if (!putRes.ok) {
+          throw new Error(
+            `Could not upload "${file.name}" to storage. Check S3 CORS allows PUT from this site.`,
+          )
+        }
+
+        const completeRes = await fetch(`/api/portal-api/admin/photos/${photoId}/replace`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            adminCode,
+            bucketName: upload.bucketName,
+            storagePath: upload.storagePath,
+            contentType: upload.contentType || contentType,
+            fileName: file.name,
+            fileSizeBytes: file.size,
+          }),
+        })
+        const data = await completeRes.json().catch(() => null)
+        if (!completeRes.ok) throw new Error(data?.error || 'Unable to replace photo.')
+        if (!isPortalPhoto(data?.photo)) throw new Error('Replace succeeded but photo data was missing.')
+        updatePhotoInState(data.photo)
+        setSuccess('Photo replaced.')
+        return
+      }
+
       const formData = new FormData()
       formData.append('adminCode', adminCode)
       formData.append('file', file)

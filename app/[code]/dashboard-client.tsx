@@ -53,7 +53,11 @@ import {
   NEWS_UPLOAD_CATEGORIES,
   type NewsUploadCategory,
 } from '@/lib/media/news-upload-categories'
-import { MAX_AVATAR_UPLOAD_BYTES, MAX_PHOTO_UPLOAD_BYTES } from '@/lib/photo-upload-limits'
+import {
+  MAX_AVATAR_UPLOAD_BYTES,
+  MAX_PHOTO_UPLOAD_BYTES,
+  MAX_SERVER_PROXY_UPLOAD_BYTES,
+} from '@/lib/photo-upload-limits'
 import { cn } from '@/lib/utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -359,84 +363,15 @@ async function getImageDimensions(file: File) {
   }
 }
 
-/** Reject raw files larger than the API accepts. */
+/** Reject raw files larger than the API accepts (50 MB). */
 const CLIENT_HARD_INPUT_BYTES = MAX_PHOTO_UPLOAD_BYTES
-/**
- * Many platforms cap multipart request size around 4 MB before API code runs.
- * Keep payload just under that when needed.
- */
-const CLIENT_TRANSPORT_MAX_BYTES = Math.floor(3.8 * 1024 * 1024)
 
-async function readImageElement(file: File) {
-  const objectUrl = URL.createObjectURL(file)
-  try {
-    const image = new Image()
-    await new Promise<void>((resolve, reject) => {
-      image.onload = () => resolve()
-      image.onerror = () => reject(new Error(`Unable to read image data for ${file.name}`))
-      image.src = objectUrl
-    })
-    return image
-  } finally {
-    URL.revokeObjectURL(objectUrl)
-  }
-}
-
-async function maybeCompressLargeUpload(file: File): Promise<File> {
+function assertPhotoWithinLimit(file: File) {
   if (file.size > MAX_PHOTO_UPLOAD_BYTES) {
     throw new Error(
       `Photo is too large (${formatBytes(file.size)}). Maximum allowed is ${MAX_PHOTO_UPLOAD_BYTES / (1024 * 1024)} MB.`,
     )
   }
-
-  if (file.size <= CLIENT_TRANSPORT_MAX_BYTES) {
-    return file
-  }
-
-  // Only re-encode when transport cap would otherwise block upload.
-  const image = await readImageElement(file)
-  let width = Math.max(1, image.naturalWidth || 1)
-  let height = Math.max(1, image.naturalHeight || 1)
-  const canvas = document.createElement('canvas')
-  const ctx = canvas.getContext('2d')
-  if (!ctx) {
-    throw new Error('Unable to process this image in your browser.')
-  }
-
-  let bestBlob: Blob | null = null
-  let quality = 0.96
-
-  for (let resizeStep = 0; resizeStep < 8; resizeStep++) {
-    canvas.width = width
-    canvas.height = height
-    ctx.drawImage(image, 0, 0, width, height)
-
-    quality = 0.96
-    for (let qualityStep = 0; qualityStep < 9; qualityStep++) {
-      // eslint-disable-next-line no-await-in-loop
-      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality))
-      if (!blob) break
-      bestBlob = blob
-      if (blob.size <= CLIENT_TRANSPORT_MAX_BYTES) {
-        return new File([blob], `${file.name.replace(/\.[^.]+$/, '') || 'photo'}.jpg`, {
-          type: 'image/jpeg',
-          lastModified: file.lastModified,
-        })
-      }
-      quality -= 0.02
-    }
-
-    width = Math.max(1, Math.floor(width * 0.95))
-    height = Math.max(1, Math.floor(height * 0.95))
-  }
-
-  if (bestBlob) {
-    throw new Error(
-      `Upload is blocked by request size limit. Best result is ${formatBytes(bestBlob.size)}; please reduce camera size and try again.`,
-    )
-  }
-
-  return file
 }
 
 async function analyzeImage(file: File): Promise<UploadedImage> {
@@ -1511,30 +1446,96 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
 
   async function uploadImageToStorage(file: File, image: UploadedImage) {
     try {
-      const formData = new FormData()
-      formData.append('file', file)
-      formData.append('uploaderName', liveUser.fullName)
-      formData.append('uploaderCode', user.code)
-      formData.append('metadata', JSON.stringify(image.metadata))
-      if (activeFolderId) {
-        formData.append('folderId', activeFolderId)
-      }
-      const r = await fetch('/api/photos', { method: 'POST', body: formData })
-      const rawText = await r.text()
+      assertPhotoWithinLimit(file)
+
       let data: { error?: string; photo?: { id: string; image_url: string } } | null = null
-      try {
-        data = rawText
-          ? (JSON.parse(rawText) as { error?: string; photo?: { id: string; image_url: string } })
-          : null
-      } catch {
-        data = null
-      }
-      if (!r.ok) {
-        const fallback =
-          r.status === 413
-            ? 'Upload is too large for server request limit. The app will try to optimize large photos automatically.'
-            : `Unable to upload photo (HTTP ${r.status}).`
-        throw new Error(data?.error || fallback)
+
+      // Large photos go browser → S3 directly (avoids Vercel ~4.5 MB body limit).
+      if (file.size > MAX_SERVER_PROXY_UPLOAD_BYTES) {
+        const contentType = file.type || 'application/octet-stream'
+        const presignRes = await fetch('/api/photos/presign', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            uploaderName: liveUser.fullName,
+            uploaderCode: user.code,
+            fileName: file.name,
+            contentType,
+            fileSizeBytes: file.size,
+          }),
+        })
+        const presignData = await presignRes.json().catch(() => null)
+        if (!presignRes.ok) {
+          throw new Error(presignData?.error || 'Unable to prepare photo upload.')
+        }
+
+        const upload = presignData?.upload as
+          | {
+              uploadUrl?: string
+              bucketName?: string
+              storagePath?: string
+              contentType?: string
+            }
+          | undefined
+
+        if (!upload?.uploadUrl || !upload.bucketName || !upload.storagePath) {
+          throw new Error('Upload preparation returned incomplete storage details.')
+        }
+
+        const putRes = await fetch(upload.uploadUrl, {
+          method: 'PUT',
+          body: file,
+          headers: { 'Content-Type': upload.contentType || contentType },
+        })
+        if (!putRes.ok) {
+          throw new Error(
+            `Could not upload "${file.name}" to storage. Check S3 CORS allows PUT from this site.`,
+          )
+        }
+
+        const completeRes = await fetch('/api/photos/complete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            uploaderName: liveUser.fullName,
+            uploaderCode: user.code,
+            folderId: activeFolderId,
+            bucketName: upload.bucketName,
+            storagePath: upload.storagePath,
+            contentType: upload.contentType || contentType,
+            fileSizeBytes: file.size,
+            metadata: image.metadata,
+          }),
+        })
+        data = await completeRes.json().catch(() => null)
+        if (!completeRes.ok) {
+          throw new Error(data?.error || `Unable to finish photo upload (HTTP ${completeRes.status}).`)
+        }
+      } else {
+        const formData = new FormData()
+        formData.append('file', file)
+        formData.append('uploaderName', liveUser.fullName)
+        formData.append('uploaderCode', user.code)
+        formData.append('metadata', JSON.stringify(image.metadata))
+        if (activeFolderId) {
+          formData.append('folderId', activeFolderId)
+        }
+        const r = await fetch('/api/photos', { method: 'POST', body: formData })
+        const rawText = await r.text()
+        try {
+          data = rawText
+            ? (JSON.parse(rawText) as { error?: string; photo?: { id: string; image_url: string } })
+            : null
+        } catch {
+          data = null
+        }
+        if (!r.ok) {
+          const fallback =
+            r.status === 413
+              ? `Photo is too large for server upload. Maximum is ${MAX_PHOTO_UPLOAD_BYTES / (1024 * 1024)} MB.`
+              : `Unable to upload photo (HTTP ${r.status}).`
+          throw new Error(data?.error || fallback)
+        }
       }
 
       updateUploadedImage(image.id, (img) => ({
@@ -1669,8 +1670,9 @@ export default function DashboardClient({ user }: { user: DashboardUser }) {
     try {
       const prepared = await Promise.all(
         files.map(async (f) => {
-          const uploadFile = await maybeCompressLargeUpload(f)
-          return { file: uploadFile, image: await analyzeImage(uploadFile) }
+          assertPhotoWithinLimit(f)
+          // Keep original bytes up to 50 MB. Large files upload direct to S3.
+          return { file: f, image: await analyzeImage(f) }
         }),
       )
       const existingIds = new Set(uploadedImages.map((img) => img.id))
