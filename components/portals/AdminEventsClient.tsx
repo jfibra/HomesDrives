@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 
 import PortalFrame from '@/components/portals/PortalFrame'
+import AdminGlobalPeopleSearch from '@/components/portals/AdminGlobalPeopleSearch'
 import EventQrCode from '@/components/portals/EventQrCode'
 import {
   Dialog,
@@ -66,6 +67,7 @@ export default function AdminEventsClient() {
   const [error, setError] = useState('')
   const [createName, setCreateName] = useState('')
   const [isCreating, setIsCreating] = useState(false)
+  const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
@@ -182,12 +184,19 @@ export default function AdminEventsClient() {
       const data = await res.json().catch(() => null)
       if (!res.ok) throw new Error(data?.error || 'Unable to create event.')
       setCreateName('')
+      setIsCreateOpen(false)
       await loadEvents(adminCode)
     } catch (err) {
       setError(getErrorMessage(err, 'Unable to create event.'))
     } finally {
       setIsCreating(false)
     }
+  }
+
+  function handleCreateOpenChange(open: boolean) {
+    if (isCreating) return
+    setIsCreateOpen(open)
+    if (!open) setCreateName('')
   }
 
   async function handleRenameEvent(eventId: string) {
@@ -340,6 +349,14 @@ export default function AdminEventsClient() {
         adminCode ? (
           <div className="flex w-full flex-row items-center justify-end gap-2 sm:w-auto">
             <button
+              className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-[#10233f] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#1a3358] sm:min-h-0 sm:flex-none"
+              onClick={() => setIsCreateOpen(true)}
+              type="button"
+            >
+              <Plus className="h-4 w-4" />
+              Create event
+            </button>
+            <button
               className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 sm:min-h-0 sm:flex-none"
               onClick={handleSignOut}
               type="button"
@@ -355,39 +372,13 @@ export default function AdminEventsClient() {
       variant="admin"
     >
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 sm:gap-6">
-        <section className="overflow-hidden rounded-2xl border border-white/80 bg-white/90 p-4 shadow-[0_20px_60px_-12px_rgba(16,35,63,0.12)] sm:rounded-[1.75rem] sm:p-6 md:p-8">
-          <div className="mb-4 flex items-start gap-3 sm:mb-5">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#10233f] text-white sm:h-11 sm:w-11">
-              <Plus className="h-5 w-5" />
-            </div>
-            <div className="min-w-0">
-              <h2 className="text-base font-semibold text-[#10233f] sm:text-lg">Create a new event</h2>
-            </div>
-          </div>
-
-          <form className="flex flex-col gap-3 sm:flex-row" onSubmit={handleCreateEvent}>
-            <input
-              className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3 text-sm outline-none transition focus:border-[#10233f] focus:bg-white focus:ring-2 focus:ring-[#10233f]/10"
-              onChange={(e) => setCreateName(e.target.value)}
-              placeholder="e.g. Homes.ph Brokers Gathering 2026"
-              value={createName}
-            />
-            <button
-              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#10233f] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#1a3358] disabled:opacity-60 sm:min-h-0 sm:w-auto"
-              disabled={isCreating || !createName.trim()}
-              type="submit"
-            >
-              <Plus className="h-4 w-4" />
-              {isCreating ? 'Creating…' : 'Create event'}
-            </button>
-          </form>
-        </section>
-
         {error ? (
           <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
             {error}
           </div>
         ) : null}
+
+        {adminCode ? <AdminGlobalPeopleSearch adminCode={adminCode} /> : null}
 
         <section className="overflow-hidden rounded-2xl border border-white/80 bg-white/90 shadow-[0_20px_60px_-12px_rgba(16,35,63,0.12)] sm:rounded-[1.75rem]">
           <div className="border-b border-slate-100 px-4 py-4 sm:px-6 sm:py-5 md:px-8">
@@ -404,8 +395,16 @@ export default function AdminEventsClient() {
           {loading ? (
             <div className="px-4 py-8 text-sm text-slate-500 sm:px-6 sm:py-10 md:px-8">Loading events…</div>
           ) : events.length === 0 ? (
-            <div className="px-4 py-8 text-sm text-slate-500 sm:px-6 sm:py-10 md:px-8">
-              No events yet. Create your first event above.
+            <div className="flex flex-col items-start gap-4 px-4 py-8 sm:px-6 sm:py-10 md:px-8">
+              <p className="text-sm text-slate-500">No events yet. Create your first event to get started.</p>
+              <button
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#10233f] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#1a3358]"
+                onClick={() => setIsCreateOpen(true)}
+                type="button"
+              >
+                <Plus className="h-4 w-4" />
+                Create event
+              </button>
             </div>
           ) : (
             <div className="flex flex-col gap-3 p-3 sm:gap-4 sm:p-4 md:p-6">
@@ -883,6 +882,44 @@ export default function AdminEventsClient() {
           )}
         </section>
       </div>
+
+      <Dialog onOpenChange={handleCreateOpenChange} open={isCreateOpen}>
+        <DialogContent className="rounded-2xl border-slate-200 sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-[#10233f]">Create a new event</DialogTitle>
+            <DialogDescription>
+              Give the event a name. You can add covers, folders, and photographer links after it&apos;s created.
+            </DialogDescription>
+          </DialogHeader>
+          <form className="space-y-4" onSubmit={handleCreateEvent}>
+            <input
+              autoFocus
+              className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3 text-sm outline-none transition focus:border-[#10233f] focus:bg-white focus:ring-2 focus:ring-[#10233f]/10"
+              onChange={(e) => setCreateName(e.target.value)}
+              placeholder="e.g. Homes.ph Brokers Gathering 2026"
+              value={createName}
+            />
+            <DialogFooter className="gap-2 sm:gap-2">
+              <button
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700"
+                disabled={isCreating}
+                onClick={() => handleCreateOpenChange(false)}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#10233f] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#1a3358] disabled:opacity-60"
+                disabled={isCreating || !createName.trim()}
+                type="submit"
+              >
+                <Plus className="h-4 w-4" />
+                {isCreating ? 'Creating…' : 'Create event'}
+              </button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <Dialog onOpenChange={(open) => !open && !isDeleting && setDeleteTarget(null)} open={!!deleteTarget}>
         <DialogContent className="rounded-2xl border-slate-200 sm:max-w-md">
