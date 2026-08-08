@@ -133,6 +133,9 @@ async function renderOutroContactPng(
 
 type OutroAgent = { name?: string; phone?: string; email?: string; agencyName?: string }
 
+/** Default hold for branded / YouTube outro plates (seconds). */
+export const BRANDED_OUTRO_DURATION_SEC = 8
+
 /**
  * Branded outro on the Homes.ph navy mascot plate:
  * logo (top) → circular agent photo → name / phone → QR (mascot stays in BG bottom-left).
@@ -146,7 +149,7 @@ export async function renderBrandedOutroScene(params: {
   ctaText?: string | null
   durationSeconds?: number
 }): Promise<RenderedListingScene> {
-  const duration = params.durationSeconds ?? 4.5
+  const duration = params.durationSeconds ?? BRANDED_OUTRO_DURATION_SEC
   const workDir = await mkdtemp(join(tmpdir(), 'reels-branded-outro-'))
   const outputPath = join(workDir, 'outro.mp4')
   const { width, height } = params.frame
@@ -272,7 +275,7 @@ export async function renderLogoOutroScene(params: {
     frame: params.frame,
     logoBuffer: params.logoBuffer,
     ctaText: params.ctaText,
-    durationSeconds: params.durationSeconds ?? 3.2,
+    durationSeconds: params.durationSeconds ?? BRANDED_OUTRO_DURATION_SEC,
   })
 }
 
@@ -292,7 +295,7 @@ export async function renderYoutubeOutroScene(params: {
   durationSeconds?: number
 }): Promise<RenderedListingScene> {
   const { existsSync } = await import('fs')
-  const duration = params.durationSeconds ?? 5
+  const duration = params.durationSeconds ?? BRANDED_OUTRO_DURATION_SEC
   const workDir = await mkdtemp(join(tmpdir(), 'reels-youtube-outro-'))
   const outputPath = join(workDir, 'outro.mp4')
   const { width, height } = params.frame
@@ -922,7 +925,7 @@ export async function renderBrandedEndCardScene(params: {
     logoBuffer: params.logoBuffer,
     qrBuffer: params.qrBuffer,
     ctaText: params.ctaText,
-    durationSeconds: params.durationSeconds ?? 4,
+    durationSeconds: params.durationSeconds ?? BRANDED_OUTRO_DURATION_SEC,
   })
 }
 
@@ -941,6 +944,6 @@ export async function renderAgentCardScene(params: {
     headshotBuffer: params.headshotBuffer,
     qrBuffer: params.qrBuffer,
     agent: params.agent,
-    durationSeconds: params.durationSeconds ?? 4.5,
+    durationSeconds: params.durationSeconds ?? BRANDED_OUTRO_DURATION_SEC,
   })
 }

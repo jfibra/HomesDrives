@@ -94,6 +94,13 @@ function parseBoolish(value: FormDataEntryValue | null | undefined): boolean | n
   return null
 }
 
+function parseOptionalSeconds(value: unknown): number | undefined {
+  if (value == null || value === '') return undefined
+  const n = typeof value === 'number' ? value : Number.parseFloat(String(value))
+  if (!Number.isFinite(n)) return undefined
+  return n
+}
+
 /** Prefer photos-only when partners ask to skip watermark on the branded outro. */
 function resolveLogoDisplay(params: {
   logoDisplay: ReelOverlayDisplay
@@ -178,6 +185,8 @@ export async function handleReelJobsPost(request: Request): Promise<Response> {
       subtitlesEnabled: body.subtitlesEnabled,
       outroEnabled: body.outroEnabled !== false,
       outroLine: body.outroLine,
+      outroDurationSeconds: parseOptionalSeconds(body.outroDurationSeconds),
+      outroPadSeconds: parseOptionalSeconds(body.outroPadSeconds),
       reelBrief: body.reelBrief,
       customCaption: body.customCaption,
       listingTitle: body.listingTitle,
@@ -725,6 +734,8 @@ export async function handleReelJobRender(jobId: string, request: Request): Prom
       subtitlesEnabled?: boolean
       outroEnabled?: boolean
       outroLine?: string
+      outroDurationSeconds?: number
+      outroPadSeconds?: number
       templateId?: string
       aspectRatio?: string
       outputFormat?: string
@@ -746,6 +757,8 @@ export async function handleReelJobRender(jobId: string, request: Request): Prom
       body.subtitlesEnabled !== undefined ||
       body.outroEnabled !== undefined ||
       body.outroLine !== undefined ||
+      body.outroDurationSeconds !== undefined ||
+      body.outroPadSeconds !== undefined ||
       body.templateId ||
       body.aspectRatio ||
       body.outputFormat ||
@@ -792,6 +805,14 @@ export async function handleReelJobRender(jobId: string, request: Request): Prom
         ...captionsPatch,
         outroEnabled: body.outroEnabled ?? job.outroEnabled ?? true,
         outroLine: body.outroLine ?? job.outroLine ?? '',
+        outroDurationSeconds:
+          body.outroDurationSeconds !== undefined
+            ? (parseOptionalSeconds(body.outroDurationSeconds) ?? null)
+            : job.outroDurationSeconds ?? null,
+        outroPadSeconds:
+          body.outroPadSeconds !== undefined
+            ? (parseOptionalSeconds(body.outroPadSeconds) ?? null)
+            : job.outroPadSeconds ?? null,
         templateId: (body.templateId as typeof job.templateId) ?? job.templateId,
         aspectRatio:
           outputFormat === 'youtube'

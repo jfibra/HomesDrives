@@ -10,14 +10,22 @@ import {
   probeMediaDuration,
   processMusicTrackForMix,
   processVoiceTrackForMix,
+  padVideoToDuration,
   runFfmpegAudio,
   extractVideoFramePng,
+  measureVoiceOverDuration,
+  VOICE_TAIL_PAD_SEC,
 } from '@/lib/reels-maker/audio-utils'
-import { measureVoiceOverDuration } from '@/lib/reels-maker/audio-utils'
 import { buildSceneBookendFilters, resolveSceneMotion, BLACK_LEADER_SEC, BLACK_TAIL_SEC } from '@/lib/reels-maker/ffmpeg-bookends'
 import { applyLogoOverlayToVideo } from '@/lib/reels-maker/ffmpeg-logo'
 import { applyQrOverlayToVideo } from '@/lib/reels-maker/ffmpeg-qr'
-import { scalePlanForVoiceDuration, enforceMinSceneDurations } from '@/lib/reels-maker/plan-timing'
+import {
+  scalePlanForVoiceDuration,
+  enforceMinSceneDurations,
+  computeOutroDurationForVoice,
+  resolveOutroHoldSeconds,
+  resolveOutroPadSeconds,
+} from '@/lib/reels-maker/plan-timing'
 import { downloadReelObject } from '@/lib/reels-maker/storage'
 import { buildListingDetailsFilters } from '@/lib/reels-maker/ffmpeg-text'
 import { buildColorGradeFilter } from '@/lib/reels-maker/ffmpeg-color-grade'
@@ -51,7 +59,7 @@ import type {
 } from '@/lib/reels-maker/types'
 
 /** Duration of the end window used for `display: "outro-only"` logo/QR overlays. */
-export const OUTRO_OVERLAY_DURATION_SEC = 4
+export const OUTRO_OVERLAY_DURATION_SEC = 8
 
 const execFileAsync = promisify(execFile)
 
@@ -502,22 +510,25 @@ async function muxAudio(
     voiceDuration = processed.duration
   }
 
-  // Always keep the full picture timeline. Scenes are already voice-aligned, then the
-  // branded / YouTube outro is appended AFTER that — trimming to voiceDuration used to
-  // chop the outro plate off the end while the job still completed successfully.
+  // Fit video to the full voiceover — never atrim VO to a shorter picture timeline.
+  // Scenes + outro should already cover VO; this is a safety net (freeze last frame).
   let finalDuration = actualVideoDuration
+  let muxVideoPath = videoPath
   if (processedVoicePath && voiceDuration > finalDuration + 0.05) {
-    const trimmedVoicePath = join(workDir, 'voice-trimmed.wav')
-    await runFfmpegAudio([
-      '-y',
-      '-i',
-      processedVoicePath,
-      '-af',
-      `atrim=0:${finalDuration.toFixed(3)},asetpts=PTS-STARTPTS`,
-      trimmedVoicePath,
-    ])
-    processedVoicePath = trimmedVoicePath
-    voiceDuration = finalDuration
+    const extendedPath = join(workDir, 'video-voice-padded.mp4')
+    const paddedDuration = await padVideoToDuration(muxVideoPath, extendedPath, voiceDuration)
+    if (paddedDuration > finalDuration + 0.02) {
+      muxVideoPath = extendedPath
+      finalDuration = paddedDuration
+      console.info(
+        `[reels-maker/mux] Extended video to ${finalDuration.toFixed(2)}s so full VO (${voiceDuration.toFixed(2)}s) is kept`,
+      )
+    } else {
+      console.warn(
+        `[reels-maker/mux] VO (${voiceDuration.toFixed(2)}s) longer than video (${actualVideoDuration.toFixed(2)}s) but pad failed — keeping full VO without atrim`,
+      )
+      finalDuration = Math.max(finalDuration, voiceDuration)
+    }
   }
 
   console.info(
@@ -531,13 +542,14 @@ async function muxAudio(
     await runFfmpegAudio([
       '-y',
       '-i',
-      videoPath,
+      muxVideoPath,
       '-i',
       musicProcessedPath,
       '-i',
       processedVoicePath,
       '-filter_complex',
-      '[1:a][2:a]amix=inputs=2:duration=first:dropout_transition=2[aout]',
+      '[1:a][2:a]amix=inputs=2:duration=longest:dropout_transition=2,atrim=0:' +
+        `${finalDuration.toFixed(3)},asetpts=PTS-STARTPTS[aout]`,
       '-map',
       '0:v',
       '-map',
@@ -558,7 +570,7 @@ async function muxAudio(
     await runFfmpegAudio([
       '-y',
       '-i',
-      videoPath,
+      muxVideoPath,
       '-i',
       processedVoicePath,
       '-map',
@@ -583,7 +595,7 @@ async function muxAudio(
     await runFfmpegAudio([
       '-y',
       '-i',
-      videoPath,
+      muxVideoPath,
       '-i',
       musicProcessedPath,
       '-map',
@@ -637,6 +649,10 @@ export async function renderReelWithFfmpeg(params: {
   listingDetails?: string | null
   outroCtaText?: string | null
   outroEnabled?: boolean
+  /** Minimum outro hold in seconds (clamped to ≥ 8). Extended automatically when VO needs more. */
+  outroDurationSeconds?: number | null
+  /** Hold the outro plate this many seconds after the last spoken word (default 3). */
+  outroPadSeconds?: number | null
   outputFormat?: 'reels' | 'youtube'
   cameraMotion?: 'cinematic' | 'subtle' | 'off'
   voiceOver?: Buffer | null
@@ -699,14 +715,26 @@ export async function renderReelWithFfmpeg(params: {
       ])
 
     let renderPlan = params.plan
+    let measuredVoiceDuration = 0
+    const outroEnabled = params.outroEnabled !== false
+    const minOutroHoldSec = resolveOutroHoldSeconds(params.outroDurationSeconds)
+    const outroPadSec = resolveOutroPadSeconds(params.outroPadSeconds)
+
     if (resolvedVoiceOver?.length) {
-      const voiceDuration = await measureVoiceOverDuration(resolvedVoiceOver)
-      if (voiceDuration > 0) {
-        // Leave room for the visual outro plate so VO is not stretched across tour-only
-        // frames and then the plate gets treated as "excess" video.
-        const outroReserveSec = params.outroEnabled === false ? 0 : isYoutube ? 4.5 : 4
-        const tourTarget = Math.max(voiceDuration - outroReserveSec, voiceDuration * 0.65)
-        renderPlan = scalePlanForVoiceDuration(params.plan, tourTarget)
+      measuredVoiceDuration = await measureVoiceOverDuration(resolvedVoiceOver)
+      if (measuredVoiceDuration > 0) {
+        // Timeline must cover processed VO (raw + mix tail pad). Last N seconds of speech
+        // stay on the outro plate (N ≥ 8); photo tour is scaled to the remaining VO only.
+        const voiceForTimeline = measuredVoiceDuration + VOICE_TAIL_PAD_SEC
+        if (outroEnabled) {
+          const tourTarget = Math.max(0.5, voiceForTimeline - minOutroHoldSec)
+          renderPlan = scalePlanForVoiceDuration(params.plan, tourTarget)
+          console.info(
+            `[reels-maker/render] VO=${measuredVoiceDuration.toFixed(2)}s timeline=${voiceForTimeline.toFixed(2)}s tourTarget=${tourTarget.toFixed(2)}s outroHold≥${minOutroHoldSec.toFixed(2)}s pad=${outroPadSec.toFixed(2)}s`,
+          )
+        } else {
+          renderPlan = scalePlanForVoiceDuration(params.plan, voiceForTimeline)
+        }
       }
     }
     renderPlan = enforceMinSceneDurations(renderPlan)
@@ -755,7 +783,6 @@ export async function renderReelWithFfmpeg(params: {
     const isListingShowcase = renderPlan.templateId === 'listing-showcase'
     let logoBuffer: Buffer | null = earlyLogoBuffer
     let qrBuffer: Buffer | null = null
-    const outroEnabled = params.outroEnabled !== false
 
     if (params.logo && !logoBuffer) {
       logoBuffer = await downloadReelObject(params.logo.bucketName, params.logo.storagePath)
@@ -798,6 +825,21 @@ export async function renderReelWithFfmpeg(params: {
     if (outroEnabled && hasOutroContent) {
       report(isYoutube ? 'Building YouTube outro…' : 'Building outro…', 85)
       try {
+        const voiceForTimeline =
+          measuredVoiceDuration > 0 ? measuredVoiceDuration + VOICE_TAIL_PAD_SEC : 0
+        const outroDurationSeconds =
+          voiceForTimeline > 0
+            ? computeOutroDurationForVoice({
+                tourClips: sceneClips.map((clip) => ({
+                  durationSeconds: clip.durationSeconds,
+                  transition: clip.transition,
+                })),
+                voiceDurationSeconds: voiceForTimeline,
+                minOutroSeconds: minOutroHoldSec,
+                padAfterVoiceSeconds: outroPadSec,
+              })
+            : minOutroHoldSec
+
         const outro = isYoutube
           ? await renderYoutubeOutroScene({
               frame,
@@ -814,6 +856,7 @@ export async function renderReelWithFfmpeg(params: {
                 [params.listing?.price, params.listing?.address].filter(Boolean).join('  ·  ') ||
                 params.outroCtaText ||
                 '',
+              durationSeconds: outroDurationSeconds,
             })
           : await renderBrandedOutroScene({
               frame,
@@ -824,6 +867,7 @@ export async function renderReelWithFfmpeg(params: {
               ctaText:
                 params.outroCtaText ||
                 (qrBuffer ? null : isListingShowcase ? 'Scan to view listing' : 'Discover more on Homes.ph'),
+              durationSeconds: outroDurationSeconds,
             })
         const outroPath = join(workDir, 'branded-outro.mp4')
         await writeFile(outroPath, outro.buffer)
@@ -841,7 +885,7 @@ export async function renderReelWithFfmpeg(params: {
           }
         }
         console.info(
-          `[reels-maker/render] Outro appended (${isYoutube ? 'youtube' : 'reels'}) duration=${outro.durationSeconds}s qr=${Boolean(qrBuffer)} logo=${Boolean(logoBuffer)}`,
+          `[reels-maker/render] Outro appended (${isYoutube ? 'youtube' : 'reels'}) duration=${outro.durationSeconds}s (min=${minOutroHoldSec}s) qr=${Boolean(qrBuffer)} logo=${Boolean(logoBuffer)}`,
         )
       } catch (outroError) {
         console.error('[reels-maker/render] Outro failed', outroError)

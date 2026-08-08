@@ -12,7 +12,7 @@ You do **not** need a new client protocol. Use the same 5-step workflow. Copy th
 
 ```
 1. Photo tour              — starts immediately (no intro card)
-2. Branded outro           — Reels (~4.5s) or YouTube landscape (~5s)
+2. Branded outro           — Reels / YouTube landscape (~8s)
 ```
 
 | Beat | What partners see | How to enable |
@@ -31,6 +31,7 @@ You do **not** need a new client protocol. Use the same 5-step workflow. Copy th
 | `qrPosition` / `qrDisplay` | Film grain + stronger grade |
 | `captionsEnabled: false` | Slanted lower-thirds |
 | `outroEnabled` + `outroLine` + agent fields | **Navy mascot branded outro** |
+| `outroDurationSeconds` / `outroPadSeconds` | Min outro hold (≥8) + hold after VO ends |
 | Listing fields (price, beds…) | Price **count-up** + feature chips (`listing-showcase`) |
 
 **Important for client apps:**
@@ -132,6 +133,8 @@ x-api-key: rk_xxx
 | `reelBrief` | string | No | Property description — improves AI story, scene order, and voiceover |
 | `outroEnabled` | boolean | No | Default `true`. **Reels:** builds the portrait mascot outro when logo/QR/agent content is present. **YouTube (`outputFormat: "youtube"`):** always builds the landscape plate (title/details/QR/logo composited). Also drives the spoken VO CTA when voiceover is on. |
 | `outroLine` | string | No | Spoken / optional CTA line (e.g. `"Scan for listing details"`). Visual logo/QR/agent layout does **not** require this string — upload assets instead. |
+| `outroDurationSeconds` | number | No | Minimum outro hold in seconds (**≥ 8**). If the spoken CTA/price/phone needs longer, the server **extends** the plate automatically so VO is never cut off. |
+| `outroPadSeconds` | number | No | Extra hold on the outro **after** the last spoken word (default **3s**). |
 | `agentName` | string | No | White name line on the branded outro (any template). |
 | `agentPhone` | string | No | White phone line on the branded outro (any template). |
 | `agentEmail` | string | No | Optional secondary line on the outro. |
@@ -399,6 +402,7 @@ Optional body to override settings before rendering:
 | `captionsEnabled` / `subtitlesEnabled` | Prefer `false`. Voiceover still plays; short bottom **titles** still appear. Karaoke subtitles are never burned into the MP4. |
 | `voiceGender` | `"woman"` (default) or `"man"`. Also accepts `"female"` / `"male"`. Override narrator voice at render time. |
 | `outroEnabled` / `outroLine` | Spoken CTA + whether the branded mascot outro is built. |
+| `outroDurationSeconds` / `outroPadSeconds` | Min outro hold (≥8; auto-extends for long VO) + hold after last word. |
 | `agentName` / `agentPhone` / `agentEmail` / `agentAgencyName` | **Required for name/phone on the outro.** Works on **any** template (`social-trend`, `luxury`, `listing-showcase`, …). Send on **create and/or render**. |
 
 **Response `200`:** `{ "jobId": "...", "started": true }`
@@ -424,7 +428,7 @@ Typical time: **~1–3 minutes** after these speed defaults (was often 5–10 on
 | **Logo watermark** | Photo tour when `logoDisplay` is `always` or `photos-only`: **~50% frame width** logo on a **full-width soft black bar** (~12% opacity), fixed after camera moves. **Never stacks on the branded outro** — outro plate keeps a single top wordmark from uploaded `logo`. |
 | **Lower-third logos** | Left navy tab = `accentLogo` if uploaded, otherwise `logo`. **`accentLogo` is lower-third only** (not on the outro). |
 | **QR watermark** | Prefer `outro-only` so QR appears on the branded outro only. |
-| **Branded outro** | When `outroEnabled` + branding/agent/QR: navy mascot plate → logo → circular agent photo → name/phone → QR (~4.5s). Static plate (no Ken Burns). **Official end card** — do not append a fake last photo as an end card. |
+| **Branded outro** | When `outroEnabled` + branding/agent/QR: navy mascot plate → logo → circular agent photo → name/phone → QR (~8s). Static plate (no Ken Burns). **Official end card** — do not append a fake last photo as an end card. |
 | **Listing price** | `listing-showcase` + `listingPrice` → **count-up**, then address + beds/baths/sqft **chips**. |
 | **Social caption** | Job `caption` / hashtags in the API response are for posting copy — not burned into the video. |
 
@@ -498,7 +502,7 @@ Tour watermark (if `logoDisplay=always` / `photos-only`) is **masked off** outro
 
 If the outro fails after deploy, the job will **error** (not silently skip) with a clear message (e.g. missing plate asset on the EC2 host).
 
-**Duration note:** Photo scenes are timed to the voice-over, then the YouTube plate (~5s) is **appended**. Final MP4 length is photo tour + outro (voice may end slightly before the plate finishes). Older builds incorrectly trimmed the file back to voice length and dropped the plate while still returning `completed` — that is fixed; re-render after deploy.
+**Duration note:** After TTS is generated, the server **measures the full voiceover**. Photo scenes are scaled to the VO that plays during the tour; the **last ≥ 8 seconds** of speech stay on the branded/YouTube outro plate. If the spoken price/phone/CTA needs more than 8s, the outro is **lengthened** so `finalVideoDuration ≥ fullVoiceDuration + 3s` (plate hold after the last word). The mux step **never** trims VO short to match a shorter picture timeline. Older builds incorrectly `atrim`'d voice to video length and cut numbers mid-phrase — that is fixed; re-render after deploy.
 
 **Create body (YouTube):**
 
@@ -543,7 +547,7 @@ Upload **native** property photos (portrait or landscape). Do **not** pre-pad wi
 **Timeline for YouTube jobs:**
 
 1. Photo tour (16:9) — subtle/off camera + **left/right slide transitions** + lower-thirds + optional top watermark  
-2. YouTube outro (~5s) — clean navy+mascot plate → logo top-left → title/details → QR right  
+2. YouTube outro (~8s) — clean navy+mascot plate → logo top-left → title/details → QR right  
 
 **Copy-paste create body for a full portrait (Reels) outro:**
 
@@ -756,7 +760,7 @@ The server treats every reel as a **luxury motion edit**, not a slideshow:
 | **Transitions** | Soft cinematic blends: dissolve, smooth L/R, slide, wipe-up (matched to pan direction) |
 | **Grade** | Stronger template looks + subtle film grain |
 | **Type** | Slanted lower-third (logo tab / white title / blue subtitle), slow left→right reveal |
-| **Outro** | Navy mascot plate → logo → agent photo → name/phone → QR (~4.5s) when `outroEnabled` |
+| **Outro** | Navy mascot plate → logo → agent photo → name/phone → QR (~8s) when `outroEnabled` |
 
 **Phase 2 (roadmap, not available yet):** AI depth/parallax, Remotion-grade motion graphics, true BPM beat sync, 60fps GPU encode.
 

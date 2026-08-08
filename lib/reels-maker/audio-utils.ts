@@ -7,10 +7,11 @@ import { buildReelH264OutputArgs } from '@/lib/reels-maker/render-quality'
 const execFileAsync = promisify(execFile)
 
 export const VOICE_FADE_IN_SEC = 0.4
-export const VOICE_FADE_OUT_SEC = 0.85
+/** Keep fade short so prices/phone digits at the end stay intelligible. */
+export const VOICE_FADE_OUT_SEC = 0.35
 export const VOICE_TAIL_PAD_SEC = 0.25
-/** Brief music-only tail after narration ends before the reel cuts. */
-export const REEL_END_PAD_SEC = 0.45
+/** Brief music-only / plate hold after narration ends before the reel cuts. */
+export const REEL_END_PAD_SEC = 3
 
 export async function resolveFfmpegBinary() {
   if (process.env.FFMPEG_PATH) return process.env.FFMPEG_PATH

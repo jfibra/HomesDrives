@@ -162,6 +162,13 @@ export type ReelJob = {
   captionsEnabled: boolean
   outroEnabled: boolean
   outroLine: string
+  /**
+   * Minimum outro hold in seconds (≥ 8). When VO (price/phone CTA) needs more time,
+   * the server extends the plate automatically so speech is never truncated.
+   */
+  outroDurationSeconds: number | null
+  /** Hold the outro plate this many seconds after the last spoken word (default 3). */
+  outroPadSeconds: number | null
   reelBrief: string
   /** YouTube outro primary line (falls back to listingAddress / plan title). */
   listingTitle: string
@@ -235,6 +242,10 @@ export type CreateReelJobInput = {
   subtitlesEnabled?: boolean
   outroEnabled?: boolean
   outroLine?: string
+  /** Minimum outro hold in seconds (clamped to ≥ 8). Extended automatically when VO needs more. */
+  outroDurationSeconds?: number
+  /** Seconds to hold the outro after VO ends (default 3). */
+  outroPadSeconds?: number
   reelBrief?: string
   customCaption?: string
   listingTitle?: string

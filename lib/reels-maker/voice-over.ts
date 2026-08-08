@@ -13,7 +13,7 @@ const execFileAsync = promisify(execFile)
 
 const WORDS_PER_SECOND = 2.6
 const VOICE_BOOKEND_SEC = 1.2
-const OUTRO_SEC_BUDGET = 2.2
+const OUTRO_SEC_BUDGET = 8
 /** Spoken words for main narration per photo (outro is reserved separately). */
 const MAIN_WORDS_PER_SCENE = 4
 const MAX_WORDS_PER_LINE = 5

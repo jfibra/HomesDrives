@@ -87,6 +87,14 @@ export function startReelJob(input: CreateReelJobInput): ReelJob {
     captionsEnabled: resolveCaptionsEnabled(input),
     outroEnabled: input.outroEnabled !== false,
     outroLine: input.outroLine?.trim() || '',
+    outroDurationSeconds:
+      input.outroDurationSeconds != null && Number.isFinite(Number(input.outroDurationSeconds))
+        ? Number(input.outroDurationSeconds)
+        : null,
+    outroPadSeconds:
+      input.outroPadSeconds != null && Number.isFinite(Number(input.outroPadSeconds))
+        ? Number(input.outroPadSeconds)
+        : null,
     reelBrief: input.reelBrief?.trim() || '',
     listingTitle: input.listingTitle?.trim() || '',
     listingTitleColor: normalizeListingTitleColor(input.listingTitleColor),
@@ -399,6 +407,8 @@ async function processReelJob(jobId: string) {
         undefined,
       outroCtaText: job.outroLine || undefined,
       outroEnabled: job.outroEnabled !== false,
+      outroDurationSeconds: job.outroDurationSeconds,
+      outroPadSeconds: job.outroPadSeconds,
       voiceOverPromise,
       onProgress: (message, progress) => {
         setReelJobStatus(jobId, 'rendering', message, progress)
